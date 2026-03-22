@@ -354,7 +354,7 @@
         "Callback uses exponential backoff (max 5 attempts)",
         "Non-zero exit if callback fails after all retries"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "devbox-5",

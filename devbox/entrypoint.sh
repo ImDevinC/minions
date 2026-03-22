@@ -271,7 +271,13 @@ _Automated PR by Minion `\($minion_id)`_
     echo "${pr_url}"
 }
 
-# Send callback to orchestrator
+# Callback retry configuration
+CALLBACK_MAX_RETRIES=5
+CALLBACK_INITIAL_BACKOFF=1  # seconds
+CALLBACK_MAX_BACKOFF=60     # seconds
+
+# Send callback to orchestrator with exponential backoff retry
+# On failure after all retries, returns non-zero
 send_callback() {
     local status="$1"
     local pr_url="${2:-}"
@@ -292,24 +298,43 @@ send_callback() {
         } + (if $pr_url != "" then {pr_url: $pr_url} else {} end)
           + (if $error != "" then {error: $error} else {} end)')
 
-    local http_code
-    http_code=$(curl -sf -X POST "${callback_url}" \
-        -H "Content-Type: application/json" \
-        -H "Authorization: Bearer ${INTERNAL_API_TOKEN:-}" \
-        -d "$payload" \
-        -w "%{http_code}" \
-        -o /dev/null) || {
-        log "Callback failed: HTTP ${http_code}"
-        return 1
-    }
+    local attempt=1
+    local backoff=$CALLBACK_INITIAL_BACKOFF
 
-    if [[ "$http_code" -ge 200 && "$http_code" -lt 300 ]]; then
-        log "Callback sent successfully"
-        return 0
-    else
+    while [[ $attempt -le $CALLBACK_MAX_RETRIES ]]; do
+        log "Callback attempt ${attempt}/${CALLBACK_MAX_RETRIES}"
+
+        local http_code
+        # Capture both curl exit code and HTTP status
+        http_code=$(curl -s -X POST "${callback_url}" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${INTERNAL_API_TOKEN:-}" \
+            -d "$payload" \
+            -w "%{http_code}" \
+            -o /dev/null 2>/dev/null) || http_code="000"
+
+        if [[ "$http_code" -ge 200 && "$http_code" -lt 300 ]]; then
+            log "Callback sent successfully"
+            return 0
+        fi
+
         log "Callback failed: HTTP ${http_code}"
-        return 1
-    fi
+
+        if [[ $attempt -lt $CALLBACK_MAX_RETRIES ]]; then
+            log "Retrying in ${backoff}s..."
+            sleep "$backoff"
+            # Exponential backoff with cap
+            backoff=$((backoff * 2))
+            if [[ $backoff -gt $CALLBACK_MAX_BACKOFF ]]; then
+                backoff=$CALLBACK_MAX_BACKOFF
+            fi
+        fi
+
+        attempt=$((attempt + 1))
+    done
+
+    log "Callback failed after ${CALLBACK_MAX_RETRIES} attempts"
+    return 1
 }
 
 # Main execution
@@ -329,23 +354,35 @@ main() {
         local pr_url
         if pr_url=$(create_pr); then
             log "PR created successfully"
-            send_callback "completed" "$pr_url"
+            if ! send_callback "completed" "$pr_url"; then
+                log "FATAL: Failed to notify orchestrator after ${CALLBACK_MAX_RETRIES} attempts"
+                exit 1
+            fi
         else
             # No changes or PR creation failed
             # create_pr returns 1 for "no changes", other codes for errors
             if ! has_changes; then
                 log "No changes to commit - task completed with no modifications"
                 # Note: devbox-5 will handle this case with a proper "no changes" status
-                send_callback "completed" "" "No changes"
+                if ! send_callback "completed" "" "No changes"; then
+                    log "FATAL: Failed to notify orchestrator after ${CALLBACK_MAX_RETRIES} attempts"
+                    exit 1
+                fi
             else
                 log "PR creation failed"
-                send_callback "failed" "" "PR creation failed"
+                if ! send_callback "failed" "" "PR creation failed"; then
+                    log "FATAL: Failed to notify orchestrator after ${CALLBACK_MAX_RETRIES} attempts"
+                    exit 1
+                fi
                 exit 1
             fi
         fi
     else
         log "Task failed"
-        send_callback "failed" "" "Task execution failed"
+        if ! send_callback "failed" "" "Task execution failed"; then
+            log "FATAL: Failed to notify orchestrator after ${CALLBACK_MAX_RETRIES} attempts"
+            exit 1
+        fi
         exit 1
     fi
 }

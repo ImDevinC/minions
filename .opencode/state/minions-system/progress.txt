@@ -291,3 +291,13 @@ Started: 2026-03-21
 - Added `INTERNAL_API_TOKEN` to required env vars in entrypoint.sh
 - Files: `devbox/entrypoint.sh`, `orchestrator/internal/k8s/pods.go`, `orchestrator/internal/k8s/pods_test.go`
 - **Learnings:** gh CLI uses GITHUB_TOKEN env var automatically for auth; jq's `--arg` is great for safe JSON construction without shell escaping issues
+
+## Task - devbox-4
+- Implemented callback retry with exponential backoff in `devbox/entrypoint.sh`
+- Constants: `CALLBACK_MAX_RETRIES=5`, `CALLBACK_INITIAL_BACKOFF=1`, `CALLBACK_MAX_BACKOFF=60`
+- Backoff doubles each retry (1s → 2s → 4s → 8s → 16s), capped at 60s
+- Curl captures HTTP status reliably, falls back to "000" on network failure
+- All `send_callback` calls in `main()` now check return value, exit 1 on failure
+- Non-zero exit ensures k8s marks pod as Failed, visible in orchestrator reconciliation
+- Files: `devbox/entrypoint.sh`
+- **Learnings:** Use `http_code=$(curl ... || http_code="000"` pattern to handle both curl errors and HTTP status; main function must explicitly check all callback returns since set -e doesn't apply to command substitutions
