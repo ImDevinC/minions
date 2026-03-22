@@ -246,3 +246,14 @@ Started: 2026-03-21
 - Added `TODO: Add --force flag support` comment for future enhancement
 - Files: `internal/db/minions.go`, `internal/db/minions_test.go`, `internal/api/minions.go`
 - **Learnings:** `pg_advisory_xact_lock` (vs `pg_advisory_lock`) is transaction-scoped, auto-releases on commit/rollback; SHA-256 truncated to int64 provides sufficient collision resistance for advisory locks
+
+## Task - shutdown-1
+- Verified graceful shutdown already implemented in `cmd/orchestrator/main.go`
+- SIGTERM/SIGINT handlers: lines 127-129 via `signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)`
+- Stops accepting new requests: `srv.Shutdown()` call at line 144
+- 30s timeout for in-flight requests: `context.WithTimeout(context.Background(), 30*time.Second)` at lines 141-142
+- Database pool closed: `defer pool.Close()` at line 61 (runs after Shutdown returns)
+- Running minions continue in pods: no pod termination logic on shutdown (pods are independent)
+- Also stops watchdog and WebSocket hub gracefully before HTTP server shutdown
+- No code changes needed; marked as passed
+- **Learnings:** Graceful shutdown was built incrementally as orchestrator features were added (hub, watchdog); important to stop background goroutines BEFORE HTTP server to prevent race conditions

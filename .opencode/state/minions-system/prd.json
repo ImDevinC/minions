@@ -304,7 +304,7 @@
         "Closes database connection pool",
         "Running minions continue in their pods"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "devbox-1",
