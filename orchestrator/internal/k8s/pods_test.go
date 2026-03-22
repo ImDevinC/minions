@@ -288,3 +288,92 @@ func TestErrRetriesExhausted(t *testing.T) {
 		t.Error("expected errors.Is to match ErrRetriesExhausted")
 	}
 }
+
+func TestPodTimeoutConstants(t *testing.T) {
+	// Verify timeout configuration values
+	if PodReadyTimeout != 5*time.Minute {
+		t.Errorf("expected PodReadyTimeout=5m, got %v", PodReadyTimeout)
+	}
+	if PodPollInterval != 2*time.Second {
+		t.Errorf("expected PodPollInterval=2s, got %v", PodPollInterval)
+	}
+}
+
+func TestErrPodTimeout(t *testing.T) {
+	// Verify error wrapping works correctly
+	wrapped := fmt.Errorf("pod failed: %w", ErrPodTimeout)
+	if !errors.Is(wrapped, ErrPodTimeout) {
+		t.Error("expected errors.Is to match ErrPodTimeout")
+	}
+}
+
+func TestNoOpPodManager_WaitForPodReady(t *testing.T) {
+	mgr := NewNoOpPodManager(nil)
+
+	// NoOp implementation should succeed immediately
+	err := mgr.WaitForPodReady(context.Background(), "test-pod")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestIsPodReady(t *testing.T) {
+	tests := []struct {
+		name     string
+		pod      *corev1.Pod
+		expected bool
+	}{
+		{
+			name: "pod ready condition true",
+			pod: &corev1.Pod{
+				Status: corev1.PodStatus{
+					Conditions: []corev1.PodCondition{
+						{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "pod ready condition false",
+			pod: &corev1.Pod{
+				Status: corev1.PodStatus{
+					Conditions: []corev1.PodCondition{
+						{Type: corev1.PodReady, Status: corev1.ConditionFalse},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "no conditions",
+			pod: &corev1.Pod{
+				Status: corev1.PodStatus{
+					Conditions: []corev1.PodCondition{},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "only other conditions",
+			pod: &corev1.Pod{
+				Status: corev1.PodStatus{
+					Conditions: []corev1.PodCondition{
+						{Type: corev1.PodInitialized, Status: corev1.ConditionTrue},
+						{Type: corev1.ContainersReady, Status: corev1.ConditionTrue},
+					},
+				},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isPodReady(tt.pod)
+			if got != tt.expected {
+				t.Errorf("isPodReady() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}

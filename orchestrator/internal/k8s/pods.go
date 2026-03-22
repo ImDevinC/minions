@@ -33,6 +33,17 @@ const (
 // ErrRetriesExhausted is returned when all pod creation retries have failed.
 var ErrRetriesExhausted = errors.New("pod creation failed after all retries")
 
+// ErrPodTimeout is returned when a pod does not become ready within the timeout.
+var ErrPodTimeout = errors.New("pod creation timeout: pod did not become ready within deadline")
+
+// Pod readiness timeout configuration.
+const (
+	// PodReadyTimeout is the maximum time to wait for a pod to become ready.
+	PodReadyTimeout = 5 * time.Minute
+	// PodPollInterval is how often to check pod status while waiting.
+	PodPollInterval = 2 * time.Second
+)
+
 // PodTerminator handles pod lifecycle termination.
 // Implementations may use the real Kubernetes client or be a no-op for testing.
 type PodTerminator interface {
@@ -50,6 +61,10 @@ type PodSpawner interface {
 	// SpawnPodWithRetry creates a pod with exponential backoff retry.
 	// Retries up to MaxRetries times before returning ErrRetriesExhausted.
 	SpawnPodWithRetry(ctx context.Context, params SpawnParams) (podName string, err error)
+
+	// WaitForPodReady waits up to PodReadyTimeout for a pod to become ready.
+	// If the timeout is exceeded, the pod is deleted and ErrPodTimeout is returned.
+	WaitForPodReady(ctx context.Context, podName string) error
 }
 
 // SpawnParams contains parameters for spawning a minion pod.
@@ -253,6 +268,94 @@ func (c *Client) SpawnPodWithRetry(ctx context.Context, params SpawnParams) (str
 	return "", fmt.Errorf("%w: %v", ErrRetriesExhausted, lastErr)
 }
 
+// WaitForPodReady waits up to PodReadyTimeout for a pod to become ready.
+// If the timeout is exceeded, the pod is deleted and ErrPodTimeout is returned.
+// A pod is considered ready when it has a Running phase and all containers
+// have the Ready condition set to true.
+func (c *Client) WaitForPodReady(ctx context.Context, podName string) error {
+	// Create a timeout context if not already bounded
+	timeoutCtx, cancel := context.WithTimeout(ctx, PodReadyTimeout)
+	defer cancel()
+
+	c.logger.Info("waiting for pod to become ready",
+		"pod_name", podName,
+		"timeout", PodReadyTimeout,
+	)
+
+	ticker := time.NewTicker(PodPollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-timeoutCtx.Done():
+			// Timeout exceeded, delete the pod
+			c.logger.Error("pod creation timeout exceeded, deleting pod",
+				"pod_name", podName,
+				"timeout", PodReadyTimeout,
+			)
+			// Best-effort deletion, ignore errors
+			_ = c.TerminatePod(context.Background(), podName)
+			return ErrPodTimeout
+
+		case <-ticker.C:
+			pod, err := c.clientset.CoreV1().Pods(Namespace).Get(timeoutCtx, podName, metav1.GetOptions{})
+			if err != nil {
+				c.logger.Warn("failed to get pod status",
+					"pod_name", podName,
+					"error", err,
+				)
+				continue
+			}
+
+			// Check pod phase
+			switch pod.Status.Phase {
+			case corev1.PodRunning:
+				// Check if all containers are ready
+				if isPodReady(pod) {
+					c.logger.Info("pod is ready",
+						"pod_name", podName,
+					)
+					return nil
+				}
+				c.logger.Debug("pod is running but not all containers ready",
+					"pod_name", podName,
+				)
+
+			case corev1.PodFailed, corev1.PodSucceeded:
+				// Pod terminated before becoming ready
+				c.logger.Error("pod terminated unexpectedly",
+					"pod_name", podName,
+					"phase", pod.Status.Phase,
+					"reason", pod.Status.Reason,
+				)
+				return fmt.Errorf("pod terminated with phase %s: %s", pod.Status.Phase, pod.Status.Reason)
+
+			case corev1.PodPending:
+				// Still waiting for scheduling/image pull
+				c.logger.Debug("pod still pending",
+					"pod_name", podName,
+				)
+
+			default:
+				c.logger.Debug("pod in unknown phase",
+					"pod_name", podName,
+					"phase", pod.Status.Phase,
+				)
+			}
+		}
+	}
+}
+
+// isPodReady checks if all containers in the pod have the Ready condition.
+func isPodReady(pod *corev1.Pod) bool {
+	for _, cond := range pod.Status.Conditions {
+		if cond.Type == corev1.PodReady && cond.Status == corev1.ConditionTrue {
+			return true
+		}
+	}
+	return false
+}
+
 // buildEnvVars constructs environment variables for the devbox container.
 func (c *Client) buildEnvVars(params SpawnParams) []corev1.EnvVar {
 	envs := []corev1.EnvVar{
@@ -338,6 +441,15 @@ func (m *NoOpPodManager) SpawnPod(ctx context.Context, params SpawnParams) (stri
 // No-op implementation always succeeds on first attempt.
 func (m *NoOpPodManager) SpawnPodWithRetry(ctx context.Context, params SpawnParams) (string, error) {
 	return m.SpawnPod(ctx, params)
+}
+
+// WaitForPodReady logs the wait request and returns immediately.
+// No-op implementation simulates instant readiness.
+func (m *NoOpPodManager) WaitForPodReady(ctx context.Context, podName string) error {
+	if m.logger != nil {
+		m.logger.Info("no-op pod ready wait (k8s not configured)", "pod_name", podName)
+	}
+	return nil
 }
 
 // TerminatePod logs the termination request but does nothing.

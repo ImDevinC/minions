@@ -202,7 +202,7 @@
         "If timeout exceeded, pod is deleted",
         "Minion marked as failed with timeout error"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "k8s-4",

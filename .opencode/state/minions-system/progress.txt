@@ -150,3 +150,13 @@ Started: 2026-03-21
 - Comprehensive test coverage: success on first attempt, success after retries, exhausted retries, context cancellation
 - Files: `internal/k8s/pods.go`, `internal/k8s/pods_test.go`
 - **Learnings:** Use `errors.Is()` with sentinel errors for retry exhaustion detection; exponential backoff with cap prevents runaway delays
+
+## Task - k8s-3
+- Implemented `WaitForPodReady` method with 5-minute timeout (`PodReadyTimeout`)
+- Polls pod status every 2 seconds (`PodPollInterval`)
+- On timeout: deletes pod, returns `ErrPodTimeout` sentinel error
+- Added `isPodReady` helper that checks for `PodReady` condition with `ConditionTrue`
+- Handles unexpected pod termination (Failed/Succeeded phases) with descriptive error
+- Updated `PodSpawner` interface, `NoOpPodManager` to include new method
+- Files: `internal/k8s/pods.go`, `internal/k8s/pods_test.go`
+- **Learnings:** Pod readiness uses the PodReady condition type, not just phase; ticker-based polling with context timeout is idiomatic for k8s watches without informers
