@@ -540,7 +540,7 @@
         "Role with pod create/delete/get/list/watch permissions",
         "RoleBinding connecting SA to Role"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "infra-2",

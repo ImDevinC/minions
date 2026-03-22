@@ -478,3 +478,14 @@ Started: 2026-03-21
 - Terminal status check: no WebSocket connection for completed/failed/terminated minions
 - Files: `src/hooks/use-minion-events.ts` (new), `src/app/api/ws-config/route.ts` (new), `src/app/api/minions/[id]/events/route.ts` (new), `src/lib/orchestrator.ts`, `src/components/minion-detail-client.tsx`, `orchestrator/internal/db/events.go`, `orchestrator/internal/api/minions.go`, `orchestrator/internal/api/router.go`, `orchestrator/internal/api/middleware.go`
 - **Learnings:** WebSocket auth via query param is necessary for browser clients; use refs for values that need to persist across reconnection attempts; always deduplicate by ID when merging event streams
+
+## Task - infra-1
+- Created `infra/namespace.yaml` with minions namespace
+- Pod Security Standards: enforce=baseline, warn=restricted
+- Created `infra/rbac.yaml` with ServiceAccount, Role, RoleBinding
+- ServiceAccount: `minions-orchestrator` (used by orchestrator deployment)
+- Role: `minions-pod-manager` with pods verbs: create, delete, get, list, watch + pods/log: get
+- RoleBinding: connects SA to Role
+- All manifests validated with `kubectl apply --dry-run=client`
+- Files: `infra/namespace.yaml` (new), `infra/rbac.yaml` (new)
+- **Learnings:** Pod Security Standards baseline is enforced at namespace level; warn=restricted helps catch stricter violations early

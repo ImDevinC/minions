@@ -1,0 +1,37 @@
+# RBAC for orchestrator: allows managing minion pods
+# ServiceAccount used by orchestrator Deployment (see orchestrator.yaml)
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: minions-orchestrator
+  namespace: minions
+---
+# Role grants pod management permissions within the minions namespace
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: minions-pod-manager
+  namespace: minions
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "delete", "get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+# Binds the Role to the ServiceAccount
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: minions-orchestrator-binding
+  namespace: minions
+subjects:
+  - kind: ServiceAccount
+    name: minions-orchestrator
+    namespace: minions
+roleRef:
+  kind: Role
+  name: minions-pod-manager
+  apiGroup: rbac.authorization.k8s.io
