@@ -22,7 +22,7 @@
         "Verify status enum or check constraint: pending, awaiting_clarification, running, completed, failed, terminated",
         "Verify foreign key to users table"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "db-3",

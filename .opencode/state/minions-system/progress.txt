@@ -15,3 +15,10 @@ Started: 2026-03-21
 - Columns: id (UUID PK), discord_id (TEXT UNIQUE NOT NULL), discord_username (TEXT NOT NULL), avatar_url (TEXT nullable), created_at, updated_at
 - Verified against postgres:16-alpine in docker
 - **Learnings:** gen_random_uuid() is built into PG 13+, no extension needed
+
+## Task - db-2
+- Created `schema/migrations/002_create_minions_table.sql`
+- Full lifecycle tracking: status (CHECK constraint), clarification flow, token tracking, cost, PR/error, pod/session, Discord context
+- Status constraint uses CHECK vs ENUM for easier future additions
+- FK to users(id) with CASCADE delete, indexed for joins
+- **Learnings:** CHECK constraint > ENUM for evolving status lists, no migration needed to add values
