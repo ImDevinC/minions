@@ -230,7 +230,7 @@
         "If ghinstallation returns 401/403, mark minion as failed with 'GitHub access revoked' error",
         "Log token refresh failures with repo context"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "streaming-1",

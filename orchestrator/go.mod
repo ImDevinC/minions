@@ -3,7 +3,9 @@ module github.com/anomalyco/minions/orchestrator
 go 1.25.0
 
 require (
+	github.com/bradleyfalzon/ghinstallation/v2 v2.18.0
 	github.com/go-chi/chi/v5 v5.2.5
+	github.com/google/go-github/v84 v84.0.0
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.9.0
 	k8s.io/api v0.35.3
@@ -19,7 +21,9 @@ require (
 	github.com/go-openapi/jsonpointer v0.21.0 // indirect
 	github.com/go-openapi/jsonreference v0.20.2 // indirect
 	github.com/go-openapi/swag v0.23.0 // indirect
+	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
 	github.com/google/gnostic-models v0.7.0 // indirect
+	github.com/google/go-querystring v1.2.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect

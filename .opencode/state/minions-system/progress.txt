@@ -172,3 +172,14 @@ Started: 2026-03-21
 - Comprehensive test coverage: 10 test cases covering all scenarios
 - Files: `internal/reconciler/reconciler.go` (new), `internal/reconciler/reconciler_test.go` (new), `internal/db/minions.go`, `internal/k8s/pods.go`, `cmd/orchestrator/main.go`
 - **Learnings:** Reconciliation should be fail-fast (error on list failures) but graceful on individual item failures (continue processing others)
+
+## Task - github-1
+- Created `internal/github/tokens.go` with TokenManager interface and Manager implementation
+- Uses `github.com/bradleyfalzon/ghinstallation/v2` for GitHub App authentication
+- Manager caches installation transports per installation ID; ghinstallation handles auto-refresh internally (1 min before expiry)
+- `GetToken(ctx, repo)` parses "owner/repo", looks up installation via `Apps.FindUserInstallation`, then calls `transport.Token(ctx)`
+- 401/403 errors detected via `isAccessRevokedError()` and wrapped with `ErrAccessRevoked` sentinel
+- Logging: token refresh failures logged with repo context via slog
+- NoOpTokenManager for testing/non-GitHub environments
+- Files: `internal/github/tokens.go` (new), `internal/github/tokens_test.go` (new), `go.mod`, `go.sum`
+- **Learnings:** ghinstallation handles token caching and refresh automatically; use `Apps.FindUserInstallation` to find installation ID from owner (works for both users and orgs)
