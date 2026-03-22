@@ -56,7 +56,7 @@
         "GET /health returns { status: \"ok\" }",
         "Structured logging via log/slog configured"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "orchestrator-2",

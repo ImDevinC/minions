@@ -6,6 +6,8 @@ Started: 2026-03-21
 - Migrations: `schema/migrations/NNN_description.sql` - raw SQL, no ORM
 - UUID PKs with `gen_random_uuid()` default
 - Timestamps: `TIMESTAMPTZ NOT NULL DEFAULT NOW()` for created_at/updated_at
+- Go services: chi router, JSON handlers, slog for structured logging
+- Router setup in `internal/api/router.go`, entry point in `cmd/<service>/main.go`
 
 ---
 <!-- Task logs below - APPEND ONLY -->
@@ -35,3 +37,10 @@ Started: 2026-03-21
 - Indexes: status (filter), (status, last_activity_at) (watchdog), clarification_message_id (reply lookup)
 - Used partial index for clarification_message_id (WHERE NOT NULL) to save space
 - **Learnings:** Partial indexes exclude NULL values by default, reducing index size for sparse columns
+
+## Task - orchestrator-1
+- Created `orchestrator/` Go module with chi router v5
+- `cmd/orchestrator/main.go`: entry point, graceful shutdown, slog JSON logging
+- `internal/api/router.go`: chi router setup, /health endpoint, request logging middleware
+- GET /health returns `{"status":"ok"}` (verified)
+- **Learnings:** chi's middleware.NewWrapResponseWriter captures status/bytes for logging; use _ = for ignored encoder errors to satisfy errcheck
