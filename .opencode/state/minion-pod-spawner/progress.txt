@@ -68,3 +68,12 @@ Started: 2026-03-22
 - Verified error handling flow: token fail -> mark failed -> continue; pod fail -> mark failed -> continue; readiness timeout -> mark failed -> continue
 - Files changed: `orchestrator/internal/spawner/spawner.go` (lines 6, 13, 241-265)
 - **Learnings:** For concurrent spawns, the "loser" should gracefully bow out rather than treat it as an error. The duplicate pod will be cleaned up by watchdog.
+
+## Task - integration-0
+- Added GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY env var loading with validation
+- Parse app ID to int64 with error handling
+- Initialize github.Manager with config struct
+- Structured logging on success and failure
+- Token manager created and ready for spawner injection (marked unused with TODO for integration-2)
+- Files changed: `orchestrator/cmd/orchestrator/main.go` (lines 63-83, 109-119)
+- **Learnings:** Env var pattern: load string, validate non-empty, parse if needed, exit on error with logger.Error

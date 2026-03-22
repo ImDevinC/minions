@@ -7,11 +7,13 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/anomalyco/minions/orchestrator/internal/api"
 	"github.com/anomalyco/minions/orchestrator/internal/db"
+	"github.com/anomalyco/minions/orchestrator/internal/github"
 	"github.com/anomalyco/minions/orchestrator/internal/k8s"
 	"github.com/anomalyco/minions/orchestrator/internal/reconciler"
 	"github.com/anomalyco/minions/orchestrator/internal/streaming"
@@ -60,6 +62,25 @@ func main() {
 		os.Exit(1)
 	}
 
+	// GITHUB_APP_ID is required for GitHub App authentication
+	githubAppIDStr := os.Getenv("GITHUB_APP_ID")
+	if githubAppIDStr == "" {
+		logger.Error("GITHUB_APP_ID environment variable is required")
+		os.Exit(1)
+	}
+	githubAppID, err := strconv.ParseInt(githubAppIDStr, 10, 64)
+	if err != nil {
+		logger.Error("GITHUB_APP_ID must be a valid integer", "value", githubAppIDStr, "error", err)
+		os.Exit(1)
+	}
+
+	// GITHUB_APP_PRIVATE_KEY is required for GitHub App authentication
+	githubAppPrivateKey := os.Getenv("GITHUB_APP_PRIVATE_KEY")
+	if githubAppPrivateKey == "" {
+		logger.Error("GITHUB_APP_PRIVATE_KEY environment variable is required")
+		os.Exit(1)
+	}
+
 	// Connect to database
 	ctx := context.Background()
 	pool, err := db.Connect(ctx, db.Config{
@@ -85,6 +106,18 @@ func main() {
 		os.Exit(1)
 	}
 	logger.Info("kubernetes client initialized", "devbox_image", devboxImage)
+
+	// Initialize GitHub token manager for generating installation tokens
+	tokenManager, err := github.NewManager(github.Config{
+		AppID:      githubAppID,
+		PrivateKey: []byte(githubAppPrivateKey),
+	}, logger)
+	if err != nil {
+		logger.Error("failed to create GitHub token manager", "error", err)
+		os.Exit(1)
+	}
+	logger.Info("github token manager initialized", "app_id", githubAppID)
+	_ = tokenManager // TODO: wire into spawner (integration-2 task)
 
 	// Create webhook notifier for Discord bot callbacks
 	// DISCORD_BOT_WEBHOOK_URL is optional; if not set, use no-op notifier

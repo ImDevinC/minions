@@ -96,7 +96,7 @@
         "Handle initialization errors with structured logging",
         "Token manager available for spawner injection"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "integration-1",
