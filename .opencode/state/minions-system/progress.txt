@@ -321,3 +321,17 @@ Started: 2026-03-21
 - Uses chi router with standard middleware (RequestID, RealIP, Recoverer)
 - Files: `discord-bot/cmd/bot/main.go` (new), `discord-bot/go.mod` (new), `discord-bot/go.sum` (new)
 - **Learnings:** discordgo's `Ready` handler is the right place to log connection info; MessageContent intent is required for reading message content since Discord's privileged intents change
+
+## Task - bot-2
+- Created `discord-bot/internal/command/parser.go` for command parsing
+- Parses `@minion --repo Owner/Repo [--model provider/model] <task>` format
+- Supports quoted values: `--repo="value"` and `--repo='value'`
+- Validates repo format: `^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+(/[a-zA-Z0-9_.-]+)*$` (supports nested paths)
+- Model validation: must start with `anthropic/` or `openai/`, defaults to `anthropic/claude-sonnet-4-5`
+- Task validation: max 10k chars, no control characters (except newline/tab/CR)
+- Created `discord-bot/internal/handler/message.go` for Discord event handling
+- Reacts with 🤔 emoji immediately on command receipt (acknowledgment)
+- User-friendly error messages for all parse failures
+- Wired message handler into `main.go` via `discord.AddHandler()`
+- Files: `internal/command/parser.go` (new), `internal/command/parser_test.go` (new), `internal/handler/message.go` (new), `cmd/bot/main.go` (updated)
+- **Learnings:** Discord mentions use `<@USER_ID>` or `<@!USER_ID>` (nickname) format; regex-based flag extraction handles both quoted and space-separated values

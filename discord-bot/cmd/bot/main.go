@@ -13,6 +13,8 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+
+	"github.com/anomalyco/minions/discord-bot/internal/handler"
 )
 
 func main() {
@@ -55,6 +57,10 @@ func main() {
 			"guilds", len(r.Guilds),
 		)
 	})
+
+	// Add message handler for @minion mentions
+	msgHandler := handler.NewMessageHandler(logger)
+	discord.AddHandler(msgHandler.Handle)
 
 	// Open connection to Discord gateway
 	if err := discord.Open(); err != nil {

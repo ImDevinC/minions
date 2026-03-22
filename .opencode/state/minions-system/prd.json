@@ -395,7 +395,7 @@
         "Rejects tasks >10k chars or with control characters",
         "Rejects unknown model with 'Unknown model' error"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "bot-3",
