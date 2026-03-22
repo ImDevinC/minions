@@ -83,3 +83,44 @@ func (s *EventStore) GetRecentEvents(ctx context.Context, minionID uuid.UUID, li
 
 	return events, nil
 }
+
+// GetEventsSince retrieves events for a minion with timestamp > since.
+// Returns events ordered by timestamp ASC (oldest first, for appending to existing log).
+// Useful for reconnection after WebSocket disconnect to fetch missed events.
+func (s *EventStore) GetEventsSince(ctx context.Context, minionID uuid.UUID, since time.Time, limit int) ([]*MinionEvent, error) {
+	if limit <= 0 {
+		limit = 1000 // Higher limit for catch-up, capped to prevent runaway queries
+	}
+	if limit > 10000 {
+		limit = 10000
+	}
+
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, minion_id, timestamp, event_type, content
+		 FROM minion_events
+		 WHERE minion_id = $1 AND timestamp > $2
+		 ORDER BY timestamp ASC
+		 LIMIT $3`,
+		minionID, since, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var events []*MinionEvent
+	for rows.Next() {
+		e := &MinionEvent{}
+		err := rows.Scan(&e.ID, &e.MinionID, &e.Timestamp, &e.EventType, &e.Content)
+		if err != nil {
+			return nil, err
+		}
+		events = append(events, e)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return events, nil
+}

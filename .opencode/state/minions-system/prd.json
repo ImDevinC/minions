@@ -528,7 +528,7 @@
         "Updates TanStack Query cache on WebSocket events",
         "Test: disconnect for 30s, verify all events appear after reconnect"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "infra-1",

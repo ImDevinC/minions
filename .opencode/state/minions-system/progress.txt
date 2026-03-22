@@ -458,3 +458,23 @@ Started: 2026-03-21
 - Uses Suspense with skeleton loading state for async data fetching
 - Files: `control-panel/src/app/stats/page.tsx` (new), `control-panel/src/types/minion.ts`, `control-panel/src/lib/orchestrator.ts`, `orchestrator/internal/api/minions.go`
 - **Learnings:** Server Components with Suspense are ideal for stats pages; adding cost_usd to list response avoids N+1 queries for per-minion costs
+
+## Task - panel-6
+- Implemented WebSocket connection with reconnection and exponential backoff
+- Created `src/hooks/use-minion-events.ts` with `useMinionEvents` hook
+- WebSocket constants: INITIAL_BACKOFF_MS=1000, MAX_BACKOFF_MS=60000, BACKOFF_MULTIPLIER=2
+- On connect: fetches WS config from `/api/ws-config` (returns orchestrator URL + token)
+- Auth: token passed as query param `?token=...` (browsers can't set WS headers)
+- Updated orchestrator middleware to accept auth via query param for WebSocket upgrades
+- Added `GetEventsSince` method to EventStore for fetching events after timestamp
+- Added `GET /api/minions/{id}/events?since=<timestamp>` endpoint in orchestrator
+- Created `/api/minions/[id]/events` route in control panel to proxy event fetching
+- Created `/api/ws-config` route to securely pass orchestrator URL + token to client
+- `mergeEvents()` function deduplicates by event ID and sorts by timestamp
+- `lastTimestampRef` tracks latest event timestamp for reconnection catch-up
+- On reconnect: calls `fetchEventsSince()` to get missed events, merges into state
+- Updated `MinionDetailClient` to use `useMinionEvents` hook for live updates
+- Connection status indicator: green dot + "Live" when connected, yellow pulse + "Connecting..." otherwise
+- Terminal status check: no WebSocket connection for completed/failed/terminated minions
+- Files: `src/hooks/use-minion-events.ts` (new), `src/app/api/ws-config/route.ts` (new), `src/app/api/minions/[id]/events/route.ts` (new), `src/lib/orchestrator.ts`, `src/components/minion-detail-client.tsx`, `orchestrator/internal/db/events.go`, `orchestrator/internal/api/minions.go`, `orchestrator/internal/api/router.go`, `orchestrator/internal/api/middleware.go`
+- **Learnings:** WebSocket auth via query param is necessary for browser clients; use refs for values that need to persist across reconnection attempts; always deduplicate by ID when merging event streams

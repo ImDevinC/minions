@@ -7,6 +7,7 @@ import { MinionDetail, MinionEvent, MinionStatus } from "@/types/minion";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { TerminateModal } from "./terminate-modal";
+import { useMinionEvents } from "@/hooks/use-minion-events";
 
 // Re-export StatusBadge for server component compatibility
 interface StatusConfig {
@@ -392,6 +393,13 @@ export function MinionDetailClient({ minion }: MinionDetailClientProps) {
   const [showTerminateModal, setShowTerminateModal] = useState(false);
   const [currentStatus, setCurrentStatus] = useState(minion.status);
 
+  // Use WebSocket hook for live event updates
+  const { events, isConnected, connectionError } = useMinionEvents({
+    minionId: minion.id,
+    initialEvents: minion.events,
+    status: currentStatus,
+  });
+
   // Update status when minion prop changes
   useEffect(() => {
     setCurrentStatus(minion.status);
@@ -568,11 +576,38 @@ export function MinionDetailClient({ minion }: MinionDetailClientProps) {
 
       {/* Event log section */}
       <div>
-        <h2 className="text-lg font-semibold text-white mb-3">
-          Event Log ({minion.events.length} events)
-        </h2>
-        <EventLog events={minion.events} />
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-semibold text-white">
+            Event Log ({events.length} events)
+          </h2>
+          <div className="flex items-center gap-2">
+            {/* Connection status indicator */}
+            {!isTerminalStatus(currentStatus) && (
+              <div className="flex items-center gap-1.5 text-xs">
+                <span
+                  className={`inline-block w-2 h-2 rounded-full ${
+                    isConnected ? "bg-green-500" : "bg-yellow-500 animate-pulse"
+                  }`}
+                />
+                <span className="text-gray-400">
+                  {isConnected ? "Live" : "Connecting..."}
+                </span>
+              </div>
+            )}
+            {connectionError && (
+              <span className="text-xs text-red-400">{connectionError}</span>
+            )}
+          </div>
+        </div>
+        <EventLog events={events} />
       </div>
     </div>
+  );
+}
+
+// Check if status is terminal (helper for render)
+function isTerminalStatus(status: MinionStatus): boolean {
+  return (
+    status === "completed" || status === "failed" || status === "terminated"
   );
 }

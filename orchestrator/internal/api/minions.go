@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/anomalyco/minions/orchestrator/internal/db"
 	"github.com/anomalyco/minions/orchestrator/internal/k8s"
@@ -752,6 +753,99 @@ func (h *MinionHandler) HandleClarificationAnswer(w http.ResponseWriter, r *http
 	if err := json.NewEncoder(w).Encode(ClarificationResponse{Success: true}); err != nil {
 		h.logger.Error("failed to encode response", "error", err)
 	}
+}
+
+// GetEventsSinceResponse is the response body for GET /api/minions/{id}/events.
+type GetEventsSinceResponse struct {
+	Events []EventSummary `json:"events"`
+}
+
+// HandleGetEvents handles GET /api/minions/{id}/events.
+// Query params:
+//   - since: ISO8601 timestamp, returns events with timestamp > since
+//   - limit: max events to return (default 1000, max 10000)
+//
+// Used for WebSocket reconnection to fetch missed events.
+func (h *MinionHandler) HandleGetEvents(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		h.writeError(w, http.StatusBadRequest, "invalid minion id", "INVALID_ID")
+		return
+	}
+
+	// Parse 'since' timestamp
+	sinceStr := r.URL.Query().Get("since")
+	if sinceStr == "" {
+		h.writeError(w, http.StatusBadRequest, "since parameter is required", "MISSING_SINCE")
+		return
+	}
+
+	since, err := parseTimestamp(sinceStr)
+	if err != nil {
+		h.writeError(w, http.StatusBadRequest, "invalid since timestamp (use ISO8601 format)", "INVALID_SINCE")
+		return
+	}
+
+	// Parse optional limit
+	limit := 1000
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		limit, err = strconv.Atoi(limitStr)
+		if err != nil || limit < 1 {
+			h.writeError(w, http.StatusBadRequest, "limit must be a positive integer", "INVALID_LIMIT")
+			return
+		}
+	}
+
+	// Verify minion exists
+	_, err = h.minions.GetByID(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			h.writeError(w, http.StatusNotFound, "minion not found", "NOT_FOUND")
+			return
+		}
+		h.logger.Error("failed to get minion", "error", err, "minion_id", id)
+		h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+		return
+	}
+
+	// Fetch events since the given timestamp
+	events, err := h.events.GetEventsSince(r.Context(), id, since, limit)
+	if err != nil {
+		h.logger.Error("failed to get events", "error", err, "minion_id", id)
+		h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+		return
+	}
+
+	resp := GetEventsSinceResponse{
+		Events: make([]EventSummary, len(events)),
+	}
+	for i, e := range events {
+		resp.Events[i] = EventSummary{
+			ID:        e.ID.String(),
+			Timestamp: e.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
+			EventType: e.EventType,
+			Content:   e.Content,
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		h.logger.Error("failed to encode response", "error", err)
+	}
+}
+
+// parseTimestamp parses an ISO8601 timestamp string.
+// Supports both RFC3339 (with timezone) and RFC3339Nano (with nanoseconds).
+func parseTimestamp(s string) (time.Time, error) {
+	// Try RFC3339Nano first (includes sub-second precision)
+	t, err := time.Parse(time.RFC3339Nano, s)
+	if err == nil {
+		return t, nil
+	}
+	// Fall back to RFC3339
+	return time.Parse(time.RFC3339, s)
 }
 
 // HandleGetByClarificationMessageID handles GET /api/minions/by-clarification/{messageId}.

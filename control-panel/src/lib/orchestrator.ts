@@ -1,7 +1,7 @@
 // Server-side orchestrator API client
 // Used in Server Components and API routes
 
-import { MinionSummary, MinionDetail, Stats } from "@/types/minion";
+import { MinionSummary, MinionDetail, MinionEvent, Stats } from "@/types/minion";
 
 const ORCHESTRATOR_URL = process.env.ORCHESTRATOR_URL;
 const INTERNAL_API_TOKEN = process.env.INTERNAL_API_TOKEN;
@@ -83,6 +83,30 @@ export async function terminateMinion(id: string): Promise<{ success: boolean }>
 
 export async function getStats(): Promise<Stats> {
   return fetchOrchestrator<Stats>("/api/stats");
+}
+
+export interface GetEventsParams {
+  since: string; // ISO8601 timestamp
+  limit?: number;
+}
+
+interface GetEventsResponse {
+  events: MinionEvent[];
+}
+
+export async function getEventsSince(
+  id: string,
+  params: GetEventsParams
+): Promise<MinionEvent[]> {
+  const searchParams = new URLSearchParams();
+  searchParams.set("since", params.since);
+  if (params.limit) {
+    searchParams.set("limit", params.limit.toString());
+  }
+  const response = await fetchOrchestrator<GetEventsResponse>(
+    `/api/minions/${id}/events?${searchParams.toString()}`
+  );
+  return response.events;
 }
 
 export { OrchestratorError };
