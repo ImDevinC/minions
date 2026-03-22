@@ -128,3 +128,15 @@ Started: 2026-03-21
 - Added `ErrInvalidStatusTransition` error type for status transition validation
 - Files: `internal/db/minions.go`, `internal/api/minions.go`, `internal/api/router.go`, `internal/api/minions_test.go`
 - **Learnings:** Status transitions should be explicit and validated; only allow clarification from pending state to prevent race conditions
+
+## Task - k8s-1
+- Implemented pod creation with full security context in `internal/k8s/pods.go`
+- Added k8s client-go dependency (v0.35.3)
+- PodSpawner interface + Client implementation for real k8s operations
+- Security context enforced: runAsNonRoot=true, runAsUser/Group=1000, allowPrivilegeEscalation=false
+- Capabilities: DROP ALL
+- ReadOnlyRootFilesystem=true with EmptyDir volumes for /workspace, /tmp, /home/minion
+- GITHUB_TOKEN and LLM API keys passed via env vars to devbox container
+- NoOpPodManager for testing/non-k8s environments
+- Files: `internal/k8s/pods.go`, `internal/k8s/pods_test.go`, `go.mod`, `go.sum`
+- **Learnings:** client-go uses in-cluster config automatically; EmptyDir volumes needed for writable paths when using read-only root filesystem

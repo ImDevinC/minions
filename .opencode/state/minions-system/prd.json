@@ -180,7 +180,7 @@
         "Capabilities dropped",
         "GITHUB_TOKEN env var set from orchestrator"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "k8s-2",
