@@ -19,3 +19,89 @@ data:
         "openrouter": {}
       }
     }
+
+---
+# Database migrations for the orchestrator
+# Runs as init container before orchestrator starts
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: db-migrations
+  namespace: minions
+  labels:
+    app.kubernetes.io/part-of: minions
+data:
+  001_create_users_table.sql: |
+    CREATE TABLE IF NOT EXISTS users (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        discord_id TEXT NOT NULL,
+        discord_username TEXT NOT NULL,
+        avatar_url TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CONSTRAINT users_discord_id_unique UNIQUE (discord_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_users_discord_id ON users(discord_id);
+    COMMENT ON TABLE users IS 'Users authenticated via Discord OAuth';
+    COMMENT ON COLUMN users.discord_id IS 'Discord user ID (snowflake as text)';
+    COMMENT ON COLUMN users.discord_username IS 'Discord username at time of last login';
+    COMMENT ON COLUMN users.avatar_url IS 'Discord avatar URL, nullable';
+
+  002_create_minions_table.sql: |
+    CREATE TABLE IF NOT EXISTS minions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        repo TEXT NOT NULL,
+        task TEXT NOT NULL,
+        model TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (
+            status IN ('pending', 'awaiting_clarification', 'running', 'completed', 'failed', 'terminated')
+        ),
+        clarification_question TEXT,
+        clarification_answer TEXT,
+        clarification_message_id TEXT,
+        input_tokens BIGINT NOT NULL DEFAULT 0,
+        output_tokens BIGINT NOT NULL DEFAULT 0,
+        cost_usd NUMERIC(12, 6) NOT NULL DEFAULT 0,
+        pr_url TEXT,
+        error TEXT,
+        session_id TEXT,
+        pod_name TEXT,
+        discord_message_id TEXT,
+        discord_channel_id TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        started_at TIMESTAMPTZ,
+        completed_at TIMESTAMPTZ,
+        last_activity_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_minions_user_id ON minions(user_id);
+    COMMENT ON TABLE minions IS 'Minion task instances with full lifecycle tracking';
+    COMMENT ON COLUMN minions.status IS 'pending | awaiting_clarification | running | completed | failed | terminated';
+    COMMENT ON COLUMN minions.clarification_message_id IS 'Discord message ID for reply lookup';
+    COMMENT ON COLUMN minions.cost_usd IS 'Accumulated cost in USD (up to 6 decimal places)';
+    COMMENT ON COLUMN minions.session_id IS 'OpenCode session ID for the task';
+    COMMENT ON COLUMN minions.pod_name IS 'Kubernetes pod name when running';
+    COMMENT ON COLUMN minions.last_activity_at IS 'Updated on each event for watchdog idle detection';
+
+  003_create_minion_events_table.sql: |
+    CREATE TABLE IF NOT EXISTS minion_events (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        minion_id UUID NOT NULL REFERENCES minions(id) ON DELETE CASCADE,
+        timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        event_type TEXT NOT NULL,
+        content JSONB NOT NULL DEFAULT '{}'
+    );
+    CREATE INDEX IF NOT EXISTS idx_minion_events_minion_id_timestamp 
+        ON minion_events(minion_id, timestamp);
+    COMMENT ON TABLE minion_events IS 'Append-only event log for minion activity streaming';
+    COMMENT ON COLUMN minion_events.event_type IS 'Event type (e.g., message, tool_call, token_usage, error)';
+    COMMENT ON COLUMN minion_events.content IS 'Event payload as JSONB for flexible schema';
+
+  004_create_indexes.sql: |
+    CREATE INDEX IF NOT EXISTS idx_minions_status ON minions(status);
+    CREATE INDEX IF NOT EXISTS idx_minions_status_last_activity_at ON minions(status, last_activity_at);
+    CREATE INDEX IF NOT EXISTS idx_minions_clarification_message_id ON minions(clarification_message_id)
+        WHERE clarification_message_id IS NOT NULL;
+    COMMENT ON INDEX idx_minions_status IS 'Speeds up status filtering on list endpoints';
+    COMMENT ON INDEX idx_minions_status_last_activity_at IS 'Watchdog query: running minions with stale last_activity_at';
+    COMMENT ON INDEX idx_minions_clarification_message_id IS 'Partial index for clarification reply lookup';
