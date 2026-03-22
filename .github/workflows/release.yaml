@@ -64,7 +64,7 @@ jobs:
       - name: Release
         working-directory: ./orchestrator
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: npx semantic-release -e ../release-configs/orchestrator.js
 
   release-discord-bot:
@@ -94,7 +94,7 @@ jobs:
       - name: Release
         working-directory: ./discord-bot
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: npx semantic-release -e ../release-configs/discord-bot.js
 
   release-control-panel:
@@ -124,7 +124,7 @@ jobs:
       - name: Release
         working-directory: ./control-panel
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: npx semantic-release -e ../release-configs/control-panel.js
 
   release-devbox:
@@ -154,5 +154,5 @@ jobs:
       - name: Release
         working-directory: ./devbox
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: npx semantic-release -e ../release-configs/devbox.js
