@@ -205,8 +205,9 @@ func (c *Client) SpawnPod(ctx context.Context, params SpawnParams) (string, erro
 			},
 			Containers: []corev1.Container{
 				{
-					Name:  "devbox",
-					Image: c.config.DevboxImage,
+					Name:            "devbox",
+					Image:           c.config.DevboxImage,
+					ImagePullPolicy: corev1.PullAlways,
 					// Container-level security context (stricter)
 					SecurityContext: &corev1.SecurityContext{
 						RunAsNonRoot:             &trueVal,

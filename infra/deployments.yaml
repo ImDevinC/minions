@@ -82,6 +82,9 @@ spec:
             # Discord bot webhook for notifications
             - name: DISCORD_BOT_WEBHOOK_URL
               value: "http://discord-bot.minions.svc.cluster.local:8081/webhook"
+            # Container image for spawning minion devbox pods
+            - name: DEVBOX_IMAGE
+              value: "ghcr.io/imdevinc/minions/devbox:latest"
           envFrom:
             # DATABASE_URL
             - secretRef:

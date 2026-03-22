@@ -46,6 +46,20 @@ func main() {
 		os.Exit(1)
 	}
 
+	// DEVBOX_IMAGE is required for spawning minion pods
+	devboxImage := os.Getenv("DEVBOX_IMAGE")
+	if devboxImage == "" {
+		logger.Error("DEVBOX_IMAGE environment variable is required")
+		os.Exit(1)
+	}
+
+	// OPENROUTER_API_KEY is required for LLM access in devbox pods
+	openRouterAPIKey := os.Getenv("OPENROUTER_API_KEY")
+	if openRouterAPIKey == "" {
+		logger.Error("OPENROUTER_API_KEY environment variable is required")
+		os.Exit(1)
+	}
+
 	// Connect to database
 	ctx := context.Background()
 	pool, err := db.Connect(ctx, db.Config{
@@ -61,8 +75,16 @@ func main() {
 	defer pool.Close()
 	logger.Info("connected to database")
 
-	// TODO(k8s-1): Replace with real k8s.NewClient once k8s is configured
-	podManager := k8s.NewNoOpPodManager(logger)
+	// Initialize Kubernetes client for pod management
+	podManager, err := k8s.NewClient(k8s.Config{
+		DevboxImage:      devboxImage,
+		OpenRouterAPIKey: openRouterAPIKey,
+	}, logger)
+	if err != nil {
+		logger.Error("failed to create kubernetes client", "error", err)
+		os.Exit(1)
+	}
+	logger.Info("kubernetes client initialized", "devbox_image", devboxImage)
 
 	// Create webhook notifier for Discord bot callbacks
 	// DISCORD_BOT_WEBHOOK_URL is optional; if not set, use no-op notifier
