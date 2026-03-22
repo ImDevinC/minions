@@ -452,7 +452,7 @@
         "On idle: posts idle warning with link",
         "On clarification_timeout: posts timeout notification"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "panel-1",

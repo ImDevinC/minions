@@ -64,8 +64,17 @@ func main() {
 	// TODO(k8s-1): Replace with real k8s.NewClient once k8s is configured
 	podManager := k8s.NewNoOpPodManager(logger)
 
-	// TODO(bot-6): Replace with real webhook.NewNotifier once webhook client is implemented
-	notifier := webhook.NewNoOpNotifier(logger)
+	// Create webhook notifier for Discord bot callbacks
+	// DISCORD_BOT_WEBHOOK_URL is optional; if not set, use no-op notifier
+	var notifier webhook.Notifier
+	webhookURL := os.Getenv("DISCORD_BOT_WEBHOOK_URL")
+	if webhookURL != "" {
+		notifier = webhook.NewHTTPNotifier(logger, webhookURL, apiToken)
+		logger.Info("webhook notifier configured", "url", webhookURL)
+	} else {
+		notifier = webhook.NewNoOpNotifier(logger)
+		logger.Info("webhook notifier not configured (DISCORD_BOT_WEBHOOK_URL not set)")
+	}
 
 	// Create stores
 	minionStore := db.NewMinionStore(pool)

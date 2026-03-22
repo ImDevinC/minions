@@ -375,3 +375,21 @@ Started: 2026-03-21
 - Added test cases for mock orchestrator clarification methods
 - Files: `orchestrator/internal/db/minions.go`, `orchestrator/internal/api/minions.go`, `orchestrator/internal/api/router.go`, `discord-bot/internal/orchestrator/client.go`, `discord-bot/internal/handler/message.go`, `discord-bot/internal/handler/message_test.go`, `discord-bot/cmd/bot/main.go`
 - **Learnings:** discordgo's MessageReference.MessageID is set when a message is a reply; separate HandleReply handler keeps concerns clean; status transition back to `pending` allows orchestrator pod spawner to pick it up
+
+## Task - bot-6
+- Created `discord-bot/internal/handler/webhook.go` with WebhookHandler
+- POST `/webhook` endpoint receives callbacks from orchestrator
+- Auth validation uses `crypto/subtle.ConstantTimeCompare` to prevent timing attacks
+- Returns 401 for invalid/missing Authorization header
+- Notification types handled: completed, failed, terminated, idle, clarification_timeout
+- Completion: posts PR URL or "No changes" message
+- Failure: posts error summary (truncated to 500 chars for Discord)
+- Termination: posts "Minion was terminated" with short ID
+- Idle: posts warning about 30-minute idle time
+- Clarification timeout: posts 24h timeout message
+- Created `orchestrator/internal/webhook/notifier.go` HTTPNotifier for sending webhooks
+- HTTPNotifier sends JSON payload with Bearer auth to Discord bot
+- Orchestrator uses DISCORD_BOT_WEBHOOK_URL env var to configure webhook (optional)
+- Comprehensive tests for both webhook handler and notifier
+- Files: `discord-bot/internal/handler/webhook.go`, `discord-bot/internal/handler/webhook_test.go`, `discord-bot/cmd/bot/main.go`, `orchestrator/internal/webhook/notifier.go`, `orchestrator/internal/webhook/notifier_test.go`, `orchestrator/cmd/orchestrator/main.go`
+- **Learnings:** Return 200 from webhook even if Discord send fails (best-effort, prevent retries); shortID(uuid) for display-friendly minion IDs in messages

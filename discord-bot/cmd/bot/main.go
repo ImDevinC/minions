@@ -113,12 +113,16 @@ func main() {
 	router.Use(middleware.RealIP)
 	router.Use(middleware.Recoverer)
 
-	// Health check endpoint
+	// Health check endpoint (no auth required)
 	router.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
+
+	// Webhook handler for orchestrator callbacks
+	webhookHandler := handler.NewWebhookHandler(logger, discord, apiToken)
+	router.Post("/webhook", webhookHandler.Handle)
 
 	srv := &http.Server{
 		Addr:         ":" + port,
