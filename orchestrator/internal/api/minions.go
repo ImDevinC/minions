@@ -225,6 +225,7 @@ type ListMinionResponse struct {
 	Model     string  `json:"model"`
 	PRURL     *string `json:"pr_url,omitempty"`
 	Error     *string `json:"error,omitempty"`
+	CostUSD   float64 `json:"cost_usd"`
 	CreatedAt string  `json:"created_at"`
 }
 
@@ -276,6 +277,7 @@ func (h *MinionHandler) HandleList(w http.ResponseWriter, r *http.Request) {
 			Model:     m.Model,
 			PRURL:     m.PRURL,
 			Error:     m.Error,
+			CostUSD:   m.CostUSD,
 			CreatedAt: m.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 		}
 	}

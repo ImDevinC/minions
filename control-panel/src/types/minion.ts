@@ -17,6 +17,7 @@ export interface MinionSummary {
   model: string;
   pr_url?: string;
   error?: string;
+  cost_usd: number;
   created_at: string;
 }
 
@@ -52,4 +53,20 @@ export interface MinionEvent {
   timestamp: string;
   event_type: string;
   content: Record<string, unknown>;
+}
+
+// Response from GET /api/stats
+export interface Stats {
+  total_cost_usd: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  by_model: ModelStats[];
+}
+
+export interface ModelStats {
+  model: string;
+  cost_usd: number;
+  input_tokens: number;
+  output_tokens: number;
+  count: number;
 }

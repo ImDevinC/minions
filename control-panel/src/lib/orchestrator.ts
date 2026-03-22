@@ -1,7 +1,7 @@
 // Server-side orchestrator API client
 // Used in Server Components and API routes
 
-import { MinionSummary, MinionDetail } from "@/types/minion";
+import { MinionSummary, MinionDetail, Stats } from "@/types/minion";
 
 const ORCHESTRATOR_URL = process.env.ORCHESTRATOR_URL;
 const INTERNAL_API_TOKEN = process.env.INTERNAL_API_TOKEN;
@@ -79,6 +79,10 @@ export async function terminateMinion(id: string): Promise<{ success: boolean }>
   return fetchOrchestrator<{ success: boolean }>(`/api/minions/${id}`, {
     method: "DELETE",
   });
+}
+
+export async function getStats(): Promise<Stats> {
+  return fetchOrchestrator<Stats>("/api/stats");
 }
 
 export { OrchestratorError };

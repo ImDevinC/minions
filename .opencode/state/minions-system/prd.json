@@ -512,7 +512,7 @@
         "Displays: per-minion costs, totals",
         "Shows breakdown by model"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "panel-6",

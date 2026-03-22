@@ -445,3 +445,16 @@ Started: 2026-03-21
 - UI updates: local status state, `router.refresh()` after successful termination
 - Files: `src/components/terminate-modal.tsx` (new), `src/components/minion-detail-client.tsx` (updated), `src/app/api/minions/[id]/terminate/route.ts` (new)
 - **Learnings:** NextAuth's `getServerSession` provides CSRF protection via session token validation; using POST for terminate action allows cleaner client-side fetch (no need for DELETE method in form)
+
+## Task - panel-5
+- Created `/stats` route in `control-panel/src/app/stats/page.tsx`
+- Added Stats and ModelStats types to `src/types/minion.ts`
+- Added `getStats()` function to `src/lib/orchestrator.ts`
+- Extended `ListMinionResponse` in orchestrator to include `cost_usd` field
+- Updated `MinionSummary` type to include `cost_usd`
+- Stats page displays: total cost, input tokens, output tokens in summary cards
+- Model breakdown table: model name, cost, input tokens, output tokens, run count
+- Per-minion costs table: repo link, model, status badge, cost (sorted by cost DESC)
+- Uses Suspense with skeleton loading state for async data fetching
+- Files: `control-panel/src/app/stats/page.tsx` (new), `control-panel/src/types/minion.ts`, `control-panel/src/lib/orchestrator.ts`, `orchestrator/internal/api/minions.go`
+- **Learnings:** Server Components with Suspense are ideal for stats pages; adding cost_usd to list response avoids N+1 queries for per-minion costs
