@@ -267,3 +267,15 @@ Started: 2026-03-21
 - Verification step confirms all tools are installed and accessible
 - Files: `devbox/Dockerfile` (new)
 - **Learnings:** OpenCode asset naming uses x64 not amd64; exact jq match (`select(.name == $name)`) is more reliable than contains() for asset selection
+
+## Task - devbox-2
+- Created `devbox/entrypoint.sh` for minion task execution
+- Clones repo using GITHUB_TOKEN via git credential helper (safer than embedding in URL)
+- Starts `opencode serve` on port 4096 (configurable via OPENCODE_PORT)
+- Waits for `/global/health` endpoint readiness with 60s timeout
+- Creates session via POST /session, sends task via POST /session/:id/prompt_async
+- Uses jq for all JSON construction, preventing shell injection from task content
+- Polls /session/status for completion detection (idle = done)
+- Updated Dockerfile to COPY entrypoint.sh and set as ENTRYPOINT
+- Files: `devbox/entrypoint.sh` (new), `devbox/Dockerfile` (updated)
+- **Learnings:** OpenCode's prompt_async is non-blocking (returns 204 immediately), use /session/status polling to detect completion; git credential helper is cleaner than URL-embedded tokens

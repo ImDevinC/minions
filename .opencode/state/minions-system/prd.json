@@ -330,7 +330,7 @@
         "Creates session and sends task via OpenCode API",
         "Uses jq for JSON construction (no shell injection)"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "devbox-3",

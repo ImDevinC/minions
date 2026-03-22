@@ -53,6 +53,10 @@ RUN groupadd -g 1000 minion \
 # Create workspace directory
 RUN mkdir -p /workspace && chown minion:minion /workspace
 
+# Copy entrypoint script
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
 # Set working directory
 WORKDIR /workspace
 
@@ -66,5 +70,5 @@ RUN git --version \
     && gh --version | head -n1 \
     && opencode --version
 
-# Default command (overridden by entrypoint.sh in production)
-CMD ["bash"]
+# Use entrypoint script
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
