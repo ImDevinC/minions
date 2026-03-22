@@ -59,7 +59,7 @@
         "Minion transitions from pending to running with pod_name set",
         "MarkRunning DB failures log error but don't crash spawner"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "spawner-5",

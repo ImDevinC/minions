@@ -26,6 +26,10 @@ type MinionQuerier interface {
 type MinionUpdater interface {
 	// MarkFailed marks a minion as failed with the given error message.
 	MarkFailed(ctx context.Context, id uuid.UUID, errorMsg string) error
+
+	// MarkRunning transitions a minion to running status with its pod name.
+	// Must be called after the pod is ready.
+	MarkRunning(ctx context.Context, id uuid.UUID, podName string) error
 }
 
 // TokenManager generates GitHub App installation tokens for repository access.
@@ -222,7 +226,22 @@ func (s *Spawner) processMinion(ctx context.Context, m *db.Minion) {
 		"pod_name", podName,
 	)
 
-	// TODO(spawner-4): MarkRunning
+	// spawner-4: Mark minion as running with pod name
+	if err := s.minionUpdate.MarkRunning(ctx, m.ID, podName); err != nil {
+		// Log but don't crash - the pod is running and we don't want to
+		// orphan it. The reconciler can recover this state if needed.
+		s.logger.Error("failed to mark minion as running",
+			"minion_id", m.ID,
+			"pod_name", podName,
+			"error", err,
+		)
+		return
+	}
+
+	s.logger.Info("minion marked as running",
+		"minion_id", m.ID,
+		"pod_name", podName,
+	)
+
 	// TODO(spawner-5): Initiate SSE streaming
-	_ = podName
 }

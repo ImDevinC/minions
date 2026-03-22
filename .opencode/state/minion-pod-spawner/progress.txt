@@ -45,3 +45,10 @@ Started: 2026-03-22
   3. Calls `WaitForPodReady` and marks minion failed if timeout
 - Files changed: `orchestrator/internal/spawner/spawner.go` (lines 38-66, 68-80, 170-228)
 - **Learnings:** Keep interface minimal (only methods needed); Config struct cleaner than many params
+
+## Task - spawner-4
+- Added `MarkRunning` method to `MinionUpdater` interface
+- After pod ready, calls `MarkRunning(id, podName)` to transition minion to running
+- MarkRunning errors logged but non-fatal (pod already running, don't orphan it)
+- Files changed: `orchestrator/internal/spawner/spawner.go` (lines 26-33, 220-237)
+- **Learnings:** Error handling philosophy: if the pod is already running, log the DB error and move on. Reconciler can recover orphaned state.
