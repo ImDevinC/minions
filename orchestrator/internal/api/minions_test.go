@@ -265,3 +265,86 @@ func TestMinionHandler_DeleteValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestMinionHandler_CallbackValidation(t *testing.T) {
+	handler := newTestHandler(t)
+
+	tests := []struct {
+		name       string
+		id         string
+		body       any
+		wantStatus int
+		wantCode   string
+	}{
+		{
+			name:       "invalid uuid format",
+			id:         "not-a-uuid",
+			body:       CallbackRequest{Status: "completed"},
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "INVALID_ID",
+		},
+		{
+			name:       "empty id",
+			id:         "",
+			body:       CallbackRequest{Status: "completed"},
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "INVALID_ID",
+		},
+		{
+			name:       "invalid json body",
+			id:         "550e8400-e29b-41d4-a716-446655440000",
+			body:       "not json",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "invalid status value",
+			id:         "550e8400-e29b-41d4-a716-446655440000",
+			body:       CallbackRequest{Status: "running"},
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "INVALID_STATUS",
+		},
+		{
+			name:       "empty status",
+			id:         "550e8400-e29b-41d4-a716-446655440000",
+			body:       CallbackRequest{Status: ""},
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "INVALID_STATUS",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var body []byte
+			switch v := tt.body.(type) {
+			case string:
+				body = []byte(v)
+			default:
+				body, _ = json.Marshal(tt.body)
+			}
+			req := httptest.NewRequest(http.MethodPost, "/api/minions/"+tt.id+"/callback", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+
+			// chi router context needed for URL params
+			rctx := chi.NewRouteContext()
+			rctx.URLParams.Add("id", tt.id)
+			req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+			rr := httptest.NewRecorder()
+			handler.HandleCallback(rr, req)
+
+			if rr.Code != tt.wantStatus {
+				t.Errorf("expected status %d, got %d", tt.wantStatus, rr.Code)
+			}
+
+			if tt.wantCode != "" {
+				var resp ErrorResponse
+				if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+					t.Fatalf("failed to unmarshal response: %v", err)
+				}
+				if resp.Code != tt.wantCode {
+					t.Errorf("expected code %q, got %q", tt.wantCode, resp.Code)
+				}
+			}
+		})
+	}
+}

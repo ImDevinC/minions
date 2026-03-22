@@ -451,3 +451,109 @@ func (h *MinionHandler) HandleDelete(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error("failed to encode response", "error", err)
 	}
 }
+
+// CallbackRequest is the request body for POST /api/minions/{id}/callback.
+type CallbackRequest struct {
+	Status    string  `json:"status"`     // "completed" or "failed"
+	PRURL     *string `json:"pr_url"`     // optional, for completed minions
+	Error     *string `json:"error"`      // optional, for failed minions
+	SessionID *string `json:"session_id"` // optional, opencode session ID
+}
+
+// CallbackResponse is the response body for POST /api/minions/{id}/callback.
+type CallbackResponse struct {
+	Success bool `json:"success"`
+}
+
+// HandleCallback handles POST /api/minions/{id}/callback.
+// Updates minion with completion data and notifies Discord.
+func (h *MinionHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		h.writeError(w, http.StatusBadRequest, "invalid minion id", "INVALID_ID")
+		return
+	}
+
+	var req CallbackRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.writeError(w, http.StatusBadRequest, "invalid request body", "")
+		return
+	}
+
+	// Validate status
+	var status db.MinionStatus
+	switch req.Status {
+	case "completed":
+		status = db.StatusCompleted
+	case "failed":
+		status = db.StatusFailed
+	default:
+		h.writeError(w, http.StatusBadRequest, "status must be 'completed' or 'failed'", "INVALID_STATUS")
+		return
+	}
+
+	// Complete the minion
+	result, err := h.minions.Complete(r.Context(), db.CompleteParams{
+		ID:        id,
+		Status:    status,
+		PRURL:     req.PRURL,
+		Error:     req.Error,
+		SessionID: req.SessionID,
+	})
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			h.writeError(w, http.StatusNotFound, "minion not found", "NOT_FOUND")
+			return
+		}
+		h.logger.Error("failed to complete minion", "error", err, "minion_id", id)
+		h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+		return
+	}
+
+	// If minion was actually updated, notify Discord
+	if result.WasUpdated && result.DiscordChannelID != nil {
+		var notifyType webhook.NotificationType
+		var prURL, errMsg string
+		if status == db.StatusCompleted {
+			notifyType = webhook.NotifyCompleted
+			if req.PRURL != nil {
+				prURL = *req.PRURL
+			}
+		} else {
+			notifyType = webhook.NotifyFailed
+			if req.Error != nil {
+				errMsg = *req.Error
+			}
+		}
+
+		notification := webhook.Notification{
+			MinionID:         id,
+			Type:             notifyType,
+			DiscordChannelID: *result.DiscordChannelID,
+			PRURL:            prURL,
+			Error:            errMsg,
+		}
+		if err := h.notifier.Notify(r.Context(), notification); err != nil {
+			// Log but don't fail the request; notification is best-effort
+			h.logger.Error("failed to send completion notification", "error", err, "minion_id", id)
+		}
+
+		h.logger.Info("minion callback processed",
+			"minion_id", id,
+			"status", status,
+			"previous_status", result.PreviousStatus,
+		)
+	} else {
+		h.logger.Info("minion already in terminal state",
+			"minion_id", id,
+			"status", result.PreviousStatus,
+		)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(CallbackResponse{Success: true}); err != nil {
+		h.logger.Error("failed to encode response", "error", err)
+	}
+}

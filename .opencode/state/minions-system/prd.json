@@ -131,7 +131,7 @@
         "Notifies Discord bot via webhook",
         "Returns { success: true }"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "orchestrator-8",

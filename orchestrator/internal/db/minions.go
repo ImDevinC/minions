@@ -335,3 +335,89 @@ func (s *MinionStore) Terminate(ctx context.Context, id uuid.UUID) (*TerminateRe
 	result.WasTerminated = true
 	return result, nil
 }
+
+// CompleteParams holds parameters for completing a minion.
+type CompleteParams struct {
+	ID        uuid.UUID
+	Status    MinionStatus // must be completed or failed
+	PRURL     *string      // optional, for completed minions
+	Error     *string      // optional, for failed minions
+	SessionID *string      // optional, opencode session ID
+}
+
+// CompleteResult holds the result of a complete operation.
+type CompleteResult struct {
+	// WasUpdated indicates whether the minion was actually updated
+	// (vs already being in a terminal state).
+	WasUpdated bool
+	// PreviousStatus is the status before update.
+	PreviousStatus MinionStatus
+	// DiscordChannelID for sending notifications.
+	DiscordChannelID *string
+}
+
+// Complete marks a minion as completed or failed.
+// Uses a transaction to atomically check and update status.
+// Returns ErrNotFound if minion doesn't exist.
+// Returns CompleteResult with WasUpdated=false if already terminal (idempotent).
+func (s *MinionStore) Complete(ctx context.Context, params CompleteParams) (*CompleteResult, error) {
+	// Validate status
+	if params.Status != StatusCompleted && params.Status != StatusFailed {
+		return nil, errors.New("status must be completed or failed")
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Lock the row and fetch current status
+	var currentStatus MinionStatus
+	var discordChannelID *string
+	err = tx.QueryRow(ctx,
+		`SELECT status, discord_channel_id FROM minions WHERE id = $1 FOR UPDATE`,
+		params.ID,
+	).Scan(&currentStatus, &discordChannelID)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	result := &CompleteResult{
+		PreviousStatus:   currentStatus,
+		DiscordChannelID: discordChannelID,
+	}
+
+	// If already in a terminal state, return success (idempotent)
+	if currentStatus == StatusCompleted || currentStatus == StatusFailed || currentStatus == StatusTerminated {
+		result.WasUpdated = false
+		return result, nil
+	}
+
+	// Update to completed/failed
+	_, err = tx.Exec(ctx,
+		`UPDATE minions SET 
+			status = $1, 
+			pr_url = $2, 
+			error = $3, 
+			session_id = $4,
+			completed_at = NOW(), 
+			last_activity_at = NOW() 
+		WHERE id = $5`,
+		params.Status, params.PRURL, params.Error, params.SessionID, params.ID,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+
+	result.WasUpdated = true
+	return result, nil
+}

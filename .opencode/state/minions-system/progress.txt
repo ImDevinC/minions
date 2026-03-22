@@ -94,3 +94,13 @@ Started: 2026-03-21
 - MinionHandler refactored to use config struct pattern for cleaner dependency injection
 - Files: `internal/k8s/pods.go` (new), `internal/webhook/notifier.go` (new), `internal/db/minions.go`, `internal/api/minions.go`, `internal/api/router.go`, `cmd/orchestrator/main.go`
 - **Learnings:** FOR UPDATE lock in transaction ensures atomic check-and-update; interface stubs allow incremental implementation without blocking dependent tasks
+
+## Task - orchestrator-7
+- Implemented POST /api/minions/{id}/callback endpoint for devbox completion callbacks
+- Added `Complete` method to `MinionStore` with transaction-based atomic status update (FOR UPDATE lock)
+- Handler accepts `{ status, pr_url?, error?, session_id? }` with validation (status must be "completed" or "failed")
+- Updates minion with completion data: pr_url, error, session_id, completed_at, last_activity_at
+- Notifies Discord bot via webhook (NotifyCompleted or NotifyFailed based on status)
+- Returns `{ success: true }` (idempotent: returns success if already terminal)
+- Files: `internal/db/minions.go` (Complete method), `internal/api/minions.go` (HandleCallback), `internal/api/router.go`, `internal/api/minions_test.go`
+- **Learnings:** Reused same transactional pattern from Terminate for Complete; notification type determined by final status
