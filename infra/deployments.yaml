@@ -311,6 +311,9 @@ spec:
             - secretRef:
                 name: minions-control-panel
                 optional: true
+            # INTERNAL_API_TOKEN (shared with orchestrator)
+            - secretRef:
+                name: minions-internal-api
           resources:
             requests:
               cpu: 50m
