@@ -1,0 +1,158 @@
+# Semantic release workflow for monorepo
+# Runs on merge to main, detects changed services, creates version tags
+
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  detect-changes:
+    name: Detect Changed Services
+    runs-on: ubuntu-latest
+    outputs:
+      orchestrator: ${{ steps.changes.outputs.orchestrator }}
+      discord-bot: ${{ steps.changes.outputs.discord-bot }}
+      control-panel: ${{ steps.changes.outputs.control-panel }}
+      devbox: ${{ steps.changes.outputs.devbox }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changes
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            orchestrator:
+              - 'orchestrator/**'
+            discord-bot:
+              - 'discord-bot/**'
+            control-panel:
+              - 'control-panel/**'
+            devbox:
+              - 'devbox/**'
+
+  release-orchestrator:
+    name: Release Orchestrator
+    needs: detect-changes
+    if: needs.detect-changes.outputs.orchestrator == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Release
+        working-directory: ./orchestrator
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx semantic-release -e ../release-configs/orchestrator.js
+
+  release-discord-bot:
+    name: Release Discord Bot
+    needs: detect-changes
+    if: needs.detect-changes.outputs.discord-bot == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Release
+        working-directory: ./discord-bot
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx semantic-release -e ../release-configs/discord-bot.js
+
+  release-control-panel:
+    name: Release Control Panel
+    needs: detect-changes
+    if: needs.detect-changes.outputs.control-panel == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Release
+        working-directory: ./control-panel
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx semantic-release -e ../release-configs/control-panel.js
+
+  release-devbox:
+    name: Release Devbox
+    needs: detect-changes
+    if: needs.detect-changes.outputs.devbox == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Release
+        working-directory: ./devbox
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx semantic-release -e ../release-configs/devbox.js
