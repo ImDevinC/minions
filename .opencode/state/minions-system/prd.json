@@ -635,7 +635,7 @@
         "Documents component interactions",
         "Documents data flow"
       ],
-      "passes": false
+      "passes": true
     }
   ],
   "context": {

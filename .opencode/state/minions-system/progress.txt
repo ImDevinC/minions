@@ -564,3 +564,12 @@ Started: 2026-03-21
 - kubectl commands for verification and troubleshooting
 - Security checklist at the end
 - **Learnings:** kubectl create secret --from-file handles multi-line PEM keys cleanly; baseline PSS + restricted warn catches security issues early
+
+## Task - docs-5
+- Verified `docs/architecture.md` already exists (commit ce710cb)
+- File contains comprehensive system overview ASCII diagram
+- Documents component interactions: orchestrator, discord bot, control panel, devbox pods, PostgreSQL
+- Documents data flow: Command Invocation, Pod Lifecycle, Event Streaming sequences
+- Includes: Key Design Decisions, Database Schema, Network Topology, Security Considerations, Failure Modes, Cost Calculation
+- No code changes needed; marked as passed
+- **Learnings:** Architecture docs created during initial planning phase; PRD state got out of sync with actual implementation
