@@ -587,7 +587,7 @@
         "Contains quick start instructions",
         "Links to detailed setup docs"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "docs-2",

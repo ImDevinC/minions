@@ -527,3 +527,12 @@ Started: 2026-03-21
 - Service DNS wired: bot's ORCHESTRATOR_URL, orchestrator's DISCORD_BOT_WEBHOOK_URL
 - Validated with `kubectl apply --dry-run=client`
 - **Learnings:** Recreate strategy is appropriate for single-replica stateful services; envFrom secretRef is cleaner than individual env.valueFrom when a service needs all keys from a secret
+
+## Task - docs-1
+- Created `README.md` at repo root
+- Project overview with one-liner architecture ASCII diagram
+- Components table linking each directory to its purpose
+- Quick start guide: database setup, orchestrator, discord-bot, control-panel, devbox image
+- Environment variables tables for each service
+- Links to detailed setup docs (docs/setup/*.md)
+- **Learnings:** Keep README focused on getting started; detailed architecture lives in docs/architecture.md
