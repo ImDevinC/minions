@@ -279,3 +279,15 @@ Started: 2026-03-21
 - Updated Dockerfile to COPY entrypoint.sh and set as ENTRYPOINT
 - Files: `devbox/entrypoint.sh` (new), `devbox/Dockerfile` (updated)
 - **Learnings:** OpenCode's prompt_async is non-blocking (returns 204 immediately), use /session/status polling to detect completion; git credential helper is cleaner than URL-embedded tokens
+
+## Task - devbox-3
+- Implemented full PR creation flow in `devbox/entrypoint.sh`
+- `has_changes()` function checks `git status --porcelain` for any modifications
+- `create_pr()` creates branch `minion/<uuid>`, stages all changes, commits with task-based message
+- Git user config: `minion@anomaly.co` / `Minion`
+- `git push -u origin` pushes branch, `gh pr create` creates PR (uses GITHUB_TOKEN automatically)
+- `send_callback()` POSTs to orchestrator with status, pr_url, error, session_id
+- Updated k8s `SpawnParams` to use `OrchestratorURL` + `InternalAPIToken` instead of `CallbackURL`
+- Added `INTERNAL_API_TOKEN` to required env vars in entrypoint.sh
+- Files: `devbox/entrypoint.sh`, `orchestrator/internal/k8s/pods.go`, `orchestrator/internal/k8s/pods_test.go`
+- **Learnings:** gh CLI uses GITHUB_TOKEN env var automatically for auth; jq's `--arg` is great for safe JSON construction without shell escaping issues

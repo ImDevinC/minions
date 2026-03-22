@@ -15,12 +15,13 @@ import (
 
 func TestSpawnParams(t *testing.T) {
 	params := SpawnParams{
-		MinionID:    uuid.MustParse("550e8400-e29b-41d4-a716-446655440000"),
-		Repo:        "owner/repo",
-		Task:        "fix the bug",
-		Model:       "anthropic/claude-sonnet-4-5",
-		GitHubToken: "ghp_test123",
-		CallbackURL: "http://orchestrator:8080/api/minions/550e8400-e29b-41d4-a716-446655440000/callback",
+		MinionID:         uuid.MustParse("550e8400-e29b-41d4-a716-446655440000"),
+		Repo:             "owner/repo",
+		Task:             "fix the bug",
+		Model:            "anthropic/claude-sonnet-4-5",
+		GitHubToken:      "ghp_test123",
+		OrchestratorURL:  "http://orchestrator:8080",
+		InternalAPIToken: "test-token-123",
 	}
 
 	if params.MinionID.String() != "550e8400-e29b-41d4-a716-446655440000" {

@@ -343,7 +343,7 @@
         "Creates PR via gh CLI",
         "POSTs callback with pr_url to orchestrator"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "devbox-4",

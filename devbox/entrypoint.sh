@@ -3,12 +3,13 @@
 # Clones repo, starts OpenCode serve, waits for readiness, creates session, sends task
 #
 # Required environment variables:
-#   GITHUB_TOKEN    - GitHub token for cloning and API access
-#   MINION_REPO     - Repository to clone (owner/repo format)
-#   MINION_TASK     - Task description to send to OpenCode
-#   MINION_ID       - Unique minion identifier
-#   ORCHESTRATOR_URL - Callback URL for the orchestrator
-#   MINION_MODEL    - LLM model to use (e.g., anthropic/claude-sonnet-4-5)
+#   GITHUB_TOKEN      - GitHub token for cloning and API access
+#   MINION_REPO       - Repository to clone (owner/repo format)
+#   MINION_TASK       - Task description to send to OpenCode
+#   MINION_ID         - Unique minion identifier
+#   ORCHESTRATOR_URL  - Callback URL for the orchestrator
+#   MINION_MODEL      - LLM model to use (e.g., anthropic/claude-sonnet-4-5)
+#   INTERNAL_API_TOKEN - Token for authenticating with orchestrator
 #
 # Optional environment variables:
 #   OPENCODE_PORT   - Port for OpenCode serve (default: 4096)
@@ -45,6 +46,7 @@ validate_env() {
     [[ -z "${MINION_ID:-}" ]] && missing+=("MINION_ID")
     [[ -z "${ORCHESTRATOR_URL:-}" ]] && missing+=("ORCHESTRATOR_URL")
     [[ -z "${MINION_MODEL:-}" ]] && missing+=("MINION_MODEL")
+    [[ -z "${INTERNAL_API_TOKEN:-}" ]] && missing+=("INTERNAL_API_TOKEN")
 
     if [[ ${#missing[@]} -gt 0 ]]; then
         die "Missing required environment variables: ${missing[*]}"
@@ -191,6 +193,125 @@ wait_for_completion() {
     done
 }
 
+# Check if there are any changes to commit
+has_changes() {
+    # Check for staged, unstaged, or untracked files
+    [[ -n "$(git status --porcelain)" ]]
+}
+
+# Create branch, commit, push, and create PR
+create_pr() {
+    log "Checking for changes"
+
+    if ! has_changes; then
+        log "No changes detected"
+        return 1  # Signal "no changes" (not an error, handled separately)
+    fi
+
+    local branch_name="minion/${MINION_ID}"
+    log "Creating branch: ${branch_name}"
+
+    # Create and checkout the new branch
+    git checkout -b "${branch_name}"
+
+    # Stage all changes
+    git add -A
+
+    # Create commit with descriptive message
+    # Use the first line of the task as commit subject, truncated if needed
+    local commit_subject
+    commit_subject=$(echo "$MINION_TASK" | head -c 72 | tr '\n' ' ')
+    
+    # Configure git user for commit
+    git config user.email "minion@anomaly.co"
+    git config user.name "Minion"
+
+    git commit -m "feat: ${commit_subject}
+
+Automated change by Minion ${MINION_ID}
+
+Task:
+${MINION_TASK}"
+
+    log "Committed changes"
+
+    # Push to origin
+    log "Pushing branch to origin"
+    git push -u origin "${branch_name}"
+
+    log "Creating PR via gh CLI"
+
+    # Create PR - gh uses GITHUB_TOKEN automatically
+    local pr_url
+    local pr_body
+    pr_body=$(jq -n \
+        --arg task "$MINION_TASK" \
+        --arg minion_id "$MINION_ID" \
+        '
+## Minion Task
+
+\($task)
+
+---
+_Automated PR by Minion `\($minion_id)`_
+')
+
+    # gh pr create returns the PR URL on success
+    pr_url=$(gh pr create \
+        --title "feat: ${commit_subject}" \
+        --body "$pr_body" \
+        --head "${branch_name}" \
+        2>&1) || {
+        local exit_code=$?
+        log "gh pr create stderr: ${pr_url}"
+        return $exit_code
+    }
+
+    log "PR created: ${pr_url}"
+    echo "${pr_url}"
+}
+
+# Send callback to orchestrator
+send_callback() {
+    local status="$1"
+    local pr_url="${2:-}"
+    local error_msg="${3:-}"
+
+    local callback_url="${ORCHESTRATOR_URL}/api/minions/${MINION_ID}/callback"
+    log "Sending callback to orchestrator: status=${status}"
+
+    local payload
+    payload=$(jq -n \
+        --arg status "$status" \
+        --arg pr_url "$pr_url" \
+        --arg error "$error_msg" \
+        --arg session_id "${SESSION_ID:-}" \
+        '{
+            status: $status,
+            session_id: $session_id
+        } + (if $pr_url != "" then {pr_url: $pr_url} else {} end)
+          + (if $error != "" then {error: $error} else {} end)')
+
+    local http_code
+    http_code=$(curl -sf -X POST "${callback_url}" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer ${INTERNAL_API_TOKEN:-}" \
+        -d "$payload" \
+        -w "%{http_code}" \
+        -o /dev/null) || {
+        log "Callback failed: HTTP ${http_code}"
+        return 1
+    }
+
+    if [[ "$http_code" -ge 200 && "$http_code" -lt 300 ]]; then
+        log "Callback sent successfully"
+        return 0
+    else
+        log "Callback failed: HTTP ${http_code}"
+        return 1
+    fi
+}
+
 # Main execution
 main() {
     validate_env
@@ -201,12 +322,30 @@ main() {
     send_task
 
     # Wait for task to complete
-    # Note: PR creation and callbacks are handled in subsequent tasks (devbox-3, devbox-4)
     if wait_for_completion; then
         log "Task completed successfully"
-        exit 0
+        
+        # Attempt to create PR
+        local pr_url
+        if pr_url=$(create_pr); then
+            log "PR created successfully"
+            send_callback "completed" "$pr_url"
+        else
+            # No changes or PR creation failed
+            # create_pr returns 1 for "no changes", other codes for errors
+            if ! has_changes; then
+                log "No changes to commit - task completed with no modifications"
+                # Note: devbox-5 will handle this case with a proper "no changes" status
+                send_callback "completed" "" "No changes"
+            else
+                log "PR creation failed"
+                send_callback "failed" "" "PR creation failed"
+                exit 1
+            fi
+        fi
     else
         log "Task failed"
+        send_callback "failed" "" "Task execution failed"
         exit 1
     fi
 }

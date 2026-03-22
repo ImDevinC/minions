@@ -89,12 +89,13 @@ type PodSpawner interface {
 
 // SpawnParams contains parameters for spawning a minion pod.
 type SpawnParams struct {
-	MinionID    uuid.UUID
-	Repo        string
-	Task        string
-	Model       string
-	GitHubToken string // Installation token for repo access
-	CallbackURL string // URL for devbox to POST completion callback
+	MinionID         uuid.UUID
+	Repo             string
+	Task             string
+	Model            string
+	GitHubToken      string // Installation token for repo access
+	OrchestratorURL  string // Base URL for orchestrator (callbacks, etc.)
+	InternalAPIToken string // Token for authenticating with orchestrator
 }
 
 // PodManager handles both pod creation and termination.
@@ -386,7 +387,8 @@ func (c *Client) buildEnvVars(params SpawnParams) []corev1.EnvVar {
 		{Name: "MINION_TASK", Value: params.Task},
 		{Name: "MINION_MODEL", Value: params.Model},
 		{Name: "GITHUB_TOKEN", Value: params.GitHubToken},
-		{Name: "CALLBACK_URL", Value: params.CallbackURL},
+		{Name: "ORCHESTRATOR_URL", Value: params.OrchestratorURL},
+		{Name: "INTERNAL_API_TOKEN", Value: params.InternalAPIToken},
 	}
 
 	// Add LLM API keys if configured
