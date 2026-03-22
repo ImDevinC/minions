@@ -405,3 +405,15 @@ Started: 2026-03-21
 - TypeScript module augmentation for session.user.id in `src/types/next-auth.d.ts`
 - Files: `control-panel/` (new module), `src/app/`, `src/lib/auth.ts`, `src/components/sign-out-button.tsx`
 - **Learnings:** NextAuth 4.x uses route handlers in App Router (not pages/api); JWT strategy needed for stateless session; module augmentation extends Session type for custom fields
+
+## Task - panel-2
+- Created `src/types/minion.ts` with MinionSummary, MinionDetail, MinionStatus types matching orchestrator API
+- Created `src/lib/orchestrator.ts` with server-side API client (listMinions, getMinion, terminateMinion)
+- Created `src/components/minion-card.tsx` with MinionCard and MinionCardSkeleton components
+- Status indicators: pending (gray), awaiting_clarification (yellow), running (blue+pulse), completed (green), failed (red), terminated (orange)
+- Updated `src/app/page.tsx` with minion card grid, empty state, error handling, Suspense loading
+- Created placeholder `src/app/minions/[id]/page.tsx` for detail page (full implementation in panel-3)
+- Cards show: status badge, repo (owner/repo split), task preview, model, relative time, error/PR indicator
+- Cards link to `/minions/{id}` detail page
+- Files: `src/types/minion.ts`, `src/lib/orchestrator.ts`, `src/components/minion-card.tsx`, `src/app/page.tsx`, `src/app/minions/[id]/page.tsx`
+- **Learnings:** Server Components + Suspense perfect for data fetching; line-clamp-2 for task truncation; pulse animation on running status provides visual activity indicator

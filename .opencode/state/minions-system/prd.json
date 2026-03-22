@@ -476,7 +476,7 @@
         "Status indicators: pending (gray), running (blue pulse), completed (green), failed (red), terminated (orange)",
         "Cards link to detail page"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "panel-3",
