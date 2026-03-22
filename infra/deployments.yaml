@@ -33,6 +33,41 @@ spec:
         runAsUser: 1000
         runAsGroup: 1000
         fsGroup: 1000
+      initContainers:
+        # Run database migrations before starting orchestrator
+        - name: migrate
+          image: postgres:16-alpine
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              echo "Running database migrations..."
+              for f in /migrations/*.sql; do
+                echo "Applying: $f"
+                psql "$DATABASE_URL" -f "$f"
+              done
+              echo "Migrations complete."
+          envFrom:
+            - secretRef:
+                name: minions-db
+          volumeMounts:
+            - name: migrations
+              mountPath: /migrations
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
       containers:
         - name: orchestrator
           image: ghcr.io/imdevinc/minions/orchestrator:latest
@@ -89,6 +124,10 @@ spec:
             capabilities:
               drop:
                 - ALL
+      volumes:
+        - name: migrations
+          configMap:
+            name: db-migrations
 
 ---
 # Orchestrator Service
