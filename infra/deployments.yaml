@@ -85,6 +85,9 @@ spec:
             # Container image for spawning minion devbox pods
             - name: DEVBOX_IMAGE
               value: "ghcr.io/imdevinc/minions/devbox:latest"
+            # Orchestrator URL for pod callbacks
+            - name: ORCHESTRATOR_URL
+              value: "http://orchestrator.minions.svc.cluster.local:8080"
           envFrom:
             # DATABASE_URL
             - secretRef:

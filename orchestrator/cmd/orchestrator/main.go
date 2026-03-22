@@ -16,6 +16,7 @@ import (
 	"github.com/anomalyco/minions/orchestrator/internal/github"
 	"github.com/anomalyco/minions/orchestrator/internal/k8s"
 	"github.com/anomalyco/minions/orchestrator/internal/reconciler"
+	"github.com/anomalyco/minions/orchestrator/internal/spawner"
 	"github.com/anomalyco/minions/orchestrator/internal/streaming"
 	"github.com/anomalyco/minions/orchestrator/internal/watchdog"
 	"github.com/anomalyco/minions/orchestrator/internal/webhook"
@@ -81,6 +82,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	// ORCHESTRATOR_URL is required for pod callback URLs
+	// (e.g., http://orchestrator.minions.svc.cluster.local:8080 in k8s)
+	orchestratorURL := os.Getenv("ORCHESTRATOR_URL")
+	if orchestratorURL == "" {
+		logger.Error("ORCHESTRATOR_URL environment variable is required")
+		os.Exit(1)
+	}
+
 	// Connect to database
 	ctx := context.Background()
 	pool, err := db.Connect(ctx, db.Config{
@@ -117,7 +126,6 @@ func main() {
 		os.Exit(1)
 	}
 	logger.Info("github token manager initialized", "app_id", githubAppID)
-	_ = tokenManager // TODO: wire into spawner (integration-2)
 
 	// Create webhook notifier for Discord bot callbacks
 	// DISCORD_BOT_WEBHOOK_URL is optional; if not set, use no-op notifier
@@ -168,7 +176,26 @@ func main() {
 		Logger:  logger,
 	})
 	logger.Info("SSE client initialized", "pod_port", 4096)
-	_ = sseClient // TODO: wire into spawner (integration-2)
+
+	// Initialize spawner for background pod creation
+	spwn := spawner.New(
+		minionStore, // MinionQuerier
+		minionStore, // MinionUpdater
+		tokenManager,
+		podManager,
+		sseClient,
+		spawner.Config{
+			OrchestratorURL:  orchestratorURL,
+			InternalAPIToken: apiToken,
+		},
+		logger,
+	)
+
+	// Start spawner (polls for pending minions)
+	spawnerCtx, spawnerCancel := context.WithCancel(ctx)
+	defer spawnerCancel()
+	spwn.Start(spawnerCtx)
+	logger.Info("spawner started")
 
 	// Start the watchdog for idle minion detection and failed pod monitoring
 	wdog := watchdog.New(minionStore, podManager, notifier, logger)
@@ -213,6 +240,10 @@ func main() {
 	// Stop the watchdog
 	wdog.Stop()
 	logger.Info("watchdog stopped")
+
+	// Stop the spawner
+	spwn.Stop()
+	logger.Info("spawner stopped")
 
 	// Stop the WebSocket hub
 	hub.Stop()

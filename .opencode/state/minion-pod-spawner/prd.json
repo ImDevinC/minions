@@ -120,7 +120,7 @@
         "Spawner.Stop() called during shutdown after watchdog",
         "Structured logs capture startup and shutdown events"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "testing-1",

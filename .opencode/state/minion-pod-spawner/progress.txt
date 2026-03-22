@@ -85,3 +85,15 @@ Started: 2026-03-22
 - SSE client ready for spawner injection (marked unused with TODO for integration-2)
 - Files changed: `orchestrator/cmd/orchestrator/main.go` (lines 157-171)
 - **Learnings:** SSE client chain: SSEClient -> DBEventHandler -> (EventStore + Hub). Handler routes events to DB and broadcasts to WebSocket clients.
+
+## Task - integration-2
+- Wired spawner into main.go startup/shutdown lifecycle
+- Added ORCHESTRATOR_URL env var loading with validation
+- Initialized spawner with all dependencies: minionStore (querier+updater), tokenManager, podManager, sseClient, config, logger
+- Spawner.Start() called after SSE client init, before watchdog
+- Spawner.Stop() called during shutdown after watchdog
+- Added ORCHESTRATOR_URL to infra/deployments.yaml for orchestrator container
+- Files changed:
+  - `orchestrator/cmd/orchestrator/main.go` (lines 19, 85-92, 178-195, 247-249)
+  - `infra/deployments.yaml` (added ORCHESTRATOR_URL env var)
+- **Learnings:** Startup order matters: reconciler -> hub -> SSE client -> spawner -> watchdog -> server. Shutdown is reverse: watchdog -> spawner -> hub -> server.
