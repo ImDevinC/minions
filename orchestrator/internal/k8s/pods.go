@@ -44,12 +44,25 @@ const (
 	PodPollInterval = 2 * time.Second
 )
 
+// PodInfo contains basic information about a pod.
+type PodInfo struct {
+	Name     string
+	MinionID string // extracted from label "minion-id"
+	Phase    string // Running, Pending, Failed, Succeeded, Unknown
+}
+
 // PodTerminator handles pod lifecycle termination.
 // Implementations may use the real Kubernetes client or be a no-op for testing.
 type PodTerminator interface {
 	// TerminatePod deletes a pod by name.
 	// Returns nil if pod doesn't exist (idempotent).
 	TerminatePod(ctx context.Context, podName string) error
+}
+
+// PodLister can list pods in the namespace.
+type PodLister interface {
+	// ListPods returns all minion pods in the namespace.
+	ListPods(ctx context.Context) ([]PodInfo, error)
 }
 
 // PodSpawner handles pod creation for minion tasks.
@@ -78,10 +91,11 @@ type SpawnParams struct {
 }
 
 // PodManager handles both pod creation and termination.
-// Combines PodSpawner and PodTerminator interfaces for convenience.
+// Combines PodSpawner, PodTerminator, and PodLister interfaces for convenience.
 type PodManager interface {
 	PodSpawner
 	PodTerminator
+	PodLister
 }
 
 // Config holds configuration for the Kubernetes client.
@@ -394,6 +408,28 @@ func (c *Client) TerminatePod(ctx context.Context, podName string) error {
 	return nil
 }
 
+// ListPods returns all minion pods in the namespace.
+func (c *Client) ListPods(ctx context.Context) ([]PodInfo, error) {
+	pods, err := c.clientset.CoreV1().Pods(Namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: "app=minion-devbox",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list pods: %w", err)
+	}
+
+	result := make([]PodInfo, 0, len(pods.Items))
+	for _, pod := range pods.Items {
+		info := PodInfo{
+			Name:     pod.Name,
+			MinionID: pod.Labels["minion-id"],
+			Phase:    string(pod.Status.Phase),
+		}
+		result = append(result, info)
+	}
+
+	return result, nil
+}
+
 // NoOpPodTerminator is a stub implementation that does nothing.
 // Use this when k8s is not configured or for testing.
 type NoOpPodTerminator struct {
@@ -458,4 +494,12 @@ func (m *NoOpPodManager) TerminatePod(ctx context.Context, podName string) error
 		m.logger.Info("no-op pod termination (k8s not configured)", "pod_name", podName)
 	}
 	return nil
+}
+
+// ListPods returns an empty list (no k8s configured).
+func (m *NoOpPodManager) ListPods(ctx context.Context) ([]PodInfo, error) {
+	if m.logger != nil {
+		m.logger.Info("no-op pod list (k8s not configured)")
+	}
+	return []PodInfo{}, nil
 }

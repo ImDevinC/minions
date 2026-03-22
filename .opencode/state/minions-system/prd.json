@@ -217,7 +217,7 @@
         "Log count of orphaned minions marked as failed",
         "Log count of stray pods deleted"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "github-1",

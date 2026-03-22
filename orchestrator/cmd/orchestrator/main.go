@@ -13,6 +13,7 @@ import (
 	"github.com/anomalyco/minions/orchestrator/internal/api"
 	"github.com/anomalyco/minions/orchestrator/internal/db"
 	"github.com/anomalyco/minions/orchestrator/internal/k8s"
+	"github.com/anomalyco/minions/orchestrator/internal/reconciler"
 	"github.com/anomalyco/minions/orchestrator/internal/webhook"
 )
 
@@ -58,17 +59,33 @@ func main() {
 	defer pool.Close()
 	logger.Info("connected to database")
 
-	// TODO(k8s-1): Replace with real k8s.NewPodTerminator once k8s client is implemented
-	podTerminator := k8s.NewNoOpPodTerminator(logger)
+	// TODO(k8s-1): Replace with real k8s.NewClient once k8s is configured
+	podManager := k8s.NewNoOpPodManager(logger)
 
 	// TODO(bot-6): Replace with real webhook.NewNotifier once webhook client is implemented
 	notifier := webhook.NewNoOpNotifier(logger)
+
+	// Create stores
+	minionStore := db.NewMinionStore(pool)
+
+	// Run reconciliation BEFORE starting HTTP server
+	// This ensures DB state is consistent with k8s state
+	rec := reconciler.New(minionStore, podManager, logger)
+	result, err := rec.Run(ctx)
+	if err != nil {
+		logger.Error("reconciliation failed", "error", err)
+		os.Exit(1)
+	}
+	logger.Info("reconciliation completed",
+		"orphaned_minions", result.OrphanedMinions,
+		"stray_pods", result.StrayPods,
+	)
 
 	router := api.NewRouter(api.RouterConfig{
 		Logger:        logger,
 		APIToken:      apiToken,
 		Pool:          pool,
-		PodTerminator: podTerminator,
+		PodTerminator: podManager,
 		Notifier:      notifier,
 	})
 

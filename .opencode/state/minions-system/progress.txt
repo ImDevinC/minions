@@ -160,3 +160,15 @@ Started: 2026-03-21
 - Updated `PodSpawner` interface, `NoOpPodManager` to include new method
 - Files: `internal/k8s/pods.go`, `internal/k8s/pods_test.go`
 - **Learnings:** Pod readiness uses the PodReady condition type, not just phase; ticker-based polling with context timeout is idiomatic for k8s watches without informers
+
+## Task - k8s-4
+- Created `internal/reconciler/reconciler.go` with Reconciler struct
+- Added `ListByStatuses` method to MinionStore for fetching pending/running minions
+- Added `ListPods` method to k8s Client and NoOpPodManager for listing minion pods
+- Added `MarkFailed` method to MinionStore for marking orphaned minions
+- Reconciler runs BEFORE HTTP server in main.go
+- Orphan detection: minion with no pod OR pod in Failed/Succeeded phase
+- Stray pod detection: pods with minion-id label not in active minions, or no label
+- Comprehensive test coverage: 10 test cases covering all scenarios
+- Files: `internal/reconciler/reconciler.go` (new), `internal/reconciler/reconciler_test.go` (new), `internal/db/minions.go`, `internal/k8s/pods.go`, `cmd/orchestrator/main.go`
+- **Learnings:** Reconciliation should be fail-fast (error on list failures) but graceful on individual item failures (continue processing others)

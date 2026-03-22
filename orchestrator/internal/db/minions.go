@@ -496,6 +496,73 @@ func (s *MinionStore) SetClarification(ctx context.Context, params SetClarificat
 // ErrInvalidStatusTransition indicates an invalid status transition was attempted.
 var ErrInvalidStatusTransition = errors.New("invalid status transition")
 
+// ListByStatuses returns minions with any of the given statuses.
+// Used for reconciliation queries (e.g., find all pending/running minions).
+func (s *MinionStore) ListByStatuses(ctx context.Context, statuses []MinionStatus) ([]*Minion, error) {
+	if len(statuses) == 0 {
+		return []*Minion{}, nil
+	}
+
+	// Build query with IN clause
+	query := `SELECT id, user_id, repo, task, model, status,
+		        clarification_question, clarification_answer, clarification_message_id,
+		        input_tokens, output_tokens, cost_usd,
+		        pr_url, error, session_id, pod_name,
+		        discord_message_id, discord_channel_id,
+		        created_at, started_at, completed_at, last_activity_at
+		 FROM minions WHERE status = ANY($1)`
+
+	// Convert to []string for pgx array handling
+	statusStrings := make([]string, len(statuses))
+	for i, s := range statuses {
+		statusStrings[i] = string(s)
+	}
+
+	rows, err := s.pool.Query(ctx, query, statusStrings)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var minions []*Minion
+	for rows.Next() {
+		m := &Minion{}
+		err := rows.Scan(
+			&m.ID, &m.UserID, &m.Repo, &m.Task, &m.Model, &m.Status,
+			&m.ClarificationQuestion, &m.ClarificationAnswer, &m.ClarificationMessageID,
+			&m.InputTokens, &m.OutputTokens, &m.CostUSD,
+			&m.PRURL, &m.Error, &m.SessionID, &m.PodName,
+			&m.DiscordMessageID, &m.DiscordChannelID,
+			&m.CreatedAt, &m.StartedAt, &m.CompletedAt, &m.LastActivityAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		minions = append(minions, m)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return minions, nil
+}
+
+// MarkFailed marks a minion as failed with the given error message.
+// Used by reconciliation to mark orphaned minions.
+func (s *MinionStore) MarkFailed(ctx context.Context, id uuid.UUID, errorMsg string) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE minions SET 
+			status = $1, 
+			error = $2, 
+			completed_at = NOW(), 
+			last_activity_at = NOW() 
+		WHERE id = $3 AND status NOT IN ($4, $5, $6)`,
+		StatusFailed, errorMsg, id, StatusCompleted, StatusFailed, StatusTerminated,
+	)
+	return err
+}
+
 // GetStats returns aggregate statistics across all minions.
 func (s *MinionStore) GetStats(ctx context.Context) (*Stats, error) {
 	stats := &Stats{
