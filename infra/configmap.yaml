@@ -1,0 +1,21 @@
+# ConfigMaps for the minions system
+# Contains configuration files mounted into pods
+
+---
+# OpenCode configuration for devbox pods
+# Configures OpenRouter as the LLM provider
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: opencode-config
+  namespace: minions
+  labels:
+    app.kubernetes.io/part-of: minions
+data:
+  opencode.json: |
+    {
+      "$schema": "https://opencode.ai/config.json",
+      "provider": {
+        "openrouter": {}
+      }
+    }

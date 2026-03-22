@@ -113,9 +113,8 @@ type Config struct {
 	// e.g., "ghcr.io/anomalyco/minions-devbox:latest"
 	DevboxImage string
 
-	// APIKeys for LLM providers, passed as env vars to devbox.
-	AnthropicAPIKey string
-	OpenAIAPIKey    string
+	// OpenRouterAPIKey is passed as env var to devbox for LLM access via OpenRouter.
+	OpenRouterAPIKey string
 }
 
 // Client provides Kubernetes operations for minion pods.
@@ -179,6 +178,31 @@ func (c *Client) SpawnPod(ctx context.Context, params SpawnParams) (string, erro
 				RunAsGroup:   &nonRootGID,
 				FSGroup:      &nonRootGID,
 			},
+			// Init container copies OpenCode config to home directory
+			InitContainers: []corev1.Container{
+				{
+					Name:  "setup-opencode-config",
+					Image: "busybox:1.36",
+					Command: []string{
+						"sh", "-c",
+						"mkdir -p /home/minion/.config/opencode && cp /etc/opencode/opencode.json /home/minion/.config/opencode/opencode.json",
+					},
+					SecurityContext: &corev1.SecurityContext{
+						RunAsNonRoot:             &trueVal,
+						RunAsUser:                &nonRootUID,
+						RunAsGroup:               &nonRootGID,
+						AllowPrivilegeEscalation: &falseVal,
+						ReadOnlyRootFilesystem:   &trueVal,
+						Capabilities: &corev1.Capabilities{
+							Drop: []corev1.Capability{"ALL"},
+						},
+					},
+					VolumeMounts: []corev1.VolumeMount{
+						{Name: "home", MountPath: "/home/minion"},
+						{Name: "opencode-config", MountPath: "/etc/opencode", ReadOnly: true},
+					},
+				},
+			},
 			Containers: []corev1.Container{
 				{
 					Name:  "devbox",
@@ -220,6 +244,16 @@ func (c *Client) SpawnPod(ctx context.Context, params SpawnParams) (string, erro
 					Name: "home",
 					VolumeSource: corev1.VolumeSource{
 						EmptyDir: &corev1.EmptyDirVolumeSource{},
+					},
+				},
+				{
+					Name: "opencode-config",
+					VolumeSource: corev1.VolumeSource{
+						ConfigMap: &corev1.ConfigMapVolumeSource{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: "opencode-config",
+							},
+						},
 					},
 				},
 			},
@@ -391,12 +425,9 @@ func (c *Client) buildEnvVars(params SpawnParams) []corev1.EnvVar {
 		{Name: "INTERNAL_API_TOKEN", Value: params.InternalAPIToken},
 	}
 
-	// Add LLM API keys if configured
-	if c.config.AnthropicAPIKey != "" {
-		envs = append(envs, corev1.EnvVar{Name: "ANTHROPIC_API_KEY", Value: c.config.AnthropicAPIKey})
-	}
-	if c.config.OpenAIAPIKey != "" {
-		envs = append(envs, corev1.EnvVar{Name: "OPENAI_API_KEY", Value: c.config.OpenAIAPIKey})
+	// Add OpenRouter API key for LLM access
+	if c.config.OpenRouterAPIKey != "" {
+		envs = append(envs, corev1.EnvVar{Name: "OPENROUTER_API_KEY", Value: c.config.OpenRouterAPIKey})
 	}
 
 	return envs

@@ -53,10 +53,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	// ANTHROPIC_API_KEY is required for clarification LLM
-	anthropicKey := os.Getenv("ANTHROPIC_API_KEY")
-	if anthropicKey == "" {
-		logger.Error("ANTHROPIC_API_KEY environment variable is required")
+	// OPENROUTER_API_KEY is required for clarification LLM
+	openrouterKey := os.Getenv("OPENROUTER_API_KEY")
+	if openrouterKey == "" {
+		logger.Error("OPENROUTER_API_KEY environment variable is required")
 		os.Exit(1)
 	}
 
@@ -64,7 +64,7 @@ func main() {
 	orchClient := orchestrator.NewClient(orchestratorURL, apiToken)
 
 	// Create clarification LLM client and handler
-	llmClient := clarify.NewAnthropicClient(anthropicKey)
+	llmClient := clarify.NewOpenRouterClient(openrouterKey)
 	clarifyHandler := clarify.NewHandler(llmClient, logger)
 
 	// Create Discord session
