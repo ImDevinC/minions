@@ -29,3 +29,9 @@ Started: 2026-03-21
 - FK with ON DELETE CASCADE verified, events deleted when parent minion deleted
 - Composite index on (minion_id, timestamp) for efficient chronological event retrieval
 - **Learnings:** JSONB content with default '{}' allows flexible schema evolution for different event types
+
+## Task - db-4
+- Created `schema/migrations/004_create_indexes.sql`
+- Indexes: status (filter), (status, last_activity_at) (watchdog), clarification_message_id (reply lookup)
+- Used partial index for clarification_message_id (WHERE NOT NULL) to save space
+- **Learnings:** Partial indexes exclude NULL values by default, reducing index size for sparse columns

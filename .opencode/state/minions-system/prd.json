@@ -45,7 +45,7 @@
         "Verify index on minions(status, last_activity_at) for watchdog query",
         "Verify index on minions(clarification_message_id) for reply lookup"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "orchestrator-1",
