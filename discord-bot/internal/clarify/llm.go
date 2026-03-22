@@ -26,21 +26,22 @@ type LLM interface {
 	Evaluate(ctx context.Context, repo, task string) (*LLMResponse, error)
 }
 
-// AnthropicClient calls the Anthropic API for clarification evaluation.
-type AnthropicClient struct {
+// OpenRouterClient calls the OpenRouter API for clarification evaluation.
+// OpenRouter provides a unified API to access models from Anthropic, OpenAI, and others.
+type OpenRouterClient struct {
 	apiKey     string
 	httpClient *http.Client
 	model      string
 }
 
-// NewAnthropicClient creates a new Anthropic clarification client.
-func NewAnthropicClient(apiKey string) *AnthropicClient {
-	return &AnthropicClient{
+// NewOpenRouterClient creates a new OpenRouter clarification client.
+func NewOpenRouterClient(apiKey string) *OpenRouterClient {
+	return &OpenRouterClient{
 		apiKey: apiKey,
 		httpClient: &http.Client{
 			Timeout: 60 * time.Second,
 		},
-		model: "claude-sonnet-4-5-20250514", // Latest sonnet for quick clarification
+		model: "anthropic/claude-sonnet-4", // Claude Sonnet 4 via OpenRouter
 	}
 }
 
@@ -69,11 +70,10 @@ Examples of tasks that need clarification:
 
 Only ask ONE question. Be direct and specific.`
 
-// anthropicRequest is the request body for the Anthropic API.
-type anthropicRequest struct {
+// openRouterRequest is the request body for the OpenRouter API (OpenAI-compatible format).
+type openRouterRequest struct {
 	Model     string    `json:"model"`
 	MaxTokens int       `json:"max_tokens"`
-	System    string    `json:"system,omitempty"`
 	Messages  []message `json:"messages"`
 }
 
@@ -82,27 +82,29 @@ type message struct {
 	Content string `json:"content"`
 }
 
-// anthropicResponse is the response body from the Anthropic API.
-type anthropicResponse struct {
-	Content []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	} `json:"content"`
+// openRouterResponse is the response body from the OpenRouter API (OpenAI-compatible format).
+type openRouterResponse struct {
+	Choices []struct {
+		Message struct {
+			Content string `json:"content"`
+		} `json:"message"`
+	} `json:"choices"`
 	Error *struct {
-		Type    string `json:"type"`
 		Message string `json:"message"`
+		Type    string `json:"type"`
+		Code    string `json:"code"`
 	} `json:"error,omitempty"`
 }
 
-// Evaluate sends the task to Claude and returns whether it's ready or needs clarification.
-func (c *AnthropicClient) Evaluate(ctx context.Context, repo, task string) (*LLMResponse, error) {
+// Evaluate sends the task to Claude via OpenRouter and returns whether it's ready or needs clarification.
+func (c *OpenRouterClient) Evaluate(ctx context.Context, repo, task string) (*LLMResponse, error) {
 	userContent := fmt.Sprintf("Repository: %s\n\nTask: %s", repo, task)
 
-	reqBody := anthropicRequest{
+	reqBody := openRouterRequest{
 		Model:     c.model,
 		MaxTokens: 256, // Clarification responses should be short
-		System:    clarificationPrompt,
 		Messages: []message{
+			{Role: "system", Content: clarificationPrompt},
 			{Role: "user", Content: userContent},
 		},
 	}
@@ -112,14 +114,15 @@ func (c *AnthropicClient) Evaluate(ctx context.Context, repo, task string) (*LLM
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.anthropic.com/v1/messages", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://openrouter.ai/api/v1/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-api-key", c.apiKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("HTTP-Referer", "https://github.com/anomalyco/minions")
+	req.Header.Set("X-Title", "Minions Discord Bot")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -133,32 +136,23 @@ func (c *AnthropicClient) Evaluate(ctx context.Context, repo, task string) (*LLM
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		var apiResp anthropicResponse
+		var apiResp openRouterResponse
 		if err := json.Unmarshal(respBody, &apiResp); err == nil && apiResp.Error != nil {
-			return nil, fmt.Errorf("anthropic error: %s - %s", apiResp.Error.Type, apiResp.Error.Message)
+			return nil, fmt.Errorf("openrouter error: %s - %s", apiResp.Error.Type, apiResp.Error.Message)
 		}
-		return nil, fmt.Errorf("anthropic error: status %d: %s", resp.StatusCode, string(respBody))
+		return nil, fmt.Errorf("openrouter error: status %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	var apiResp anthropicResponse
+	var apiResp openRouterResponse
 	if err := json.Unmarshal(respBody, &apiResp); err != nil {
 		return nil, fmt.Errorf("unmarshal response: %w", err)
 	}
 
-	if len(apiResp.Content) == 0 {
-		return nil, fmt.Errorf("empty response from anthropic")
+	if len(apiResp.Choices) == 0 {
+		return nil, fmt.Errorf("empty response from openrouter")
 	}
 
-	// Extract text response
-	text := ""
-	for _, block := range apiResp.Content {
-		if block.Type == "text" {
-			text = block.Text
-			break
-		}
-	}
-
-	text = strings.TrimSpace(text)
+	text := strings.TrimSpace(apiResp.Choices[0].Message.Content)
 
 	// Check if the response indicates ready
 	if strings.ToUpper(text) == "READY" {
