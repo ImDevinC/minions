@@ -1,0 +1,17 @@
+# Progress Log
+PRD: minions-system
+Started: 2026-03-21
+
+## Codebase Patterns
+- Migrations: `schema/migrations/NNN_description.sql` - raw SQL, no ORM
+- UUID PKs with `gen_random_uuid()` default
+- Timestamps: `TIMESTAMPTZ NOT NULL DEFAULT NOW()` for created_at/updated_at
+
+---
+<!-- Task logs below - APPEND ONLY -->
+
+## Task - db-1
+- Created `schema/migrations/001_create_users_table.sql`
+- Columns: id (UUID PK), discord_id (TEXT UNIQUE NOT NULL), discord_username (TEXT NOT NULL), avatar_url (TEXT nullable), created_at, updated_at
+- Verified against postgres:16-alpine in docker
+- **Learnings:** gen_random_uuid() is built into PG 13+, no extension needed
