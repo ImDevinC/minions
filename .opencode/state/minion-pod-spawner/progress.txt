@@ -33,3 +33,15 @@ Started: 2026-03-22
 - On token error: logs error, calls MarkFailed with descriptive message, continues to next minion
 - Files changed: `orchestrator/internal/spawner/spawner.go` (lines 24-35, 38-56, 116-155)
 - **Learnings:** Interface composition keeps spawner testable; error handling pattern: log + mark failed + return (don't crash loop)
+
+## Task - spawner-3
+- Added `PodSpawner` interface and `Config` struct to spawner
+- `PodSpawner` exposes `SpawnPodWithRetry` and `WaitForPodReady` methods
+- `Config` holds `OrchestratorURL` and `InternalAPIToken` for SpawnParams
+- Updated `New()` to accept `PodSpawner` and `Config` dependencies
+- `processMinion` now:
+  1. Builds `k8s.SpawnParams` with all required fields
+  2. Calls `SpawnPodWithRetry` and marks minion failed if exhausted
+  3. Calls `WaitForPodReady` and marks minion failed if timeout
+- Files changed: `orchestrator/internal/spawner/spawner.go` (lines 38-66, 68-80, 170-228)
+- **Learnings:** Keep interface minimal (only methods needed); Config struct cleaner than many params

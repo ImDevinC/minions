@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/anomalyco/minions/orchestrator/internal/db"
+	"github.com/anomalyco/minions/orchestrator/internal/k8s"
 )
 
 // PollInterval is how often the spawner checks for pending minions.
@@ -34,22 +35,44 @@ type TokenManager interface {
 	GetToken(ctx context.Context, repo string) (string, error)
 }
 
+// PodSpawner handles pod creation and readiness checks.
+type PodSpawner interface {
+	// SpawnPodWithRetry creates a pod with exponential backoff retry.
+	SpawnPodWithRetry(ctx context.Context, params k8s.SpawnParams) (podName string, err error)
+
+	// WaitForPodReady waits for a pod to become ready.
+	WaitForPodReady(ctx context.Context, podName string) error
+}
+
+// Config holds configuration for the spawner.
+type Config struct {
+	// OrchestratorURL is the base URL for orchestrator callbacks.
+	OrchestratorURL string
+
+	// InternalAPIToken is used to authenticate with the orchestrator.
+	InternalAPIToken string
+}
+
 // Spawner polls for pending minions and spawns pods for them.
 type Spawner struct {
 	minions      MinionQuerier
 	minionUpdate MinionUpdater
 	tokens       TokenManager
+	pods         PodSpawner
+	config       Config
 	logger       *slog.Logger
 	stopCh       chan struct{}
 	doneCh       chan struct{}
 }
 
 // New creates a new Spawner instance.
-func New(minions MinionQuerier, minionUpdate MinionUpdater, tokens TokenManager, logger *slog.Logger) *Spawner {
+func New(minions MinionQuerier, minionUpdate MinionUpdater, tokens TokenManager, pods PodSpawner, config Config, logger *slog.Logger) *Spawner {
 	return &Spawner{
 		minions:      minions,
 		minionUpdate: minionUpdate,
 		tokens:       tokens,
+		pods:         pods,
+		config:       config,
 		logger:       logger,
 		stopCh:       make(chan struct{}),
 		doneCh:       make(chan struct{}),
@@ -144,12 +167,62 @@ func (s *Spawner) processMinion(ctx context.Context, m *db.Minion) {
 		"repo", m.Repo,
 	)
 
-	// Token will be passed to SpawnParams in spawner-3
-	_ = token
+	// spawner-3: Spawn pod with retry
+	params := k8s.SpawnParams{
+		MinionID:         m.ID,
+		Repo:             m.Repo,
+		Task:             m.Task,
+		Model:            m.Model,
+		GitHubToken:      token,
+		OrchestratorURL:  s.config.OrchestratorURL,
+		InternalAPIToken: s.config.InternalAPIToken,
+	}
 
-	// TODO(spawner-3 through spawner-6): implement full spawn logic
-	// - spawner-3: SpawnPodWithRetry + WaitForPodReady
-	// - spawner-4: MarkRunning
-	// - spawner-5: Initiate SSE streaming
-	// - spawner-6: Error handling
+	podName, err := s.pods.SpawnPodWithRetry(ctx, params)
+	if err != nil {
+		errMsg := fmt.Sprintf("failed to spawn pod after retries: %v", err)
+		s.logger.Error("pod spawn failed",
+			"minion_id", m.ID,
+			"repo", m.Repo,
+			"error", err,
+		)
+		if markErr := s.minionUpdate.MarkFailed(ctx, m.ID, errMsg); markErr != nil {
+			s.logger.Error("failed to mark minion as failed",
+				"minion_id", m.ID,
+				"error", markErr,
+			)
+		}
+		return
+	}
+
+	s.logger.Info("pod spawned, waiting for readiness",
+		"minion_id", m.ID,
+		"pod_name", podName,
+	)
+
+	// spawner-3: Wait for pod to become ready
+	if err := s.pods.WaitForPodReady(ctx, podName); err != nil {
+		errMsg := fmt.Sprintf("pod failed to become ready: %v", err)
+		s.logger.Error("pod readiness wait failed",
+			"minion_id", m.ID,
+			"pod_name", podName,
+			"error", err,
+		)
+		if markErr := s.minionUpdate.MarkFailed(ctx, m.ID, errMsg); markErr != nil {
+			s.logger.Error("failed to mark minion as failed",
+				"minion_id", m.ID,
+				"error", markErr,
+			)
+		}
+		return
+	}
+
+	s.logger.Info("pod is ready",
+		"minion_id", m.ID,
+		"pod_name", podName,
+	)
+
+	// TODO(spawner-4): MarkRunning
+	// TODO(spawner-5): Initiate SSE streaming
+	_ = podName
 }

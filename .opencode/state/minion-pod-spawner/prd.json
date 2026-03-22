@@ -48,7 +48,7 @@
         "Waits for pod readiness via WaitForPodReady()",
         "Pod spawn failure (after retries exhausted) marks minion as failed"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "spawner-4",
