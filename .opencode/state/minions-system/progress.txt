@@ -545,3 +545,13 @@ Started: 2026-03-21
 - Private key generation: step-by-step with kubectl secret creation commands
 - Troubleshooting: common errors (401, 404, rate limits)
 - **Learnings:** Minions doesn't use GitHub webhooks, only installation token auth; Metadata permission is auto-granted by GitHub
+
+## Task - docs-3
+- Created `docs/setup/discord-app.md`
+- Single application serves both Bot and OAuth2 (control panel)
+- Bot intents: GuildMessages, MessageContent (privileged), Guilds
+- Bot permissions: Send Messages, Add Reactions, Read Message History, View Channels
+- OAuth2: DISCORD_CLIENT_ID + DISCORD_CLIENT_SECRET for NextAuth Discord provider
+- Redirect URL config for NextAuth callback `/api/auth/callback/discord`
+- Troubleshooting: intents errors, OAuth redirect mismatches, Message Content Intent
+- **Learnings:** Message Content Intent became privileged in April 2022; one Discord app handles both bot and OAuth flows

@@ -611,7 +611,7 @@
         "Documents required intents/permissions",
         "Documents OAuth2 configuration for control panel"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "docs-4",
