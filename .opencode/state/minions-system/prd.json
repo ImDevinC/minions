@@ -464,7 +464,7 @@
         "/api/auth/* routes work",
         "Session available in server and client components"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "panel-2",

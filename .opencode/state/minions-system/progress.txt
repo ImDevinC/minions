@@ -393,3 +393,15 @@ Started: 2026-03-21
 - Comprehensive tests for both webhook handler and notifier
 - Files: `discord-bot/internal/handler/webhook.go`, `discord-bot/internal/handler/webhook_test.go`, `discord-bot/cmd/bot/main.go`, `orchestrator/internal/webhook/notifier.go`, `orchestrator/internal/webhook/notifier_test.go`, `orchestrator/cmd/orchestrator/main.go`
 - **Learnings:** Return 200 from webhook even if Discord send fails (best-effort, prevent retries); shortID(uuid) for display-friendly minion IDs in messages
+
+## Task - panel-1
+- Created `control-panel/` Next.js 14 project with App Router
+- NextAuth 4.x with Discord OAuth provider configured in `src/lib/auth.ts`
+- API route at `src/app/api/auth/[...nextauth]/route.ts` handles /api/auth/* endpoints
+- SessionProvider wrapper in `src/app/providers.tsx` for client components
+- Server session access via `getServerSession(authOptions)` in page.tsx
+- Custom sign-in page at `/auth/signin` with Discord branding
+- Custom error page at `/auth/error` with error message handling
+- TypeScript module augmentation for session.user.id in `src/types/next-auth.d.ts`
+- Files: `control-panel/` (new module), `src/app/`, `src/lib/auth.ts`, `src/components/sign-out-button.tsx`
+- **Learnings:** NextAuth 4.x uses route handlers in App Router (not pages/api); JWT strategy needed for stateless session; module augmentation extends Session type for custom fields
