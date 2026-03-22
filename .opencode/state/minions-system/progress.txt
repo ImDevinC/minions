@@ -113,3 +113,18 @@ Started: 2026-03-21
 - Uses COALESCE to handle empty tables (returns 0 instead of NULL)
 - Files: `internal/db/minions.go` (GetStats, Stats, ModelStats), `internal/api/minions.go` (HandleStats), `internal/api/router.go`
 - **Learnings:** COALESCE wrapping SUM aggregates prevents NULL when no rows match; stats endpoint is auth-protected via /api route group
+
+## Task - orchestrator-9
+- Already implemented as part of orchestrator-3
+- Verified all requirements met: user lookup by discord_id, creation if not exists, FK usage, username storage
+- No code changes needed; marked as passed
+- **Learnings:** When tasks are tightly coupled (user handling + minion creation), implementing them together avoids artificial separation
+
+## Task - orchestrator-10
+- Implemented `PATCH /api/minions/:id/clarification` endpoint
+- Added `SetClarification` method to `MinionStore` with transactional status transition (pending → awaiting_clarification)
+- Handler validates: question (required), discord_message_id (required), UUID format
+- Returns 409 Conflict if minion not in pending status
+- Added `ErrInvalidStatusTransition` error type for status transition validation
+- Files: `internal/db/minions.go`, `internal/api/minions.go`, `internal/api/router.go`, `internal/api/minions_test.go`
+- **Learnings:** Status transitions should be explicit and validated; only allow clarification from pending state to prevent race conditions

@@ -608,3 +608,72 @@ func (h *MinionHandler) HandleStats(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error("failed to encode response", "error", err)
 	}
 }
+
+// ClarificationRequest is the request body for PATCH /api/minions/{id}/clarification.
+type ClarificationRequest struct {
+	Question         string `json:"question"`
+	DiscordMessageID string `json:"discord_message_id"`
+}
+
+// ClarificationResponse is the response body for PATCH /api/minions/{id}/clarification.
+type ClarificationResponse struct {
+	Success bool `json:"success"`
+}
+
+// HandleClarification handles PATCH /api/minions/{id}/clarification.
+// Updates minion status to awaiting_clarification with the question.
+func (h *MinionHandler) HandleClarification(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		h.writeError(w, http.StatusBadRequest, "invalid minion id", "INVALID_ID")
+		return
+	}
+
+	var req ClarificationRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.writeError(w, http.StatusBadRequest, "invalid request body", "")
+		return
+	}
+
+	// Validate required fields
+	if req.Question == "" {
+		h.writeError(w, http.StatusBadRequest, "question is required", "MISSING_QUESTION")
+		return
+	}
+	if req.DiscordMessageID == "" {
+		h.writeError(w, http.StatusBadRequest, "discord_message_id is required", "MISSING_DISCORD_MESSAGE_ID")
+		return
+	}
+
+	// Set clarification state
+	err = h.minions.SetClarification(r.Context(), db.SetClarificationParams{
+		ID:                     id,
+		Question:               req.Question,
+		ClarificationMessageID: req.DiscordMessageID,
+	})
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			h.writeError(w, http.StatusNotFound, "minion not found", "NOT_FOUND")
+			return
+		}
+		if errors.Is(err, db.ErrInvalidStatusTransition) {
+			h.writeError(w, http.StatusConflict, "minion is not in pending status", "INVALID_STATUS")
+			return
+		}
+		h.logger.Error("failed to set clarification", "error", err, "minion_id", id)
+		h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+		return
+	}
+
+	h.logger.Info("clarification set",
+		"minion_id", id,
+		"discord_message_id", req.DiscordMessageID,
+	)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(ClarificationResponse{Success: true}); err != nil {
+		h.logger.Error("failed to encode response", "error", err)
+	}
+}

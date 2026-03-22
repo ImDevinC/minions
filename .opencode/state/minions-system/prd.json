@@ -154,7 +154,7 @@
         "Uses user.id as FK for minions.user_id",
         "Stores discord_username from request"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "orchestrator-10",
@@ -167,7 +167,7 @@
         "Returns { success: true }",
         "Returns 404 for non-existent minion"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "k8s-1",

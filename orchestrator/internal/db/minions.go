@@ -439,6 +439,63 @@ type ModelStats struct {
 	Count        int64   `json:"count"`
 }
 
+// SetClarificationParams holds parameters for setting clarification state.
+type SetClarificationParams struct {
+	ID                     uuid.UUID
+	Question               string
+	ClarificationMessageID string
+}
+
+// SetClarification updates a minion's clarification state and sets status to awaiting_clarification.
+// Uses a transaction to atomically check and update status.
+// Returns ErrNotFound if minion doesn't exist.
+// Only allows transition from pending status.
+func (s *MinionStore) SetClarification(ctx context.Context, params SetClarificationParams) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Lock the row and fetch current status
+	var currentStatus MinionStatus
+	err = tx.QueryRow(ctx,
+		`SELECT status FROM minions WHERE id = $1 FOR UPDATE`,
+		params.ID,
+	).Scan(&currentStatus)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+
+	// Only allow transition from pending
+	if currentStatus != StatusPending {
+		return ErrInvalidStatusTransition
+	}
+
+	// Update to awaiting_clarification with question
+	_, err = tx.Exec(ctx,
+		`UPDATE minions SET 
+			status = $1,
+			clarification_question = $2,
+			clarification_message_id = $3,
+			last_activity_at = NOW()
+		WHERE id = $4`,
+		StatusAwaitingClarification, params.Question, params.ClarificationMessageID, params.ID,
+	)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
+// ErrInvalidStatusTransition indicates an invalid status transition was attempted.
+var ErrInvalidStatusTransition = errors.New("invalid status transition")
+
 // GetStats returns aggregate statistics across all minions.
 func (s *MinionStore) GetStats(ctx context.Context) (*Stats, error) {
 	stats := &Stats{
