@@ -97,3 +97,20 @@ Started: 2026-03-22
   - `orchestrator/cmd/orchestrator/main.go` (lines 19, 85-92, 178-195, 247-249)
   - `infra/deployments.yaml` (added ORCHESTRATOR_URL env var)
 - **Learnings:** Startup order matters: reconciler -> hub -> SSE client -> spawner -> watchdog -> server. Shutdown is reverse: watchdog -> spawner -> hub -> server.
+
+## Task - testing-1
+- Created `orchestrator/internal/spawner/spawner_test.go` with comprehensive unit tests
+- Test coverage for all PRD requirements:
+  - `TestSpawner_ProcessesPendingMinions`: verifies full spawn flow (token -> spawn -> wait -> markRunning -> SSE)
+  - `TestSpawner_SkipsNonPendingMinions`: verifies no action when ListPending returns empty
+  - `TestSpawner_HandlesTokenGenerationFailure`: verifies MarkFailed called, no spawn attempted
+  - `TestSpawner_HandlesPodSpawnFailure`: verifies MarkFailed called after spawn error
+  - `TestSpawner_HandlesPodReadinessFailure`: verifies MarkFailed called after readiness timeout
+  - `TestSpawner_StopsCleanlyOnShutdownSignal`: verifies Stop() returns within timeout
+  - `TestSpawner_StopsOnContextCancellation`: verifies graceful stop on ctx.Done()
+- Additional coverage beyond PRD:
+  - `TestSpawner_ContinuesAfterSingleMinionFailure`: verifies loop continues after one failure
+  - `TestSpawner_HandlesConcurrentSpawnErrInvalidStatusTransition`: verifies race handling
+  - `TestSpawner_HandlesListPendingError`: verifies DB query error handling
+- Files changed: `orchestrator/internal/spawner/spawner_test.go` (new file, ~500 lines)
+- **Learnings:** Mock interfaces directly match spawner interfaces; use sync.Mutex for mock state in concurrent tests

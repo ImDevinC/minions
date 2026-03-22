@@ -133,7 +133,7 @@
         "Test spawner handles pod spawn failure",
         "Test spawner stops cleanly on shutdown signal"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "testing-2",
