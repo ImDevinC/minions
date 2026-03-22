@@ -1,0 +1,292 @@
+# NetworkPolicies for minions namespace
+# Restricts network traffic to minimize blast radius of compromised pods
+#
+# Architecture:
+# - Devbox pods: can only reach DNS, HTTPS (GitHub/LLM APIs), and orchestrator callback
+# - Orchestrator: accepts ingress from devbox pods, control panel, and external (via ingress)
+# - Discord bot: similar to orchestrator but with Discord gateway access
+
+---
+# Devbox pods: strictly limited egress
+# These run untrusted code, so lock them down hard
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: devbox-egress
+  namespace: minions
+spec:
+  # Applies to all devbox pods
+  podSelector:
+    matchLabels:
+      app: minion-devbox
+  policyTypes:
+    - Egress
+  egress:
+    # DNS (required for all external resolution)
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # HTTPS egress to any external IP (GitHub, LLM APIs, etc.)
+    # We can't enumerate all external IPs, so allow 443 to 0.0.0.0/0
+    # The alternative would be IP ranges for GitHub/Anthropic/OpenAI, but those change
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            # Exclude private networks - devbox should never talk to other cluster pods
+            # except orchestrator which we allow explicitly below
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+
+    # Orchestrator callback (POST /api/minions/:id/callback)
+    # Allow to orchestrator service within the namespace
+    - to:
+        - podSelector:
+            matchLabels:
+              app: minions-orchestrator
+      ports:
+        - protocol: TCP
+          port: 8080
+
+---
+# Devbox pods: deny all ingress
+# Devbox pods should never receive inbound connections
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: devbox-deny-ingress
+  namespace: minions
+spec:
+  podSelector:
+    matchLabels:
+      app: minion-devbox
+  policyTypes:
+    - Ingress
+  ingress: []  # Empty = deny all
+
+---
+# Orchestrator: controlled ingress
+# Accepts connections from devbox (callbacks), control panel, and external via ingress
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: orchestrator-ingress
+  namespace: minions
+spec:
+  podSelector:
+    matchLabels:
+      app: minions-orchestrator
+  policyTypes:
+    - Ingress
+  ingress:
+    # From devbox pods (callbacks)
+    - from:
+        - podSelector:
+            matchLabels:
+              app: minion-devbox
+      ports:
+        - protocol: TCP
+          port: 8080
+
+    # From control panel (API calls)
+    # Control panel may be in a different namespace, so use namespace selector
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              app.kubernetes.io/name: control-panel
+        - podSelector:
+            matchLabels:
+              app: control-panel
+      ports:
+        - protocol: TCP
+          port: 8080
+
+    # From ingress controller (external access)
+    # Most clusters use ingress-nginx in a specific namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8080
+
+    # Alternative: from any namespace with ingress label
+    # Some clusters use different ingress controllers
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              networking.k8s.io/ingress: "true"
+      ports:
+        - protocol: TCP
+          port: 8080
+
+---
+# Orchestrator: egress to required services
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: orchestrator-egress
+  namespace: minions
+spec:
+  podSelector:
+    matchLabels:
+      app: minions-orchestrator
+  policyTypes:
+    - Egress
+  egress:
+    # DNS
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # Kubernetes API (for pod management)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0  # K8s API IP varies by cluster
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+
+    # PostgreSQL (database)
+    # Typically in a managed service or different namespace
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 5432
+
+    # Discord bot webhook (for notifications)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: minions-discord-bot
+      ports:
+        - protocol: TCP
+          port: 8081
+
+    # GitHub API (for installation tokens)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+
+    # Devbox pods (SSE streaming connection)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: minion-devbox
+      ports:
+        - protocol: TCP
+          port: 4096
+
+---
+# Discord bot: egress to required services
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: discord-bot-egress
+  namespace: minions
+spec:
+  podSelector:
+    matchLabels:
+      app: minions-discord-bot
+  policyTypes:
+    - Egress
+  egress:
+    # DNS
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # Discord API and Gateway (HTTPS + WSS)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+
+    # Orchestrator API (create minions, etc.)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: minions-orchestrator
+      ports:
+        - protocol: TCP
+          port: 8080
+
+    # Anthropic API (clarification LLM)
+    # Already covered by 443 to external above
+
+---
+# Discord bot: ingress from orchestrator (webhooks)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: discord-bot-ingress
+  namespace: minions
+spec:
+  podSelector:
+    matchLabels:
+      app: minions-discord-bot
+  policyTypes:
+    - Ingress
+  ingress:
+    # From orchestrator (webhook callbacks)
+    - from:
+        - podSelector:
+            matchLabels:
+              app: minions-orchestrator
+      ports:
+        - protocol: TCP
+          port: 8081
+
+    # Health checks from kubelet
+    # Kubelet IPs vary, but they come from the node network
+    # Most clusters don't need this explicitly, but adding for completeness
+    - from:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 8081

@@ -502,3 +502,16 @@ Started: 2026-03-21
 - Validated with `kubectl apply --dry-run=client`
 - Files: `infra/secrets.yaml` (new)
 - **Learnings:** Use `stringData` over `data` for human-readable templates; multi-line PEM keys work well with YAML literal block scalars (`|`)
+
+## Task - infra-3
+- Created `infra/network-policies.yaml` with 6 NetworkPolicy resources
+- Devbox egress: DNS (kube-dns pods), HTTPS (0.0.0.0/0:443 excluding private ranges), orchestrator callback (8080)
+- Devbox ingress: deny all (empty ingress list)
+- Orchestrator ingress: from devbox (callbacks), control-panel namespace, ingress-nginx namespace
+- Orchestrator egress: DNS, K8s API (443/6443), PostgreSQL (5432), Discord bot webhook (8081), GitHub API, devbox SSE (4096)
+- Discord bot egress: DNS, Discord API/Gateway (443), orchestrator API (8080)
+- Discord bot ingress: from orchestrator (webhooks on 8081)
+- Private IP ranges excluded from external egress: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+- Validated with `kubectl apply --dry-run=client`
+- Files: `infra/network-policies.yaml` (new)
+- **Learnings:** Empty `ingress: []` denies all; excluding private ranges in ipBlock prevents lateral movement within cluster; namespace selectors need labels to match (ingress-nginx uses `kubernetes.io/metadata.name`)

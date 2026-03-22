@@ -563,7 +563,7 @@
         "Devbox pods: egress to DNS, HTTPS, orchestrator callback only",
         "Orchestrator: ingress from devbox pods, control panel, external"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "infra-4",
