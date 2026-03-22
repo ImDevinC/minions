@@ -70,7 +70,7 @@
         "Uses existing streaming.SSEClient infrastructure",
         "SSE connection failures are non-fatal; client retries automatically"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "spawner-6",

@@ -52,3 +52,11 @@ Started: 2026-03-22
 - MarkRunning errors logged but non-fatal (pod already running, don't orphan it)
 - Files changed: `orchestrator/internal/spawner/spawner.go` (lines 26-33, 220-237)
 - **Learnings:** Error handling philosophy: if the pod is already running, log the DB error and move on. Reconciler can recover orphaned state.
+
+## Task - spawner-5
+- Added `SSEConnector` interface for SSE streaming initiation
+- Spawner now takes `SSEConnector` dependency (implemented by `streaming.SSEClient`)
+- After `MarkRunning` succeeds, calls `sse.Connect(ctx, minionID, podName)`
+- SSE connection is non-blocking and retries automatically on failure
+- Files changed: `orchestrator/internal/spawner/spawner.go` (lines 50-56, 69, 82-84, 251-256)
+- **Learnings:** Interface approach keeps spawner decoupled from SSEClient impl; Connect is async so we just fire and forget

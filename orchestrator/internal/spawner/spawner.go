@@ -48,6 +48,13 @@ type PodSpawner interface {
 	WaitForPodReady(ctx context.Context, podName string) error
 }
 
+// SSEConnector starts SSE event streaming from a pod.
+type SSEConnector interface {
+	// Connect starts streaming events from a pod. Runs in a goroutine and
+	// reconnects automatically on disconnection. Non-blocking.
+	Connect(ctx context.Context, minionID uuid.UUID, podName string)
+}
+
 // Config holds configuration for the spawner.
 type Config struct {
 	// OrchestratorURL is the base URL for orchestrator callbacks.
@@ -63,6 +70,7 @@ type Spawner struct {
 	minionUpdate MinionUpdater
 	tokens       TokenManager
 	pods         PodSpawner
+	sse          SSEConnector
 	config       Config
 	logger       *slog.Logger
 	stopCh       chan struct{}
@@ -70,12 +78,13 @@ type Spawner struct {
 }
 
 // New creates a new Spawner instance.
-func New(minions MinionQuerier, minionUpdate MinionUpdater, tokens TokenManager, pods PodSpawner, config Config, logger *slog.Logger) *Spawner {
+func New(minions MinionQuerier, minionUpdate MinionUpdater, tokens TokenManager, pods PodSpawner, sse SSEConnector, config Config, logger *slog.Logger) *Spawner {
 	return &Spawner{
 		minions:      minions,
 		minionUpdate: minionUpdate,
 		tokens:       tokens,
 		pods:         pods,
+		sse:          sse,
 		config:       config,
 		logger:       logger,
 		stopCh:       make(chan struct{}),
@@ -243,5 +252,11 @@ func (s *Spawner) processMinion(ctx context.Context, m *db.Minion) {
 		"pod_name", podName,
 	)
 
-	// TODO(spawner-5): Initiate SSE streaming
+	// spawner-5: Initiate SSE streaming
+	// Connection failures are non-fatal; SSEClient retries automatically.
+	s.sse.Connect(ctx, m.ID, podName)
+	s.logger.Info("SSE streaming initiated",
+		"minion_id", m.ID,
+		"pod_name", podName,
+	)
 }
