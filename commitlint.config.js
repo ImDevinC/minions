@@ -6,8 +6,9 @@ module.exports = {
   rules: {
     // Enforce lowercase type
     'type-case': [2, 'always', 'lower-case'],
-    // Enforce lowercase subject
-    'subject-case': [2, 'always', 'lower-case'],
+    // Disable subject-case rule - allow any casing in subject
+    // Many commits use sentence-case which is valid conventional commit style
+    'subject-case': [0],
     // Allowed types matching semantic-release config
     'type-enum': [
       2,
