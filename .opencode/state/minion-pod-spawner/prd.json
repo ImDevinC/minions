@@ -36,7 +36,7 @@
         "Token is passed to SpawnParams for pod creation",
         "Token generation failure marks minion as failed with clear error message"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "spawner-3",

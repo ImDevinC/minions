@@ -3,8 +3,11 @@ package spawner
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/anomalyco/minions/orchestrator/internal/db"
 )
@@ -18,21 +21,38 @@ type MinionQuerier interface {
 	ListPending(ctx context.Context) ([]*db.Minion, error)
 }
 
+// MinionUpdater provides methods to update minion status.
+type MinionUpdater interface {
+	// MarkFailed marks a minion as failed with the given error message.
+	MarkFailed(ctx context.Context, id uuid.UUID, errorMsg string) error
+}
+
+// TokenManager generates GitHub App installation tokens for repository access.
+type TokenManager interface {
+	// GetToken returns an installation token for the given repository.
+	// The repo format is "owner/name" (e.g., "anomalyco/minions").
+	GetToken(ctx context.Context, repo string) (string, error)
+}
+
 // Spawner polls for pending minions and spawns pods for them.
 type Spawner struct {
-	minions MinionQuerier
-	logger  *slog.Logger
-	stopCh  chan struct{}
-	doneCh  chan struct{}
+	minions      MinionQuerier
+	minionUpdate MinionUpdater
+	tokens       TokenManager
+	logger       *slog.Logger
+	stopCh       chan struct{}
+	doneCh       chan struct{}
 }
 
 // New creates a new Spawner instance.
-func New(minions MinionQuerier, logger *slog.Logger) *Spawner {
+func New(minions MinionQuerier, minionUpdate MinionUpdater, tokens TokenManager, logger *slog.Logger) *Spawner {
 	return &Spawner{
-		minions: minions,
-		logger:  logger,
-		stopCh:  make(chan struct{}),
-		doneCh:  make(chan struct{}),
+		minions:      minions,
+		minionUpdate: minionUpdate,
+		tokens:       tokens,
+		logger:       logger,
+		stopCh:       make(chan struct{}),
+		doneCh:       make(chan struct{}),
 	}
 }
 
@@ -94,15 +114,40 @@ func (s *Spawner) poll(ctx context.Context) {
 }
 
 // processMinion handles spawning a single minion's pod.
-// TODO(spawner-2 through spawner-6): implement full spawn logic
 func (s *Spawner) processMinion(ctx context.Context, m *db.Minion) {
 	s.logger.Info("processing pending minion",
 		"minion_id", m.ID,
 		"repo", m.Repo,
 		"created_at", m.CreatedAt,
 	)
-	// Placeholder for future tasks:
-	// - spawner-2: Generate GitHub token
+
+	// spawner-2: Generate GitHub token
+	token, err := s.tokens.GetToken(ctx, m.Repo)
+	if err != nil {
+		errMsg := fmt.Sprintf("failed to generate GitHub token: %v", err)
+		s.logger.Error("github token generation failed",
+			"minion_id", m.ID,
+			"repo", m.Repo,
+			"error", err,
+		)
+		if markErr := s.minionUpdate.MarkFailed(ctx, m.ID, errMsg); markErr != nil {
+			s.logger.Error("failed to mark minion as failed",
+				"minion_id", m.ID,
+				"error", markErr,
+			)
+		}
+		return
+	}
+
+	s.logger.Debug("generated github token",
+		"minion_id", m.ID,
+		"repo", m.Repo,
+	)
+
+	// Token will be passed to SpawnParams in spawner-3
+	_ = token
+
+	// TODO(spawner-3 through spawner-6): implement full spawn logic
 	// - spawner-3: SpawnPodWithRetry + WaitForPodReady
 	// - spawner-4: MarkRunning
 	// - spawner-5: Initiate SSE streaming

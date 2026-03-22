@@ -25,3 +25,11 @@ Started: 2026-03-22
   - `orchestrator/internal/spawner/spawner.go` (new file)
   - `orchestrator/internal/db/minions.go` (added ListPending method)
 - **Learnings:** Watchdog pattern is clean: defer close(doneCh) in run(), initial action, then select loop
+
+## Task - spawner-2
+- Added TokenManager and MinionUpdater interfaces to spawner
+- Spawner.New() now takes (minions, minionUpdate, tokens, logger) dependencies
+- processMinion calls tokens.GetToken(ctx, repo) to generate installation token
+- On token error: logs error, calls MarkFailed with descriptive message, continues to next minion
+- Files changed: `orchestrator/internal/spawner/spawner.go` (lines 24-35, 38-56, 116-155)
+- **Learnings:** Interface composition keeps spawner testable; error handling pattern: log + mark failed + return (don't crash loop)
