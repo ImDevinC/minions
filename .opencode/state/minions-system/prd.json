@@ -623,7 +623,7 @@
         "Documents secrets configuration",
         "Documents namespace setup"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "docs-5",
