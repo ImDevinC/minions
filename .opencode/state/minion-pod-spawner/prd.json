@@ -25,7 +25,7 @@
         "Stop() method signals shutdown and waits for completion",
         "Polls every 5 seconds for pending minions"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "spawner-2",

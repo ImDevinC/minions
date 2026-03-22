@@ -14,3 +14,14 @@ Started: 2026-03-22
 - Added `MarkRunning(ctx, id, podName)` method to MinionStore
 - Files changed: `orchestrator/internal/db/minions.go` (lines 902-945)
 - **Learnings:** Followed SetClarification pattern exactly - tx.Begin, SELECT FOR UPDATE, status check, UPDATE, tx.Commit
+
+## Task - spawner-1
+- Created `orchestrator/internal/spawner/spawner.go` with Spawner struct
+- Follows watchdog pattern: ticker, stopCh, doneCh, graceful shutdown
+- Start() launches goroutine, Stop() signals and waits for completion
+- Polls every 5 seconds via `ListPending` (FIFO by created_at)
+- Added `ListPending(ctx)` method to MinionStore
+- Files changed:
+  - `orchestrator/internal/spawner/spawner.go` (new file)
+  - `orchestrator/internal/db/minions.go` (added ListPending method)
+- **Learnings:** Watchdog pattern is clean: defer close(doneCh) in run(), initial action, then select loop

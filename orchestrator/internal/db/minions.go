@@ -694,6 +694,49 @@ func (s *MinionStore) ListByStatuses(ctx context.Context, statuses []MinionStatu
 	return minions, nil
 }
 
+// ListPending returns minions in pending status ordered by created_at ASC (FIFO).
+// Used by spawner to process minions in order of creation.
+func (s *MinionStore) ListPending(ctx context.Context) ([]*Minion, error) {
+	query := `SELECT id, user_id, repo, task, model, status,
+		        clarification_question, clarification_answer, clarification_message_id,
+		        input_tokens, output_tokens, cost_usd,
+		        pr_url, error, session_id, pod_name,
+		        discord_message_id, discord_channel_id,
+		        created_at, started_at, completed_at, last_activity_at
+		 FROM minions 
+		 WHERE status = $1
+		 ORDER BY created_at ASC`
+
+	rows, err := s.pool.Query(ctx, query, StatusPending)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var minions []*Minion
+	for rows.Next() {
+		m := &Minion{}
+		err := rows.Scan(
+			&m.ID, &m.UserID, &m.Repo, &m.Task, &m.Model, &m.Status,
+			&m.ClarificationQuestion, &m.ClarificationAnswer, &m.ClarificationMessageID,
+			&m.InputTokens, &m.OutputTokens, &m.CostUSD,
+			&m.PRURL, &m.Error, &m.SessionID, &m.PodName,
+			&m.DiscordMessageID, &m.DiscordChannelID,
+			&m.CreatedAt, &m.StartedAt, &m.CompletedAt, &m.LastActivityAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		minions = append(minions, m)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return minions, nil
+}
+
 // MarkFailed marks a minion as failed with the given error message.
 // Used by reconciliation to mark orphaned minions.
 func (s *MinionStore) MarkFailed(ctx context.Context, id uuid.UUID, errorMsg string) error {
