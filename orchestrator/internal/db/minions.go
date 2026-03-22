@@ -563,6 +563,27 @@ func (s *MinionStore) MarkFailed(ctx context.Context, id uuid.UUID, errorMsg str
 	return err
 }
 
+// UpdateTokenUsageParams holds parameters for updating token usage.
+type UpdateTokenUsageParams struct {
+	ID           uuid.UUID
+	InputTokens  int64
+	OutputTokens int64
+}
+
+// UpdateTokenUsage atomically adds to a minion's token usage counters.
+// Also updates last_activity_at to track pod activity.
+func (s *MinionStore) UpdateTokenUsage(ctx context.Context, params UpdateTokenUsageParams) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE minions SET 
+			input_tokens = input_tokens + $1,
+			output_tokens = output_tokens + $2,
+			last_activity_at = NOW()
+		WHERE id = $3`,
+		params.InputTokens, params.OutputTokens, params.ID,
+	)
+	return err
+}
+
 // GetStats returns aggregate statistics across all minions.
 func (s *MinionStore) GetStats(ctx context.Context) (*Stats, error) {
 	stats := &Stats{

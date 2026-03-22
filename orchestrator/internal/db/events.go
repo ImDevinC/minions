@@ -30,6 +30,23 @@ func NewEventStore(pool *pgxpool.Pool) *EventStore {
 
 const defaultEventLimit = 100
 
+// InsertEvent persists a new event to the minion_events table.
+func (s *EventStore) InsertEvent(ctx context.Context, event *MinionEvent) error {
+	if event.ID == uuid.Nil {
+		event.ID = uuid.New()
+	}
+	if event.Timestamp.IsZero() {
+		event.Timestamp = time.Now()
+	}
+
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO minion_events (id, minion_id, timestamp, event_type, content)
+		 VALUES ($1, $2, $3, $4, $5)`,
+		event.ID, event.MinionID, event.Timestamp, event.EventType, event.Content,
+	)
+	return err
+}
+
 // GetRecentEvents retrieves the most recent events for a minion.
 // Returns events ordered by timestamp DESC (newest first).
 func (s *EventStore) GetRecentEvents(ctx context.Context, minionID uuid.UUID, limit int) ([]*MinionEvent, error) {

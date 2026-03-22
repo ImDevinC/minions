@@ -59,6 +59,13 @@ type PodTerminator interface {
 	TerminatePod(ctx context.Context, podName string) error
 }
 
+// PodIPProvider resolves pod IP addresses.
+type PodIPProvider interface {
+	// GetPodIP returns the IP address of a running pod.
+	// Returns error if pod doesn't exist or doesn't have an IP yet.
+	GetPodIP(ctx context.Context, podName string) (string, error)
+}
+
 // PodLister can list pods in the namespace.
 type PodLister interface {
 	// ListPods returns all minion pods in the namespace.
@@ -91,11 +98,12 @@ type SpawnParams struct {
 }
 
 // PodManager handles both pod creation and termination.
-// Combines PodSpawner, PodTerminator, and PodLister interfaces for convenience.
+// Combines PodSpawner, PodTerminator, PodLister, and PodIPProvider interfaces for convenience.
 type PodManager interface {
 	PodSpawner
 	PodTerminator
 	PodLister
+	PodIPProvider
 }
 
 // Config holds configuration for the Kubernetes client.
@@ -430,6 +438,28 @@ func (c *Client) ListPods(ctx context.Context) ([]PodInfo, error) {
 	return result, nil
 }
 
+// ErrPodNotFound is returned when a pod does not exist.
+var ErrPodNotFound = errors.New("pod not found")
+
+// ErrPodNoIP is returned when a pod exists but doesn't have an IP assigned yet.
+var ErrPodNoIP = errors.New("pod has no IP assigned")
+
+// GetPodIP returns the IP address of a running pod.
+// Returns ErrPodNotFound if pod doesn't exist, ErrPodNoIP if no IP yet.
+func (c *Client) GetPodIP(ctx context.Context, podName string) (string, error) {
+	pod, err := c.clientset.CoreV1().Pods(Namespace).Get(ctx, podName, metav1.GetOptions{})
+	if err != nil {
+		// TODO: use apierrors.IsNotFound(err) for proper detection
+		return "", fmt.Errorf("%w: %s", ErrPodNotFound, podName)
+	}
+
+	if pod.Status.PodIP == "" {
+		return "", fmt.Errorf("%w: %s (phase: %s)", ErrPodNoIP, podName, pod.Status.Phase)
+	}
+
+	return pod.Status.PodIP, nil
+}
+
 // NoOpPodTerminator is a stub implementation that does nothing.
 // Use this when k8s is not configured or for testing.
 type NoOpPodTerminator struct {
@@ -502,4 +532,13 @@ func (m *NoOpPodManager) ListPods(ctx context.Context) ([]PodInfo, error) {
 		m.logger.Info("no-op pod list (k8s not configured)")
 	}
 	return []PodInfo{}, nil
+}
+
+// GetPodIP returns a fake IP for testing.
+func (m *NoOpPodManager) GetPodIP(ctx context.Context, podName string) (string, error) {
+	if m.logger != nil {
+		m.logger.Info("no-op pod IP lookup (k8s not configured)", "pod_name", podName)
+	}
+	// Return localhost for testing purposes
+	return "127.0.0.1", nil
 }

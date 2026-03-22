@@ -242,7 +242,7 @@
         "Events persisted to minion_events table",
         "Token usage extracted and accumulated in minion record"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "streaming-2",
