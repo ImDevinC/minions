@@ -191,7 +191,7 @@
         "Uses exponential backoff between retries",
         "Minion marked as failed after all retries exhausted"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "k8s-3",

@@ -140,3 +140,13 @@ Started: 2026-03-21
 - NoOpPodManager for testing/non-k8s environments
 - Files: `internal/k8s/pods.go`, `internal/k8s/pods_test.go`, `go.mod`, `go.sum`
 - **Learnings:** client-go uses in-cluster config automatically; EmptyDir volumes needed for writable paths when using read-only root filesystem
+
+## Task - k8s-2
+- Implemented `SpawnPodWithRetry` method with exponential backoff
+- Added to PodSpawner interface, Client implementation, and NoOpPodManager
+- Retry constants: MaxRetries=3, InitialBackoff=1s, MaxBackoff=30s, BackoffMultiplier=2
+- Returns `ErrRetriesExhausted` sentinel error when all attempts fail
+- Respects context cancellation during backoff waits
+- Comprehensive test coverage: success on first attempt, success after retries, exhausted retries, context cancellation
+- Files: `internal/k8s/pods.go`, `internal/k8s/pods_test.go`
+- **Learnings:** Use `errors.Is()` with sentinel errors for retry exhaustion detection; exponential backoff with cap prevents runaway delays

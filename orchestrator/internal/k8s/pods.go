@@ -3,8 +3,10 @@ package k8s
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/google/uuid"
 	corev1 "k8s.io/api/core/v1"
@@ -15,6 +17,21 @@ import (
 
 // Namespace for all minion pods.
 const Namespace = "minions"
+
+// Retry configuration for pod creation.
+const (
+	// MaxRetries is the number of retry attempts for pod creation (total attempts = MaxRetries + 1).
+	MaxRetries = 3
+	// InitialBackoff is the initial backoff duration before the first retry.
+	InitialBackoff = 1 * time.Second
+	// MaxBackoff caps the backoff duration.
+	MaxBackoff = 30 * time.Second
+	// BackoffMultiplier is the factor by which backoff increases each retry.
+	BackoffMultiplier = 2
+)
+
+// ErrRetriesExhausted is returned when all pod creation retries have failed.
+var ErrRetriesExhausted = errors.New("pod creation failed after all retries")
 
 // PodTerminator handles pod lifecycle termination.
 // Implementations may use the real Kubernetes client or be a no-op for testing.
@@ -29,6 +46,10 @@ type PodSpawner interface {
 	// SpawnPod creates a new pod for a minion task.
 	// Returns the pod name on success.
 	SpawnPod(ctx context.Context, params SpawnParams) (podName string, err error)
+
+	// SpawnPodWithRetry creates a pod with exponential backoff retry.
+	// Retries up to MaxRetries times before returning ErrRetriesExhausted.
+	SpawnPodWithRetry(ctx context.Context, params SpawnParams) (podName string, err error)
 }
 
 // SpawnParams contains parameters for spawning a minion pod.
@@ -181,6 +202,57 @@ func (c *Client) SpawnPod(ctx context.Context, params SpawnParams) (string, erro
 	return created.Name, nil
 }
 
+// SpawnPodWithRetry creates a pod with exponential backoff retry.
+// Retries up to MaxRetries times before returning ErrRetriesExhausted.
+// Each retry logs the failure and waits with exponential backoff before retrying.
+func (c *Client) SpawnPodWithRetry(ctx context.Context, params SpawnParams) (string, error) {
+	var lastErr error
+	backoff := InitialBackoff
+
+	for attempt := 0; attempt <= MaxRetries; attempt++ {
+		// Attempt to spawn the pod
+		podName, err := c.SpawnPod(ctx, params)
+		if err == nil {
+			return podName, nil
+		}
+
+		lastErr = err
+		c.logger.Warn("pod creation failed, will retry",
+			"minion_id", params.MinionID,
+			"attempt", attempt+1,
+			"max_attempts", MaxRetries+1,
+			"error", err,
+			"backoff", backoff,
+		)
+
+		// Don't wait after the last attempt
+		if attempt == MaxRetries {
+			break
+		}
+
+		// Wait with backoff, respecting context cancellation
+		select {
+		case <-ctx.Done():
+			return "", fmt.Errorf("context cancelled during retry: %w", ctx.Err())
+		case <-time.After(backoff):
+		}
+
+		// Exponential backoff with cap
+		backoff *= BackoffMultiplier
+		if backoff > MaxBackoff {
+			backoff = MaxBackoff
+		}
+	}
+
+	c.logger.Error("pod creation failed after all retries",
+		"minion_id", params.MinionID,
+		"total_attempts", MaxRetries+1,
+		"last_error", lastErr,
+	)
+
+	return "", fmt.Errorf("%w: %v", ErrRetriesExhausted, lastErr)
+}
+
 // buildEnvVars constructs environment variables for the devbox container.
 func (c *Client) buildEnvVars(params SpawnParams) []corev1.EnvVar {
 	envs := []corev1.EnvVar{
@@ -260,6 +332,12 @@ func (m *NoOpPodManager) SpawnPod(ctx context.Context, params SpawnParams) (stri
 		)
 	}
 	return podName, nil
+}
+
+// SpawnPodWithRetry logs the spawn request but does nothing.
+// No-op implementation always succeeds on first attempt.
+func (m *NoOpPodManager) SpawnPodWithRetry(ctx context.Context, params SpawnParams) (string, error) {
+	return m.SpawnPod(ctx, params)
 }
 
 // TerminatePod logs the termination request but does nothing.
