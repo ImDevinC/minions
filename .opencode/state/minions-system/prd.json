@@ -266,7 +266,7 @@
         "Also checks for pods in Failed phase (OOMKilled, Evicted)",
         "Marks corresponding minion as failed with termination reason"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "watchdog-2",

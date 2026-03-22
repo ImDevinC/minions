@@ -584,6 +584,49 @@ func (s *MinionStore) UpdateTokenUsage(ctx context.Context, params UpdateTokenUs
 	return err
 }
 
+// ListIdleRunning returns running minions with last_activity_at older than threshold.
+// Used by watchdog to detect idle minions that may be stuck.
+func (s *MinionStore) ListIdleRunning(ctx context.Context, idleThreshold time.Duration) ([]*Minion, error) {
+	query := `SELECT id, user_id, repo, task, model, status,
+		        clarification_question, clarification_answer, clarification_message_id,
+		        input_tokens, output_tokens, cost_usd,
+		        pr_url, error, session_id, pod_name,
+		        discord_message_id, discord_channel_id,
+		        created_at, started_at, completed_at, last_activity_at
+		 FROM minions 
+		 WHERE status = 'running' 
+		   AND last_activity_at < NOW() - $1::interval`
+
+	rows, err := s.pool.Query(ctx, query, idleThreshold.String())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var minions []*Minion
+	for rows.Next() {
+		m := &Minion{}
+		err := rows.Scan(
+			&m.ID, &m.UserID, &m.Repo, &m.Task, &m.Model, &m.Status,
+			&m.ClarificationQuestion, &m.ClarificationAnswer, &m.ClarificationMessageID,
+			&m.InputTokens, &m.OutputTokens, &m.CostUSD,
+			&m.PRURL, &m.Error, &m.SessionID, &m.PodName,
+			&m.DiscordMessageID, &m.DiscordChannelID,
+			&m.CreatedAt, &m.StartedAt, &m.CompletedAt, &m.LastActivityAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		minions = append(minions, m)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return minions, nil
+}
+
 // GetStats returns aggregate statistics across all minions.
 func (s *MinionStore) GetStats(ctx context.Context) (*Stats, error) {
 	stats := &Stats{

@@ -15,6 +15,7 @@ import (
 	"github.com/anomalyco/minions/orchestrator/internal/k8s"
 	"github.com/anomalyco/minions/orchestrator/internal/reconciler"
 	"github.com/anomalyco/minions/orchestrator/internal/streaming"
+	"github.com/anomalyco/minions/orchestrator/internal/watchdog"
 	"github.com/anomalyco/minions/orchestrator/internal/webhook"
 )
 
@@ -89,6 +90,13 @@ func main() {
 	go hub.Run(hubCtx)
 	logger.Info("websocket hub started")
 
+	// Start the watchdog for idle minion detection and failed pod monitoring
+	wdog := watchdog.New(minionStore, podManager, notifier, logger)
+	watchdogCtx, watchdogCancel := context.WithCancel(ctx)
+	defer watchdogCancel()
+	go wdog.Run(watchdogCtx)
+	logger.Info("watchdog started")
+
 	router := api.NewRouter(api.RouterConfig{
 		Logger:        logger,
 		APIToken:      apiToken,
@@ -121,6 +129,10 @@ func main() {
 	<-quit
 
 	logger.Info("shutting down server")
+
+	// Stop the watchdog
+	wdog.Stop()
+	logger.Info("watchdog stopped")
 
 	// Stop the WebSocket hub
 	hub.Stop()

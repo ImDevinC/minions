@@ -211,3 +211,16 @@ Started: 2026-03-21
 - Comprehensive tests: hub lifecycle, multi-client broadcast, minion isolation, graceful disconnect
 - Files: `internal/streaming/hub.go` (new), `internal/streaming/ws_handler.go` (new), `internal/streaming/hub_test.go` (new), `internal/streaming/handler.go`, `internal/api/router.go`, `cmd/orchestrator/main.go`, `go.mod`, `go.sum`
 - **Learnings:** gorilla/websocket needs ReadPump to handle pongs and WritePump for sends; buffered broadcast channel prevents SSE handler blocking
+
+## Task - watchdog-1
+- Created `internal/watchdog/watchdog.go` with Watchdog struct for background monitoring
+- Background goroutine runs every 5 minutes (CheckInterval constant)
+- Queries running minions with last_activity_at > 30min ago via ListIdleRunning method
+- POSTs idle alerts to Discord bot webhook for each idle minion
+- Checks for pods in Failed phase (OOMKilled, Evicted, etc.) via ListPods
+- Marks corresponding minion as failed with "Pod terminated: Failed" error message
+- Added `ListIdleRunning` method to MinionStore using interval-based SQL query
+- Watchdog integrated into main.go: starts as goroutine before HTTP server, stopped on graceful shutdown
+- Comprehensive test suite: 12 tests covering idle detection, failed pods, error handling, run/stop lifecycle
+- Files: `internal/watchdog/watchdog.go` (new), `internal/watchdog/watchdog_test.go` (new), `internal/db/minions.go`, `cmd/orchestrator/main.go`
+- **Learnings:** Use interface-based dependencies (MinionQuerier, PodStatusChecker) for testability; watchdog can use existing k8s.PodManager.ListPods for pod status checks
