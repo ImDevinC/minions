@@ -1,10 +1,12 @@
 "use client";
 
 import { useRef, useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { MinionDetail, MinionEvent, MinionStatus } from "@/types/minion";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { TerminateModal } from "./terminate-modal";
 
 // Re-export StatusBadge for server component compatibility
 interface StatusConfig {
@@ -376,19 +378,80 @@ export function EventLog({ events }: EventLogProps) {
   );
 }
 
+// Check if a minion can be terminated (is in a running state)
+function canTerminate(status: MinionStatus): boolean {
+  return status === "pending" || status === "running" || status === "awaiting_clarification";
+}
+
 interface MinionDetailClientProps {
   minion: MinionDetail;
 }
 
 export function MinionDetailClient({ minion }: MinionDetailClientProps) {
+  const router = useRouter();
+  const [showTerminateModal, setShowTerminateModal] = useState(false);
+  const [currentStatus, setCurrentStatus] = useState(minion.status);
+
+  // Update status when minion prop changes
+  useEffect(() => {
+    setCurrentStatus(minion.status);
+  }, [minion.status]);
+
+  const handleTerminate = useCallback(async () => {
+    const response = await fetch(`/api/minions/${minion.id}/terminate`, {
+      method: "POST",
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || "Failed to terminate minion");
+    }
+
+    // Update local status and refresh the page data
+    setCurrentStatus("terminated");
+    router.refresh();
+  }, [minion.id, router]);
+
   return (
     <div className="space-y-6">
+      {/* Terminate modal */}
+      <TerminateModal
+        isOpen={showTerminateModal}
+        onClose={() => setShowTerminateModal(false)}
+        onConfirm={handleTerminate}
+        minionId={minion.id}
+        repo={minion.repo}
+      />
+
       {/* Header section */}
       <div className="bg-gray-800 border border-gray-700 rounded-lg p-6">
         <div className="flex items-start justify-between gap-4 mb-4">
           <div>
             <h1 className="text-2xl font-bold text-white mb-2">{minion.repo}</h1>
-            <StatusBadge status={minion.status} />
+            <div className="flex items-center gap-3">
+              <StatusBadge status={currentStatus} />
+              {canTerminate(currentStatus) && (
+                <button
+                  onClick={() => setShowTerminateModal(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-red-400 bg-red-500/10 border border-red-500/30 rounded-full hover:bg-red-500/20 transition-colors"
+                >
+                  <svg
+                    className="w-3.5 h-3.5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M6 18L18 6M6 6l12 12"
+                    />
+                  </svg>
+                  Terminate
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Cost and tokens */}

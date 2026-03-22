@@ -433,3 +433,15 @@ Started: 2026-03-21
 - Updated `src/app/minions/[id]/page.tsx` to use MinionDetailClient
 - Files: `src/components/minion-detail-client.tsx` (new), `src/app/minions/[id]/page.tsx` (updated), `package.json` (deps)
 - **Learnings:** @tanstack/react-virtual's measureElement ref enables dynamic row heights; SyntaxHighlighter customStyle needs explicit background override for dark themes
+
+## Task - panel-4
+- Created `src/components/terminate-modal.tsx` with confirmation dialog
+- Modal features: escape key close, backdrop click close, loading state, error display
+- Added terminate button to `MinionDetailClient`, visible for pending/running/awaiting_clarification statuses
+- `canTerminate()` helper checks if minion is in terminable state
+- Created API route `src/app/api/minions/[id]/terminate/route.ts` for server-side termination
+- API route validates session via NextAuth (includes CSRF protection), validates UUID format
+- Uses POST method to `/api/minions/:id/terminate` (proxies to orchestrator DELETE)
+- UI updates: local status state, `router.refresh()` after successful termination
+- Files: `src/components/terminate-modal.tsx` (new), `src/components/minion-detail-client.tsx` (updated), `src/app/api/minions/[id]/terminate/route.ts` (new)
+- **Learnings:** NextAuth's `getServerSession` provides CSRF protection via session token validation; using POST for terminate action allows cleaner client-side fetch (no need for DELETE method in form)
