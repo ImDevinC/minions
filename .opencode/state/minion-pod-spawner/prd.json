@@ -145,7 +145,7 @@
         "Test MarkRunning returns ErrNotFound for non-existent minion",
         "Test MarkRunning uses transaction to prevent concurrent updates"
       ],
-      "passes": false
+      "passes": true
     }
   ],
   "context": {

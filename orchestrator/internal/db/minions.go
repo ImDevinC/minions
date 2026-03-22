@@ -10,8 +10,18 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// Pool defines the interface for database connection pooling.
+// Both *pgxpool.Pool and mock implementations satisfy this interface.
+type Pool interface {
+	Begin(ctx context.Context) (pgx.Tx, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
 
 // MinionStatus represents the lifecycle state of a minion.
 type MinionStatus string
@@ -63,11 +73,17 @@ type CreateMinionParams struct {
 
 // MinionStore handles minion database operations.
 type MinionStore struct {
-	pool *pgxpool.Pool
+	pool Pool
 }
 
 // NewMinionStore creates a new MinionStore.
 func NewMinionStore(pool *pgxpool.Pool) *MinionStore {
+	return &MinionStore{pool: pool}
+}
+
+// NewMinionStoreWithPool creates a MinionStore with a custom Pool implementation.
+// This is useful for testing with mock pools.
+func NewMinionStoreWithPool(pool Pool) *MinionStore {
 	return &MinionStore{pool: pool}
 }
 

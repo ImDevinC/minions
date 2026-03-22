@@ -6,6 +6,7 @@ Started: 2026-03-22
 - Status transitions use transaction + FOR UPDATE row lock to prevent races
 - Check status, enforce constraint, UPDATE, commit (see SetClarification, MarkRunning)
 - ErrNotFound for missing, ErrInvalidStatusTransition for invalid state machine transitions
+- Pool interface pattern: MinionStore uses Pool interface (not *pgxpool.Pool) for testability with pgxmock
 
 ---
 <!-- Task logs below - APPEND ONLY -->
@@ -114,3 +115,23 @@ Started: 2026-03-22
   - `TestSpawner_HandlesListPendingError`: verifies DB query error handling
 - Files changed: `orchestrator/internal/spawner/spawner_test.go` (new file, ~500 lines)
 - **Learnings:** Mock interfaces directly match spawner interfaces; use sync.Mutex for mock state in concurrent tests
+
+## Task - testing-2
+- Created `orchestrator/internal/db/mark_running_test.go` with unit tests using pgxmock
+- Added `Pool` interface to decouple MinionStore from concrete `*pgxpool.Pool` for testability
+- Added `NewMinionStoreWithPool(pool Pool)` constructor for injecting mock pools
+- Added pgxmock dependency: `github.com/pashagolub/pgxmock/v4`
+- Test coverage:
+  - `TestMarkRunning_Success`: full flow (begin -> SELECT FOR UPDATE -> UPDATE -> commit)
+  - `TestMarkRunning_NotFound`: returns ErrNotFound when minion doesn't exist
+  - `TestMarkRunning_InvalidStatusTransition_FromRunning`: rejects running -> running
+  - `TestMarkRunning_InvalidStatusTransition_FromCompleted`: rejects completed -> running
+  - `TestMarkRunning_InvalidStatusTransition_FromFailed`: rejects failed -> running
+  - `TestMarkRunning_InvalidStatusTransition_FromAwaitingClarification`: rejects awaiting_clarification -> running
+  - `TestMarkRunning_UsesTransaction`: verifies transaction pattern with FOR UPDATE lock
+  - Error handling tests: begin error, query error, update error, commit error
+- Files changed:
+  - `orchestrator/internal/db/minions.go` (added Pool interface, NewMinionStoreWithPool)
+  - `orchestrator/internal/db/mark_running_test.go` (new file)
+  - `orchestrator/go.mod` (added pgxmock dependency)
+- **Learnings:** pgxmock enforces query ordering via expectations; Pool interface pattern enables DB method testing without real database
