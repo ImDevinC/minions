@@ -553,7 +553,7 @@
         "Secret for Discord bot token",
         "Secret for INTERNAL_API_TOKEN"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "infra-3",

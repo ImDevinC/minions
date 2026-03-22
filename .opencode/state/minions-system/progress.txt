@@ -489,3 +489,16 @@ Started: 2026-03-21
 - All manifests validated with `kubectl apply --dry-run=client`
 - Files: `infra/namespace.yaml` (new), `infra/rbac.yaml` (new)
 - **Learnings:** Pod Security Standards baseline is enforced at namespace level; warn=restricted helps catch stricter violations early
+
+## Task - infra-2
+- Created `infra/secrets.yaml` with 5 Secret resources
+- `minions-db`: DATABASE_URL for PostgreSQL connection string
+- `minions-llm-keys`: ANTHROPIC_API_KEY, OPENAI_API_KEY for LLM providers
+- `minions-github-app`: GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY (PEM) for token management
+- `minions-discord-bot`: DISCORD_BOT_TOKEN for gateway connection
+- `minions-internal-api`: INTERNAL_API_TOKEN for service-to-service auth
+- Uses `stringData` for readability (k8s auto-encodes to base64)
+- Includes inline comments with kubectl commands for creating from literals/files
+- Validated with `kubectl apply --dry-run=client`
+- Files: `infra/secrets.yaml` (new)
+- **Learnings:** Use `stringData` over `data` for human-readable templates; multi-line PEM keys work well with YAML literal block scalars (`|`)
