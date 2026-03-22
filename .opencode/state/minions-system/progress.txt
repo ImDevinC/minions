@@ -224,3 +224,14 @@ Started: 2026-03-21
 - Comprehensive test suite: 12 tests covering idle detection, failed pods, error handling, run/stop lifecycle
 - Files: `internal/watchdog/watchdog.go` (new), `internal/watchdog/watchdog_test.go` (new), `internal/db/minions.go`, `cmd/orchestrator/main.go`
 - **Learnings:** Use interface-based dependencies (MinionQuerier, PodStatusChecker) for testability; watchdog can use existing k8s.PodManager.ListPods for pod status checks
+
+## Task - watchdog-2
+- Implemented clarification timeout enforcement in `internal/watchdog/watchdog.go`
+- Added `ListClarificationTimeouts` method to `MinionStore` (queries awaiting_clarification + created_at > timeout)
+- Added `ClarificationTimeout` constant (24h) and `ClarificationCheckInterval` (10min)
+- Watchdog runs clarification check every 10 min (piggybacks on existing 5-min ticker, skips every other run)
+- Timed-out minions: marked as failed with "Clarification timeout" error, notified via `NotifyClarificationTimeout` webhook
+- Extended `MinionQuerier` interface with `ListClarificationTimeouts` method
+- Added 4 test cases: basic timeout, skipped-if-too-soon, query error, multiple timeouts
+- Files: `internal/watchdog/watchdog.go`, `internal/watchdog/watchdog_test.go`, `internal/db/minions.go`
+- **Learnings:** Piggyback on existing ticker with skip logic is simpler than separate timers; the clarification timeout uses created_at (not last_activity_at) since minion never became "running"

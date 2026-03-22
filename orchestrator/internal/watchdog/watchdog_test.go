@@ -17,8 +17,10 @@ import (
 
 // mockMinionQuerier is a test mock for MinionQuerier.
 type mockMinionQuerier struct {
-	idleMinions []*db.Minion
-	idleErr     error
+	idleMinions             []*db.Minion
+	idleErr                 error
+	clarificationTimeouts   []*db.Minion
+	clarificationTimeoutErr error
 
 	failedCalls []uuid.UUID
 	failErr     error
@@ -30,6 +32,13 @@ func (m *mockMinionQuerier) ListIdleRunning(_ context.Context, _ time.Duration) 
 		return nil, m.idleErr
 	}
 	return m.idleMinions, nil
+}
+
+func (m *mockMinionQuerier) ListClarificationTimeouts(_ context.Context, _ time.Duration) ([]*db.Minion, error) {
+	if m.clarificationTimeoutErr != nil {
+		return nil, m.clarificationTimeoutErr
+	}
+	return m.clarificationTimeouts, nil
 }
 
 func (m *mockMinionQuerier) MarkFailed(_ context.Context, id uuid.UUID, _ string) error {
@@ -394,5 +403,151 @@ func TestWatchdog_IdleMinionWithNilChannelID(t *testing.T) {
 	}
 	if notifications[0].DiscordChannelID != "" {
 		t.Errorf("expected empty channel ID, got %s", notifications[0].DiscordChannelID)
+	}
+}
+
+func TestWatchdog_ClarificationTimeout(t *testing.T) {
+	channelID := "channel-456"
+	timedOutMinion := &db.Minion{
+		ID:               uuid.New(),
+		Status:           db.StatusAwaitingClarification,
+		Repo:             "owner/repo",
+		CreatedAt:        time.Now().Add(-25 * time.Hour), // Over 24h
+		DiscordChannelID: &channelID,
+	}
+
+	minions := &mockMinionQuerier{
+		clarificationTimeouts: []*db.Minion{timedOutMinion},
+	}
+	pods := &mockPodStatusChecker{pods: []k8s.PodInfo{}}
+	notifier := &mockNotifier{}
+	logger := testLogger()
+
+	w := New(minions, pods, notifier, logger)
+	// Force the clarification check by setting lastClarificationChk to the past
+	w.lastClarificationChk = time.Time{}
+
+	ctx := context.Background()
+	w.runChecks(ctx)
+
+	// Check that minion was marked failed
+	failedCalls := minions.getFailedCalls()
+	if len(failedCalls) != 1 {
+		t.Fatalf("expected 1 failed call, got %d", len(failedCalls))
+	}
+	if failedCalls[0] != timedOutMinion.ID {
+		t.Errorf("expected minion %s to be marked failed, got %s", timedOutMinion.ID, failedCalls[0])
+	}
+
+	// Check notification
+	notifications := notifier.getNotifications()
+	if len(notifications) != 1 {
+		t.Fatalf("expected 1 notification, got %d", len(notifications))
+	}
+	if notifications[0].Type != webhook.NotifyClarificationTimeout {
+		t.Errorf("expected clarification_timeout notification, got %s", notifications[0].Type)
+	}
+	if notifications[0].MinionID != timedOutMinion.ID {
+		t.Errorf("expected minion ID %s, got %s", timedOutMinion.ID, notifications[0].MinionID)
+	}
+	if notifications[0].DiscordChannelID != channelID {
+		t.Errorf("expected channel ID %s, got %s", channelID, notifications[0].DiscordChannelID)
+	}
+}
+
+func TestWatchdog_ClarificationTimeoutSkippedIfTooSoon(t *testing.T) {
+	timedOutMinion := &db.Minion{
+		ID:        uuid.New(),
+		Status:    db.StatusAwaitingClarification,
+		CreatedAt: time.Now().Add(-25 * time.Hour),
+	}
+
+	minions := &mockMinionQuerier{
+		clarificationTimeouts: []*db.Minion{timedOutMinion},
+	}
+	pods := &mockPodStatusChecker{pods: []k8s.PodInfo{}}
+	notifier := &mockNotifier{}
+	logger := testLogger()
+
+	w := New(minions, pods, notifier, logger)
+	// Set recent check time so it should be skipped
+	w.lastClarificationChk = time.Now().Add(-5 * time.Minute) // Only 5 min ago, need 10 min
+
+	ctx := context.Background()
+	w.runChecks(ctx)
+
+	// Check that no failed calls were made (clarification check was skipped)
+	failedCalls := minions.getFailedCalls()
+	if len(failedCalls) != 0 {
+		t.Fatalf("expected 0 failed calls (check should be skipped), got %d", len(failedCalls))
+	}
+
+	// No notifications
+	notifications := notifier.getNotifications()
+	if len(notifications) != 0 {
+		t.Errorf("expected 0 notifications, got %d", len(notifications))
+	}
+}
+
+func TestWatchdog_ClarificationTimeoutQueryError(t *testing.T) {
+	minions := &mockMinionQuerier{
+		clarificationTimeoutErr: errors.New("database error"),
+	}
+	pods := &mockPodStatusChecker{pods: []k8s.PodInfo{}}
+	notifier := &mockNotifier{}
+	logger := testLogger()
+
+	w := New(minions, pods, notifier, logger)
+	w.lastClarificationChk = time.Time{} // Force check
+
+	ctx := context.Background()
+	w.runChecks(ctx)
+
+	// No failed calls should be made
+	failedCalls := minions.getFailedCalls()
+	if len(failedCalls) != 0 {
+		t.Fatalf("expected 0 failed calls on query error, got %d", len(failedCalls))
+	}
+}
+
+func TestWatchdog_MultipleClarificationTimeouts(t *testing.T) {
+	channelID1 := "channel-1"
+	channelID2 := "channel-2"
+	minion1 := &db.Minion{
+		ID:               uuid.New(),
+		Status:           db.StatusAwaitingClarification,
+		CreatedAt:        time.Now().Add(-26 * time.Hour),
+		DiscordChannelID: &channelID1,
+	}
+	minion2 := &db.Minion{
+		ID:               uuid.New(),
+		Status:           db.StatusAwaitingClarification,
+		CreatedAt:        time.Now().Add(-48 * time.Hour),
+		DiscordChannelID: &channelID2,
+	}
+
+	minions := &mockMinionQuerier{
+		clarificationTimeouts: []*db.Minion{minion1, minion2},
+	}
+	pods := &mockPodStatusChecker{pods: []k8s.PodInfo{}}
+	notifier := &mockNotifier{}
+	logger := testLogger()
+
+	w := New(minions, pods, notifier, logger)
+	w.lastClarificationChk = time.Time{}
+
+	ctx := context.Background()
+	w.runChecks(ctx)
+
+	// Both should be marked failed
+	failedCalls := minions.getFailedCalls()
+	if len(failedCalls) != 2 {
+		t.Fatalf("expected 2 failed calls, got %d", len(failedCalls))
+	}
+
+	// Both should get notifications
+	notifications := notifier.getNotifications()
+	if len(notifications) != 2 {
+		t.Fatalf("expected 2 notifications, got %d", len(notifications))
 	}
 }

@@ -278,7 +278,7 @@
         "Updates status to 'failed' with error 'Clarification timeout'",
         "POSTs timeout notification to Discord bot webhook"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "dedup-1",

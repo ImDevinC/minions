@@ -20,12 +20,23 @@ const (
 
 	// IdleThreshold is how long a minion can go without activity before being flagged.
 	IdleThreshold = 30 * time.Minute
+
+	// ClarificationTimeout is how long a minion can wait for clarification before timing out.
+	ClarificationTimeout = 24 * time.Hour
+
+	// ClarificationCheckInterval is how often to check for clarification timeouts.
+	// The PRD says every 10 minutes, but we piggyback on the existing CheckInterval (5 min).
+	// To maintain the 10-min cadence, we track state and skip every other check.
+	ClarificationCheckInterval = 10 * time.Minute
 )
 
 // MinionQuerier provides read access to minion data for watchdog checks.
 type MinionQuerier interface {
 	// ListIdleRunning returns running minions with last_activity_at older than threshold.
 	ListIdleRunning(ctx context.Context, idleThreshold time.Duration) ([]*db.Minion, error)
+
+	// ListClarificationTimeouts returns minions in awaiting_clarification with created_at older than timeout.
+	ListClarificationTimeouts(ctx context.Context, timeout time.Duration) ([]*db.Minion, error)
 
 	// MarkFailed marks a minion as failed with the given error message.
 	MarkFailed(ctx context.Context, id uuid.UUID, errorMsg string) error
@@ -39,12 +50,13 @@ type PodStatusChecker interface {
 
 // Watchdog monitors minion health and alerts on issues.
 type Watchdog struct {
-	minions  MinionQuerier
-	pods     PodStatusChecker
-	notifier webhook.Notifier
-	logger   *slog.Logger
-	stopCh   chan struct{}
-	doneCh   chan struct{}
+	minions              MinionQuerier
+	pods                 PodStatusChecker
+	notifier             webhook.Notifier
+	logger               *slog.Logger
+	stopCh               chan struct{}
+	doneCh               chan struct{}
+	lastClarificationChk time.Time
 }
 
 // New creates a new Watchdog instance.
@@ -102,10 +114,18 @@ func (w *Watchdog) runChecks(ctx context.Context) {
 	// Check for failed pods
 	failedCount := w.checkFailedPods(ctx)
 
-	if idleCount > 0 || failedCount > 0 {
+	// Check for clarification timeouts (every 10 minutes)
+	clarificationTimeoutCount := 0
+	if time.Since(w.lastClarificationChk) >= ClarificationCheckInterval {
+		clarificationTimeoutCount = w.checkClarificationTimeouts(ctx)
+		w.lastClarificationChk = time.Now()
+	}
+
+	if idleCount > 0 || failedCount > 0 || clarificationTimeoutCount > 0 {
 		w.logger.Info("watchdog check completed",
 			"idle_minions_alerted", idleCount,
 			"failed_pods_handled", failedCount,
+			"clarification_timeouts", clarificationTimeoutCount,
 		)
 	}
 }
@@ -196,6 +216,57 @@ func (w *Watchdog) checkFailedPods(ctx context.Context) int {
 			"minion_id", minionID,
 			"pod_name", pod.Name,
 			"pod_phase", pod.Phase,
+		)
+		handledCount++
+	}
+
+	return handledCount
+}
+
+// checkClarificationTimeouts finds minions stuck in awaiting_clarification for too long.
+// Marks them as failed and notifies Discord.
+func (w *Watchdog) checkClarificationTimeouts(ctx context.Context) int {
+	minions, err := w.minions.ListClarificationTimeouts(ctx, ClarificationTimeout)
+	if err != nil {
+		w.logger.Error("failed to query clarification timeouts", "error", err)
+		return 0
+	}
+
+	handledCount := 0
+	for _, m := range minions {
+		// Mark as failed
+		if err := w.minions.MarkFailed(ctx, m.ID, "Clarification timeout"); err != nil {
+			w.logger.Error("failed to mark timed-out minion as failed",
+				"minion_id", m.ID,
+				"error", err,
+			)
+			continue
+		}
+
+		// Notify Discord
+		channelID := ""
+		if m.DiscordChannelID != nil {
+			channelID = *m.DiscordChannelID
+		}
+
+		err := w.notifier.Notify(ctx, webhook.Notification{
+			MinionID:         m.ID,
+			Type:             webhook.NotifyClarificationTimeout,
+			DiscordChannelID: channelID,
+		})
+		if err != nil {
+			w.logger.Error("failed to send clarification timeout notification",
+				"minion_id", m.ID,
+				"error", err,
+			)
+			// Continue anyway, minion is already marked failed
+		}
+
+		w.logger.Warn("minion timed out waiting for clarification",
+			"minion_id", m.ID,
+			"repo", m.Repo,
+			"created_at", m.CreatedAt,
+			"timeout_duration", ClarificationTimeout,
 		)
 		handledCount++
 	}
