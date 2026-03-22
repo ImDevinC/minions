@@ -197,3 +197,17 @@ Started: 2026-03-21
 - NoOpEventHandler for testing; mock-based tests for SSE parsing
 - Files: `internal/streaming/sse.go` (new), `internal/streaming/handler.go` (new), `internal/streaming/sse_test.go` (new), `internal/db/events.go`, `internal/db/minions.go`, `internal/k8s/pods.go`
 - **Learnings:** SSE parsing via bufio.Scanner is simpler than full SSE library; token usage can appear in multiple formats depending on LLM provider
+
+## Task - streaming-2
+- Implemented WebSocket endpoint at `GET /api/minions/:id/stream` for live event streaming
+- Created `internal/streaming/hub.go` with Hub struct for managing client connections (pub/sub pattern)
+- Created `internal/streaming/ws_handler.go` with StreamHandler for WebSocket upgrade handling
+- Hub uses channels for register/unregister/broadcast, runs in background goroutine
+- Clients grouped by minion ID; broadcasts only go to clients subscribed to that minion
+- Added `gorilla/websocket` v1.5.3 dependency
+- Updated DBEventHandler to broadcast to Hub after persisting events
+- Hub started in main.go before HTTP server, stopped on graceful shutdown
+- RouterConfig extended with Hub field; stream endpoint wired in /api route group
+- Comprehensive tests: hub lifecycle, multi-client broadcast, minion isolation, graceful disconnect
+- Files: `internal/streaming/hub.go` (new), `internal/streaming/ws_handler.go` (new), `internal/streaming/hub_test.go` (new), `internal/streaming/handler.go`, `internal/api/router.go`, `cmd/orchestrator/main.go`, `go.mod`, `go.sum`
+- **Learnings:** gorilla/websocket needs ReadPump to handle pongs and WritePump for sends; buffered broadcast channel prevents SSE handler blocking

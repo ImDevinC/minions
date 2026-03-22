@@ -253,7 +253,7 @@
         "Broadcasts events from SSE client to connected clients",
         "Handles client disconnections gracefully"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "watchdog-1",

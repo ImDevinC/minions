@@ -14,6 +14,7 @@ import (
 	"github.com/anomalyco/minions/orchestrator/internal/db"
 	"github.com/anomalyco/minions/orchestrator/internal/k8s"
 	"github.com/anomalyco/minions/orchestrator/internal/reconciler"
+	"github.com/anomalyco/minions/orchestrator/internal/streaming"
 	"github.com/anomalyco/minions/orchestrator/internal/webhook"
 )
 
@@ -81,12 +82,20 @@ func main() {
 		"stray_pods", result.StrayPods,
 	)
 
+	// Create and start WebSocket hub for live event streaming
+	hub := streaming.NewHub(logger)
+	hubCtx, hubCancel := context.WithCancel(ctx)
+	defer hubCancel()
+	go hub.Run(hubCtx)
+	logger.Info("websocket hub started")
+
 	router := api.NewRouter(api.RouterConfig{
 		Logger:        logger,
 		APIToken:      apiToken,
 		Pool:          pool,
 		PodTerminator: podManager,
 		Notifier:      notifier,
+		Hub:           hub,
 	})
 
 	srv := &http.Server{
@@ -112,6 +121,10 @@ func main() {
 	<-quit
 
 	logger.Info("shutting down server")
+
+	// Stop the WebSocket hub
+	hub.Stop()
+	logger.Info("websocket hub stopped")
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

@@ -8,19 +8,19 @@ import (
 	"github.com/google/uuid"
 )
 
-// DBEventHandler persists events to the database and updates token usage.
+// DBEventHandler persists events to the database and broadcasts to WebSocket clients.
 type DBEventHandler struct {
 	eventStore  *db.EventStore
 	minionStore *db.MinionStore
+	hub         *Hub // WebSocket hub for broadcasting events to connected clients
 	logger      *slog.Logger
-	// hub is optional - for WebSocket broadcasting (streaming-2)
-	// hub *Hub
 }
 
 // DBEventHandlerConfig holds configuration for DBEventHandler.
 type DBEventHandlerConfig struct {
 	EventStore  *db.EventStore
 	MinionStore *db.MinionStore
+	Hub         *Hub // optional: for WebSocket broadcasting
 	Logger      *slog.Logger
 }
 
@@ -32,11 +32,12 @@ func NewDBEventHandler(config DBEventHandlerConfig) *DBEventHandler {
 	return &DBEventHandler{
 		eventStore:  config.EventStore,
 		minionStore: config.MinionStore,
+		hub:         config.Hub,
 		logger:      config.Logger,
 	}
 }
 
-// HandleEvent persists the event to minion_events table.
+// HandleEvent persists the event to minion_events table and broadcasts to WebSocket clients.
 func (h *DBEventHandler) HandleEvent(ctx context.Context, minionID uuid.UUID, event *PodEvent) error {
 	dbEvent := &db.MinionEvent{
 		MinionID:  minionID,
@@ -59,10 +60,10 @@ func (h *DBEventHandler) HandleEvent(ctx context.Context, minionID uuid.UUID, ev
 		"event_id", dbEvent.ID,
 	)
 
-	// TODO: broadcast to WebSocket hub when streaming-2 is implemented
-	// if h.hub != nil {
-	//     h.hub.Broadcast(minionID, event)
-	// }
+	// Broadcast to WebSocket clients
+	if h.hub != nil {
+		h.hub.Broadcast(minionID, event)
+	}
 
 	return nil
 }

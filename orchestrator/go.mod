@@ -7,6 +7,7 @@ require (
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/google/go-github/v84 v84.0.0
 	github.com/google/uuid v1.6.0
+	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/jackc/pgx/v5 v5.9.0
 	k8s.io/api v0.35.3
 	k8s.io/apimachinery v0.35.3

@@ -8,9 +8,11 @@ import (
 
 	"github.com/anomalyco/minions/orchestrator/internal/db"
 	"github.com/anomalyco/minions/orchestrator/internal/k8s"
+	"github.com/anomalyco/minions/orchestrator/internal/streaming"
 	"github.com/anomalyco/minions/orchestrator/internal/webhook"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -21,6 +23,7 @@ type RouterConfig struct {
 	Pool          *pgxpool.Pool
 	PodTerminator k8s.PodTerminator
 	Notifier      webhook.Notifier
+	Hub           *streaming.Hub // WebSocket hub for live event streaming
 }
 
 // NewRouter creates and configures the chi router with all API endpoints.
@@ -49,6 +52,15 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 		Logger:        cfg.Logger,
 	})
 
+	// WebSocket stream handler (if hub is provided)
+	var streamHandler *streaming.StreamHandler
+	if cfg.Hub != nil {
+		streamHandler = streaming.NewStreamHandler(streaming.StreamHandlerConfig{
+			Hub:    cfg.Hub,
+			Logger: cfg.Logger,
+		})
+	}
+
 	// API routes - auth required
 	r.Route("/api", func(r chi.Router) {
 		r.Use(AuthMiddleware(cfg.APIToken))
@@ -65,6 +77,19 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 		r.Delete("/minions/{id}", minionHandler.HandleDelete)
 		r.Post("/minions/{id}/callback", minionHandler.HandleCallback)
 		r.Patch("/minions/{id}/clarification", minionHandler.HandleClarification)
+
+		// WebSocket stream endpoint
+		if streamHandler != nil {
+			r.Get("/minions/{id}/stream", func(w http.ResponseWriter, r *http.Request) {
+				idStr := chi.URLParam(r, "id")
+				id, err := uuid.Parse(idStr)
+				if err != nil {
+					http.Error(w, "invalid minion id", http.StatusBadRequest)
+					return
+				}
+				streamHandler.HandleStream(w, r, id)
+			})
+		}
 
 		// Stats endpoint
 		r.Get("/stats", minionHandler.HandleStats)
