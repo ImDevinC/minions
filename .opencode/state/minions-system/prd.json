@@ -407,7 +407,7 @@
         "Tracks concurrent pending/running minions",
         "Rejects with message if >3 concurrent"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "bot-4",

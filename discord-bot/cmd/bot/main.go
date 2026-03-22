@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/anomalyco/minions/discord-bot/internal/handler"
+	"github.com/anomalyco/minions/discord-bot/internal/orchestrator"
 )
 
 func main() {
@@ -36,6 +37,23 @@ func main() {
 		logger.Error("DISCORD_BOT_TOKEN environment variable is required")
 		os.Exit(1)
 	}
+
+	// ORCHESTRATOR_URL is required
+	orchestratorURL := os.Getenv("ORCHESTRATOR_URL")
+	if orchestratorURL == "" {
+		logger.Error("ORCHESTRATOR_URL environment variable is required")
+		os.Exit(1)
+	}
+
+	// INTERNAL_API_TOKEN is required
+	apiToken := os.Getenv("INTERNAL_API_TOKEN")
+	if apiToken == "" {
+		logger.Error("INTERNAL_API_TOKEN environment variable is required")
+		os.Exit(1)
+	}
+
+	// Create orchestrator client for minion creation + rate limiting
+	orchClient := orchestrator.NewClient(orchestratorURL, apiToken)
 
 	// Create Discord session
 	discord, err := discordgo.New("Bot " + botToken)
@@ -59,7 +77,7 @@ func main() {
 	})
 
 	// Add message handler for @minion mentions
-	msgHandler := handler.NewMessageHandler(logger)
+	msgHandler := handler.NewMessageHandler(logger, orchClient)
 	discord.AddHandler(msgHandler.Handle)
 
 	// Open connection to Discord gateway

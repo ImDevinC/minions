@@ -2,26 +2,36 @@
 package handler
 
 import (
+	"context"
+	"errors"
 	"log/slog"
 
 	"github.com/bwmarrin/discordgo"
 
 	"github.com/anomalyco/minions/discord-bot/internal/command"
+	"github.com/anomalyco/minions/discord-bot/internal/orchestrator"
 )
 
 // ThinkingEmoji is the reaction added when processing a command
 const ThinkingEmoji = "🤔"
 
+// MinionCreator creates minions via the orchestrator API.
+// Abstraction allows for easy testing.
+type MinionCreator interface {
+	CreateMinion(ctx context.Context, req orchestrator.CreateMinionRequest) (*orchestrator.CreateMinionResponse, error)
+}
+
 // MessageHandler handles incoming Discord messages
 type MessageHandler struct {
-	logger *slog.Logger
-	// TODO: Add orchestrator client for spawning minions
+	logger       *slog.Logger
+	orchestrator MinionCreator
 }
 
 // NewMessageHandler creates a new message handler
-func NewMessageHandler(logger *slog.Logger) *MessageHandler {
+func NewMessageHandler(logger *slog.Logger, orch MinionCreator) *MessageHandler {
 	return &MessageHandler{
-		logger: logger,
+		logger:       logger,
+		orchestrator: orch,
 	}
 }
 
@@ -70,13 +80,42 @@ func (h *MessageHandler) Handle(s *discordgo.Session, m *discordgo.MessageCreate
 		"message_id", m.ID,
 	)
 
-	// TODO: Check rate limits via orchestrator
-	// TODO: Send to clarification LLM or spawn minion directly
-	// For now, just log success
-	h.logger.Info("command parsed successfully, ready for next phase",
+	// Create minion via orchestrator (enforces rate limits)
+	resp, err := h.orchestrator.CreateMinion(context.Background(), orchestrator.CreateMinionRequest{
+		Repo:             cmd.Repo,
+		Task:             cmd.Task,
+		Model:            cmd.Model,
+		DiscordMessageID: m.ID,
+		DiscordChannelID: m.ChannelID,
+		DiscordUserID:    m.Author.ID,
+		DiscordUsername:  m.Author.Username,
+	})
+	if err != nil {
+		h.handleOrchestratorError(s, m, err)
+		return
+	}
+
+	if resp.Duplicate {
+		h.logger.Info("duplicate minion detected",
+			"minion_id", resp.ID,
+			"repo", cmd.Repo,
+		)
+		// Reply with link to existing minion
+		msg := "⚠️ A minion is already working on this task. Check the existing one!"
+		_, sendErr := s.ChannelMessageSendReply(m.ChannelID, msg, m.Reference())
+		if sendErr != nil {
+			h.logger.Error("failed to send duplicate reply", "error", sendErr)
+		}
+		return
+	}
+
+	h.logger.Info("minion created",
+		"minion_id", resp.ID,
 		"repo", cmd.Repo,
 		"model", cmd.Model,
 	)
+
+	// TODO: Send to clarification LLM or proceed to spawn pod directly
 }
 
 // handleParseError sends an error message to Discord for parse failures
@@ -104,6 +143,36 @@ func (h *MessageHandler) handleParseError(s *discordgo.Session, m *discordgo.Mes
 		msg = "❌ Unknown model. Allowed: `anthropic/*` or `openai/*`"
 	default:
 		msg = "❌ Failed to parse command: " + err.Error()
+	}
+
+	// Reply to the message
+	_, sendErr := s.ChannelMessageSendReply(m.ChannelID, msg, m.Reference())
+	if sendErr != nil {
+		h.logger.Error("failed to send error reply",
+			"error", sendErr,
+			"original_error", err,
+			"channel_id", m.ChannelID,
+		)
+	}
+}
+
+// handleOrchestratorError sends an error message to Discord for orchestrator failures
+func (h *MessageHandler) handleOrchestratorError(s *discordgo.Session, m *discordgo.MessageCreate, err error) {
+	h.logger.Warn("orchestrator request failed",
+		"error", err,
+		"author_id", m.Author.ID,
+		"message_id", m.ID,
+	)
+
+	// Build a user-friendly error message
+	var msg string
+	switch {
+	case errors.Is(err, orchestrator.ErrRateLimitExceeded):
+		msg = "⏳ You've hit the hourly limit (10 minions/hour). Please wait a bit before spawning more."
+	case errors.Is(err, orchestrator.ErrConcurrentLimitExceeded):
+		msg = "⏳ You have too many minions running (max 3). Wait for some to finish!"
+	default:
+		msg = "❌ Failed to create minion: " + err.Error()
 	}
 
 	// Reply to the message

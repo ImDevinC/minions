@@ -335,3 +335,16 @@ Started: 2026-03-21
 - Wired message handler into `main.go` via `discord.AddHandler()`
 - Files: `internal/command/parser.go` (new), `internal/command/parser_test.go` (new), `internal/handler/message.go` (new), `cmd/bot/main.go` (updated)
 - **Learnings:** Discord mentions use `<@USER_ID>` or `<@!USER_ID>` (nickname) format; regex-based flag extraction handles both quoted and space-separated values
+
+## Task - bot-3
+- Created `internal/orchestrator/client.go` for orchestrator API client
+- Client calls POST /api/minions with auth token, handles 429 responses with sentinel errors
+- `ErrRateLimitExceeded` and `ErrConcurrentLimitExceeded` sentinel errors for rate limit handling
+- Updated `MessageHandler` to use `MinionCreator` interface (abstraction for testability)
+- On command receipt: calls orchestrator API, handles rate limits with user-friendly messages
+- Rate limit message: "⏳ You've hit the hourly limit (10 minions/hour). Please wait a bit before spawning more."
+- Concurrent limit message: "⏳ You have too many minions running (max 3). Wait for some to finish!"
+- Duplicate detection: replies with warning if minion already working on same task
+- Updated `main.go`: requires `ORCHESTRATOR_URL` and `INTERNAL_API_TOKEN` env vars
+- Files: `internal/orchestrator/client.go` (new), `internal/orchestrator/client_test.go` (new), `internal/handler/message.go` (updated), `internal/handler/message_test.go` (new), `cmd/bot/main.go` (updated)
+- **Learnings:** Rate limiting enforcement happens in orchestrator (source of truth), bot just needs to handle 429 gracefully; `MinionCreator` interface allows easy mocking in tests
