@@ -77,3 +77,11 @@ Started: 2026-03-22
 - Token manager created and ready for spawner injection (marked unused with TODO for integration-2)
 - Files changed: `orchestrator/cmd/orchestrator/main.go` (lines 63-83, 109-119)
 - **Learnings:** Env var pattern: load string, validate non-empty, parse if needed, exit on error with logger.Error
+
+## Task - integration-1
+- Created EventStore from pool for event persistence
+- Created DBEventHandler with EventStore, MinionStore, Hub, and Logger
+- Created SSEClient with podManager (PodIPProvider), eventHandler, and config (port 4096)
+- SSE client ready for spawner injection (marked unused with TODO for integration-2)
+- Files changed: `orchestrator/cmd/orchestrator/main.go` (lines 157-171)
+- **Learnings:** SSE client chain: SSEClient -> DBEventHandler -> (EventStore + Hub). Handler routes events to DB and broadcasts to WebSocket clients.

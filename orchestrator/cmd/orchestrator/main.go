@@ -117,7 +117,7 @@ func main() {
 		os.Exit(1)
 	}
 	logger.Info("github token manager initialized", "app_id", githubAppID)
-	_ = tokenManager // TODO: wire into spawner (integration-2 task)
+	_ = tokenManager // TODO: wire into spawner (integration-2)
 
 	// Create webhook notifier for Discord bot callbacks
 	// DISCORD_BOT_WEBHOOK_URL is optional; if not set, use no-op notifier
@@ -153,6 +153,22 @@ func main() {
 	defer hubCancel()
 	go hub.Run(hubCtx)
 	logger.Info("websocket hub started")
+
+	// Create SSE client for streaming events from pods
+	// EventStore persists events, DBEventHandler routes to DB + WebSocket clients
+	eventStore := db.NewEventStore(pool)
+	eventHandler := streaming.NewDBEventHandler(streaming.DBEventHandlerConfig{
+		EventStore:  eventStore,
+		MinionStore: minionStore,
+		Hub:         hub,
+		Logger:      logger,
+	})
+	sseClient := streaming.NewSSEClient(podManager, eventHandler, streaming.SSEClientConfig{
+		PodPort: 4096,
+		Logger:  logger,
+	})
+	logger.Info("SSE client initialized", "pod_port", 4096)
+	_ = sseClient // TODO: wire into spawner (integration-2)
 
 	// Start the watchdog for idle minion detection and failed pod monitoring
 	wdog := watchdog.New(minionStore, podManager, notifier, logger)

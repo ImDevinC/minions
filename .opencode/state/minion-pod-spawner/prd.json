@@ -108,7 +108,7 @@
         "Create SSEClient with PodManager, EventHandler, and config (port 4096)",
         "SSEClient available for spawner injection"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "integration-2",
