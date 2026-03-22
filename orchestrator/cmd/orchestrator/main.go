@@ -12,6 +12,8 @@ import (
 
 	"github.com/anomalyco/minions/orchestrator/internal/api"
 	"github.com/anomalyco/minions/orchestrator/internal/db"
+	"github.com/anomalyco/minions/orchestrator/internal/k8s"
+	"github.com/anomalyco/minions/orchestrator/internal/webhook"
 )
 
 func main() {
@@ -56,10 +58,18 @@ func main() {
 	defer pool.Close()
 	logger.Info("connected to database")
 
+	// TODO(k8s-1): Replace with real k8s.NewPodTerminator once k8s client is implemented
+	podTerminator := k8s.NewNoOpPodTerminator(logger)
+
+	// TODO(bot-6): Replace with real webhook.NewNotifier once webhook client is implemented
+	notifier := webhook.NewNoOpNotifier(logger)
+
 	router := api.NewRouter(api.RouterConfig{
-		Logger:   logger,
-		APIToken: apiToken,
-		Pool:     pool,
+		Logger:        logger,
+		APIToken:      apiToken,
+		Pool:          pool,
+		PodTerminator: podTerminator,
+		Notifier:      notifier,
 	})
 
 	srv := &http.Server{

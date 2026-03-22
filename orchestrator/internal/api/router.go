@@ -7,6 +7,8 @@ import (
 	"net/http"
 
 	"github.com/anomalyco/minions/orchestrator/internal/db"
+	"github.com/anomalyco/minions/orchestrator/internal/k8s"
+	"github.com/anomalyco/minions/orchestrator/internal/webhook"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -14,9 +16,11 @@ import (
 
 // RouterConfig holds dependencies for creating the router.
 type RouterConfig struct {
-	Logger   *slog.Logger
-	APIToken string
-	Pool     *pgxpool.Pool
+	Logger        *slog.Logger
+	APIToken      string
+	Pool          *pgxpool.Pool
+	PodTerminator k8s.PodTerminator
+	Notifier      webhook.Notifier
 }
 
 // NewRouter creates and configures the chi router with all API endpoints.
@@ -36,7 +40,14 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 	userStore := db.NewUserStore(cfg.Pool)
 	minionStore := db.NewMinionStore(cfg.Pool)
 	eventStore := db.NewEventStore(cfg.Pool)
-	minionHandler := NewMinionHandler(userStore, minionStore, eventStore, cfg.Logger)
+	minionHandler := NewMinionHandler(MinionHandlerConfig{
+		Users:         userStore,
+		Minions:       minionStore,
+		Events:        eventStore,
+		PodTerminator: cfg.PodTerminator,
+		Notifier:      cfg.Notifier,
+		Logger:        cfg.Logger,
+	})
 
 	// API routes - auth required
 	r.Route("/api", func(r chi.Router) {
@@ -51,6 +62,7 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 		r.Get("/minions", minionHandler.HandleList)
 		r.Post("/minions", minionHandler.HandleCreate)
 		r.Get("/minions/{id}", minionHandler.HandleGet)
+		r.Delete("/minions/{id}", minionHandler.HandleDelete)
 	})
 
 	return r

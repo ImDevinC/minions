@@ -264,3 +264,74 @@ func itoa(n int) string {
 	}
 	return string(buf[i:])
 }
+
+// TerminateResult holds the result of a terminate operation.
+type TerminateResult struct {
+	// WasTerminated indicates whether the minion was actually terminated
+	// (vs already being in a terminal state).
+	WasTerminated bool
+	// PreviousStatus is the status before termination (for idempotency checks).
+	PreviousStatus MinionStatus
+	// PodName is the pod name if one was assigned (for k8s cleanup).
+	PodName *string
+	// DiscordChannelID for sending notifications.
+	DiscordChannelID *string
+}
+
+// ErrAlreadyTerminal indicates the minion is already in a terminal state.
+var ErrAlreadyTerminal = errors.New("minion already in terminal state")
+
+// Terminate atomically updates a minion's status to 'terminated'.
+// Uses a transaction to check status before update, handling concurrent requests.
+// Returns ErrNotFound if minion doesn't exist.
+// Returns TerminateResult with WasTerminated=false if already terminal (idempotent).
+func (s *MinionStore) Terminate(ctx context.Context, id uuid.UUID) (*TerminateResult, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Lock the row and fetch current status
+	var currentStatus MinionStatus
+	var podName, discordChannelID *string
+	err = tx.QueryRow(ctx,
+		`SELECT status, pod_name, discord_channel_id FROM minions WHERE id = $1 FOR UPDATE`,
+		id,
+	).Scan(&currentStatus, &podName, &discordChannelID)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	result := &TerminateResult{
+		PreviousStatus:   currentStatus,
+		PodName:          podName,
+		DiscordChannelID: discordChannelID,
+	}
+
+	// If already in a terminal state, return success (idempotent)
+	if currentStatus == StatusCompleted || currentStatus == StatusFailed || currentStatus == StatusTerminated {
+		result.WasTerminated = false
+		return result, nil
+	}
+
+	// Update to terminated
+	_, err = tx.Exec(ctx,
+		`UPDATE minions SET status = $1, completed_at = NOW(), last_activity_at = NOW() WHERE id = $2`,
+		StatusTerminated, id,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+
+	result.WasTerminated = true
+	return result, nil
+}

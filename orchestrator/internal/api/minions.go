@@ -11,25 +11,41 @@ import (
 	"strings"
 
 	"github.com/anomalyco/minions/orchestrator/internal/db"
+	"github.com/anomalyco/minions/orchestrator/internal/k8s"
+	"github.com/anomalyco/minions/orchestrator/internal/webhook"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
 
 // MinionHandler handles minion-related HTTP endpoints.
 type MinionHandler struct {
-	users   *db.UserStore
-	minions *db.MinionStore
-	events  *db.EventStore
-	logger  *slog.Logger
+	users         *db.UserStore
+	minions       *db.MinionStore
+	events        *db.EventStore
+	podTerminator k8s.PodTerminator
+	notifier      webhook.Notifier
+	logger        *slog.Logger
+}
+
+// MinionHandlerConfig holds dependencies for MinionHandler.
+type MinionHandlerConfig struct {
+	Users         *db.UserStore
+	Minions       *db.MinionStore
+	Events        *db.EventStore
+	PodTerminator k8s.PodTerminator
+	Notifier      webhook.Notifier
+	Logger        *slog.Logger
 }
 
 // NewMinionHandler creates a new MinionHandler.
-func NewMinionHandler(users *db.UserStore, minions *db.MinionStore, events *db.EventStore, logger *slog.Logger) *MinionHandler {
+func NewMinionHandler(cfg MinionHandlerConfig) *MinionHandler {
 	return &MinionHandler{
-		users:   users,
-		minions: minions,
-		events:  events,
-		logger:  logger,
+		users:         cfg.Users,
+		minions:       cfg.Minions,
+		events:        cfg.Events,
+		podTerminator: cfg.PodTerminator,
+		notifier:      cfg.Notifier,
+		logger:        cfg.Logger,
 	}
 }
 
@@ -363,6 +379,75 @@ func (h *MinionHandler) HandleGet(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		h.logger.Error("failed to encode response", "error", err)
+	}
+}
+
+// DeleteMinionResponse is the response body for DELETE /api/minions/{id}.
+type DeleteMinionResponse struct {
+	Success bool `json:"success"`
+}
+
+// HandleDelete handles DELETE /api/minions/{id}.
+// Terminates the pod, updates status to 'terminated', and notifies Discord.
+// Returns success=true even if minion was already in a terminal state (idempotent).
+func (h *MinionHandler) HandleDelete(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		h.writeError(w, http.StatusBadRequest, "invalid minion id", "INVALID_ID")
+		return
+	}
+
+	// Atomically check status and update to terminated
+	result, err := h.minions.Terminate(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			h.writeError(w, http.StatusNotFound, "minion not found", "NOT_FOUND")
+			return
+		}
+		h.logger.Error("failed to terminate minion", "error", err, "minion_id", id)
+		h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+		return
+	}
+
+	// If minion was actually terminated (not already terminal), clean up resources
+	if result.WasTerminated {
+		h.logger.Info("minion terminated",
+			"minion_id", id,
+			"previous_status", result.PreviousStatus,
+		)
+
+		// Terminate pod if one was assigned
+		if result.PodName != nil {
+			if err := h.podTerminator.TerminatePod(r.Context(), *result.PodName); err != nil {
+				// Log but don't fail the request; pod cleanup is best-effort
+				h.logger.Error("failed to terminate pod", "error", err, "pod_name", *result.PodName)
+			}
+		}
+
+		// Notify Discord bot
+		if result.DiscordChannelID != nil {
+			notification := webhook.Notification{
+				MinionID:         id,
+				Type:             webhook.NotifyTerminated,
+				DiscordChannelID: *result.DiscordChannelID,
+			}
+			if err := h.notifier.Notify(r.Context(), notification); err != nil {
+				// Log but don't fail the request; notification is best-effort
+				h.logger.Error("failed to send termination notification", "error", err, "minion_id", id)
+			}
+		}
+	} else {
+		h.logger.Info("minion already in terminal state",
+			"minion_id", id,
+			"status", result.PreviousStatus,
+		)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(DeleteMinionResponse{Success: true}); err != nil {
 		h.logger.Error("failed to encode response", "error", err)
 	}
 }

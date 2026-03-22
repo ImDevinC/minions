@@ -119,7 +119,7 @@
         "Idempotent: returns success if already terminated/completed",
         "Uses DB transaction to check status before update (handles concurrent requests)"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "orchestrator-7",

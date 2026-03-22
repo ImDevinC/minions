@@ -8,6 +8,8 @@ Started: 2026-03-21
 - Timestamps: `TIMESTAMPTZ NOT NULL DEFAULT NOW()` for created_at/updated_at
 - Go services: chi router, JSON handlers, slog for structured logging
 - Router setup in `internal/api/router.go`, entry point in `cmd/<service>/main.go`
+- Interface stubs: Use interface + NoOp implementation for external dependencies (k8s, webhooks) to allow incremental implementation
+- Handler config structs: Use `FooHandlerConfig` struct for >3 dependencies instead of positional params
 
 ---
 <!-- Task logs below - APPEND ONLY -->
@@ -81,3 +83,14 @@ Started: 2026-03-21
 - Returns 404 for non-existent minion with NOT_FOUND code
 - Files changed: `internal/db/events.go` (new), `internal/api/minions.go`, `internal/api/router.go`, `internal/api/minions_test.go`
 - **Learnings:** chi.URLParam requires chi.RouteCtxKey context value in tests, mock via chi.NewRouteContext()
+
+## Task - orchestrator-6
+- Implemented DELETE /api/minions/{id} endpoint for minion termination
+- Created `internal/k8s/pods.go` with PodTerminator interface and NoOpPodTerminator stub
+- Created `internal/webhook/notifier.go` with Notifier interface and NoOpNotifier stub
+- Added `Terminate` method to MinionStore using transaction with FOR UPDATE lock (prevents concurrent updates)
+- Returns idempotent success for already-terminal minions (completed/failed/terminated)
+- Pod termination and webhook notification are best-effort (logged but don't fail request)
+- MinionHandler refactored to use config struct pattern for cleaner dependency injection
+- Files: `internal/k8s/pods.go` (new), `internal/webhook/notifier.go` (new), `internal/db/minions.go`, `internal/api/minions.go`, `internal/api/router.go`, `cmd/orchestrator/main.go`
+- **Learnings:** FOR UPDATE lock in transaction ensures atomic check-and-update; interface stubs allow incremental implementation without blocking dependent tasks
