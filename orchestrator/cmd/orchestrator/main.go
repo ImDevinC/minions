@@ -7,13 +7,16 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/anomalyco/minions/orchestrator/internal/api"
 	"github.com/anomalyco/minions/orchestrator/internal/db"
+	"github.com/anomalyco/minions/orchestrator/internal/github"
 	"github.com/anomalyco/minions/orchestrator/internal/k8s"
 	"github.com/anomalyco/minions/orchestrator/internal/reconciler"
+	"github.com/anomalyco/minions/orchestrator/internal/spawner"
 	"github.com/anomalyco/minions/orchestrator/internal/streaming"
 	"github.com/anomalyco/minions/orchestrator/internal/watchdog"
 	"github.com/anomalyco/minions/orchestrator/internal/webhook"
@@ -60,6 +63,33 @@ func main() {
 		os.Exit(1)
 	}
 
+	// GITHUB_APP_ID is required for GitHub App authentication
+	githubAppIDStr := os.Getenv("GITHUB_APP_ID")
+	if githubAppIDStr == "" {
+		logger.Error("GITHUB_APP_ID environment variable is required")
+		os.Exit(1)
+	}
+	githubAppID, err := strconv.ParseInt(githubAppIDStr, 10, 64)
+	if err != nil {
+		logger.Error("GITHUB_APP_ID must be a valid integer", "value", githubAppIDStr, "error", err)
+		os.Exit(1)
+	}
+
+	// GITHUB_APP_PRIVATE_KEY is required for GitHub App authentication
+	githubAppPrivateKey := os.Getenv("GITHUB_APP_PRIVATE_KEY")
+	if githubAppPrivateKey == "" {
+		logger.Error("GITHUB_APP_PRIVATE_KEY environment variable is required")
+		os.Exit(1)
+	}
+
+	// ORCHESTRATOR_URL is required for pod callback URLs
+	// (e.g., http://orchestrator.minions.svc.cluster.local:8080 in k8s)
+	orchestratorURL := os.Getenv("ORCHESTRATOR_URL")
+	if orchestratorURL == "" {
+		logger.Error("ORCHESTRATOR_URL environment variable is required")
+		os.Exit(1)
+	}
+
 	// Connect to database
 	ctx := context.Background()
 	pool, err := db.Connect(ctx, db.Config{
@@ -85,6 +115,17 @@ func main() {
 		os.Exit(1)
 	}
 	logger.Info("kubernetes client initialized", "devbox_image", devboxImage)
+
+	// Initialize GitHub token manager for generating installation tokens
+	tokenManager, err := github.NewManager(github.Config{
+		AppID:      githubAppID,
+		PrivateKey: []byte(githubAppPrivateKey),
+	}, logger)
+	if err != nil {
+		logger.Error("failed to create GitHub token manager", "error", err)
+		os.Exit(1)
+	}
+	logger.Info("github token manager initialized", "app_id", githubAppID)
 
 	// Create webhook notifier for Discord bot callbacks
 	// DISCORD_BOT_WEBHOOK_URL is optional; if not set, use no-op notifier
@@ -120,6 +161,41 @@ func main() {
 	defer hubCancel()
 	go hub.Run(hubCtx)
 	logger.Info("websocket hub started")
+
+	// Create SSE client for streaming events from pods
+	// EventStore persists events, DBEventHandler routes to DB + WebSocket clients
+	eventStore := db.NewEventStore(pool)
+	eventHandler := streaming.NewDBEventHandler(streaming.DBEventHandlerConfig{
+		EventStore:  eventStore,
+		MinionStore: minionStore,
+		Hub:         hub,
+		Logger:      logger,
+	})
+	sseClient := streaming.NewSSEClient(podManager, eventHandler, streaming.SSEClientConfig{
+		PodPort: 4096,
+		Logger:  logger,
+	})
+	logger.Info("SSE client initialized", "pod_port", 4096)
+
+	// Initialize spawner for background pod creation
+	spwn := spawner.New(
+		minionStore, // MinionQuerier
+		minionStore, // MinionUpdater
+		tokenManager,
+		podManager,
+		sseClient,
+		spawner.Config{
+			OrchestratorURL:  orchestratorURL,
+			InternalAPIToken: apiToken,
+		},
+		logger,
+	)
+
+	// Start spawner (polls for pending minions)
+	spawnerCtx, spawnerCancel := context.WithCancel(ctx)
+	defer spawnerCancel()
+	spwn.Start(spawnerCtx)
+	logger.Info("spawner started")
 
 	// Start the watchdog for idle minion detection and failed pod monitoring
 	wdog := watchdog.New(minionStore, podManager, notifier, logger)
@@ -164,6 +240,10 @@ func main() {
 	// Stop the watchdog
 	wdog.Stop()
 	logger.Info("watchdog stopped")
+
+	// Stop the spawner
+	spwn.Stop()
+	logger.Info("spawner stopped")
 
 	// Stop the WebSocket hub
 	hub.Stop()

@@ -1,0 +1,177 @@
+{
+  "prdName": "minion-pod-spawner",
+  "tasks": [
+    {
+      "id": "db-1",
+      "category": "db",
+      "description": "Add MarkRunning method to MinionStore using transaction-based status constraint enforcement (matching SetClarification pattern)",
+      "steps": [
+        "MarkRunning(ctx, id, podName) method exists on MinionStore",
+        "Uses transaction with FOR UPDATE row lock (pattern: minions.go:599-639)",
+        "Enforces transition from 'pending' only, returns ErrInvalidStatusTransition otherwise",
+        "Updates status='running', pod_name, started_at=NOW(), last_activity_at=NOW()",
+        "Returns ErrNotFound if minion doesn't exist"
+      ],
+      "passes": true
+    },
+    {
+      "id": "spawner-1",
+      "category": "spawner",
+      "description": "Create spawner component with background goroutine that polls for pending minions",
+      "steps": [
+        "Spawner struct exists in orchestrator/internal/spawner/spawner.go",
+        "Follows watchdog pattern: ticker, stop channel, graceful shutdown",
+        "Start() method launches background goroutine",
+        "Stop() method signals shutdown and waits for completion",
+        "Polls every 5 seconds for pending minions"
+      ],
+      "passes": true
+    },
+    {
+      "id": "spawner-2",
+      "category": "spawner",
+      "description": "Spawner generates GitHub App installation token for minion repo",
+      "steps": [
+        "Spawner calls token manager to generate installation token",
+        "Token is passed to SpawnParams for pod creation",
+        "Token generation failure marks minion as failed with clear error message"
+      ],
+      "passes": true
+    },
+    {
+      "id": "spawner-3",
+      "category": "spawner",
+      "description": "Spawner calls SpawnPodWithRetry and WaitForPodReady to create pods",
+      "steps": [
+        "Spawner calls SpawnPodWithRetry() with correct SpawnParams",
+        "SpawnParams includes OrchestratorURL and InternalAPIToken",
+        "Waits for pod readiness via WaitForPodReady()",
+        "Pod spawn failure (after retries exhausted) marks minion as failed"
+      ],
+      "passes": true
+    },
+    {
+      "id": "spawner-4",
+      "category": "spawner",
+      "description": "Spawner updates minion status after successful pod spawn",
+      "steps": [
+        "Calls MarkRunning(id, podName) after pod is ready",
+        "Minion transitions from pending to running with pod_name set",
+        "MarkRunning DB failures log error but don't crash spawner"
+      ],
+      "passes": true
+    },
+    {
+      "id": "spawner-5",
+      "category": "spawner",
+      "description": "Spawner initiates SSE streaming after successful spawn",
+      "steps": [
+        "After successful spawn, initiates SSE connection to pod",
+        "Uses existing streaming.SSEClient infrastructure",
+        "SSE connection failures are non-fatal; client retries automatically"
+      ],
+      "passes": true
+    },
+    {
+      "id": "spawner-6",
+      "category": "spawner",
+      "description": "Spawner handles errors gracefully with proper status transitions",
+      "steps": [
+        "GitHub token failures mark minion as failed",
+        "Pod readiness timeout marks minion as failed",
+        "Error messages are captured in minion error field",
+        "Spawner continues processing other minions after a failure",
+        "Handles edge cases: concurrent spawn (transaction prevents), already running (ErrInvalidStatusTransition), pod name collision (k8s error)"
+      ],
+      "passes": true
+    },
+    {
+      "id": "integration-0",
+      "category": "integration",
+      "description": "Initialize GitHub token manager in main.go",
+      "steps": [
+        "Load GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY env vars with validation",
+        "Parse app ID to int64",
+        "Call github.NewManager() with config",
+        "Handle initialization errors with structured logging",
+        "Token manager available for spawner injection"
+      ],
+      "passes": true
+    },
+    {
+      "id": "integration-1",
+      "category": "integration",
+      "description": "Initialize SSE client dependencies in main.go for spawner",
+      "steps": [
+        "Create EventStore instance from pool",
+        "Create DBEventHandler with EventStore, MinionStore, and Hub",
+        "Create SSEClient with PodManager, EventHandler, and config (port 4096)",
+        "SSEClient available for spawner injection"
+      ],
+      "passes": true
+    },
+    {
+      "id": "integration-2",
+      "category": "integration",
+      "description": "Wire spawner into orchestrator main.go startup/shutdown lifecycle",
+      "steps": [
+        "Initialize spawner with tokenManager, sseClient, stores, podManager",
+        "Spawner.Start() called after reconciliation, before watchdog",
+        "Spawner.Stop() called during shutdown after watchdog",
+        "Structured logs capture startup and shutdown events"
+      ],
+      "passes": true
+    },
+    {
+      "id": "testing-1",
+      "category": "testing",
+      "description": "Unit tests for spawner logic",
+      "steps": [
+        "Test spawner processes pending minions",
+        "Test spawner skips non-pending minions",
+        "Test spawner handles token generation failure",
+        "Test spawner handles pod spawn failure",
+        "Test spawner stops cleanly on shutdown signal"
+      ],
+      "passes": true
+    },
+    {
+      "id": "testing-2",
+      "category": "testing",
+      "description": "Unit tests for MarkRunning method",
+      "steps": [
+        "Test MarkRunning updates status, pod_name, started_at, last_activity_at",
+        "Test MarkRunning only transitions from pending status (returns ErrInvalidStatusTransition)",
+        "Test MarkRunning returns ErrNotFound for non-existent minion",
+        "Test MarkRunning uses transaction to prevent concurrent updates"
+      ],
+      "passes": true
+    }
+  ],
+  "context": {
+    "patterns": [
+      "Watchdog pattern: orchestrator/internal/watchdog/watchdog.go",
+      "Pod management: orchestrator/internal/k8s/pods.go (SpawnPodWithRetry, WaitForPodReady)",
+      "GitHub tokens: orchestrator/internal/github/ (TokenManager)",
+      "SSE streaming: orchestrator/internal/streaming/ (SSEClient, DBEventHandler)",
+      "Status transition with transaction: orchestrator/internal/db/minions.go:599-639 (SetClarification)"
+    ],
+    "keyFiles": [
+      "orchestrator/cmd/orchestrator/main.go",
+      "orchestrator/internal/db/minions.go",
+      "orchestrator/internal/k8s/pods.go",
+      "orchestrator/internal/streaming/",
+      "orchestrator/internal/watchdog/watchdog.go",
+      "orchestrator/internal/github/",
+      "infra/deployments.yaml"
+    ],
+    "nonGoals": [
+      "Horizontal scaling / locking (single replica for now)",
+      "Concurrent spawning (process serially to avoid k8s API rate limits)",
+      "Prometheus metrics (structured logs are sufficient)",
+      "Per-minion retry tracking in DB",
+      "Priority queue (FIFO by created_at is sufficient)",
+      "Spawner crash recovery in reconciler (separate enhancement)"
+    ]
+  }
+}

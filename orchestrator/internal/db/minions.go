@@ -10,8 +10,18 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// Pool defines the interface for database connection pooling.
+// Both *pgxpool.Pool and mock implementations satisfy this interface.
+type Pool interface {
+	Begin(ctx context.Context) (pgx.Tx, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
 
 // MinionStatus represents the lifecycle state of a minion.
 type MinionStatus string
@@ -63,11 +73,17 @@ type CreateMinionParams struct {
 
 // MinionStore handles minion database operations.
 type MinionStore struct {
-	pool *pgxpool.Pool
+	pool Pool
 }
 
 // NewMinionStore creates a new MinionStore.
 func NewMinionStore(pool *pgxpool.Pool) *MinionStore {
+	return &MinionStore{pool: pool}
+}
+
+// NewMinionStoreWithPool creates a MinionStore with a custom Pool implementation.
+// This is useful for testing with mock pools.
+func NewMinionStoreWithPool(pool Pool) *MinionStore {
 	return &MinionStore{pool: pool}
 }
 
@@ -694,6 +710,49 @@ func (s *MinionStore) ListByStatuses(ctx context.Context, statuses []MinionStatu
 	return minions, nil
 }
 
+// ListPending returns minions in pending status ordered by created_at ASC (FIFO).
+// Used by spawner to process minions in order of creation.
+func (s *MinionStore) ListPending(ctx context.Context) ([]*Minion, error) {
+	query := `SELECT id, user_id, repo, task, model, status,
+		        clarification_question, clarification_answer, clarification_message_id,
+		        input_tokens, output_tokens, cost_usd,
+		        pr_url, error, session_id, pod_name,
+		        discord_message_id, discord_channel_id,
+		        created_at, started_at, completed_at, last_activity_at
+		 FROM minions 
+		 WHERE status = $1
+		 ORDER BY created_at ASC`
+
+	rows, err := s.pool.Query(ctx, query, StatusPending)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var minions []*Minion
+	for rows.Next() {
+		m := &Minion{}
+		err := rows.Scan(
+			&m.ID, &m.UserID, &m.Repo, &m.Task, &m.Model, &m.Status,
+			&m.ClarificationQuestion, &m.ClarificationAnswer, &m.ClarificationMessageID,
+			&m.InputTokens, &m.OutputTokens, &m.CostUSD,
+			&m.PRURL, &m.Error, &m.SessionID, &m.PodName,
+			&m.DiscordMessageID, &m.DiscordChannelID,
+			&m.CreatedAt, &m.StartedAt, &m.CompletedAt, &m.LastActivityAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		minions = append(minions, m)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return minions, nil
+}
+
 // MarkFailed marks a minion as failed with the given error message.
 // Used by reconciliation to mark orphaned minions.
 func (s *MinionStore) MarkFailed(ctx context.Context, id uuid.UUID, errorMsg string) error {
@@ -890,6 +949,54 @@ func (s *MinionStore) SetClarificationAnswer(ctx context.Context, params SetClar
 			last_activity_at = NOW()
 		WHERE id = $3`,
 		StatusPending, params.Answer, params.ID,
+	)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
+// MarkRunning transitions a minion from pending to running.
+// Sets status='running', pod_name, started_at=NOW(), last_activity_at=NOW().
+// Uses a transaction with FOR UPDATE row lock to prevent concurrent updates.
+// Returns ErrNotFound if minion doesn't exist.
+// Returns ErrInvalidStatusTransition if not in pending status.
+func (s *MinionStore) MarkRunning(ctx context.Context, id uuid.UUID, podName string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Lock the row and fetch current status
+	var currentStatus MinionStatus
+	err = tx.QueryRow(ctx,
+		`SELECT status FROM minions WHERE id = $1 FOR UPDATE`,
+		id,
+	).Scan(&currentStatus)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+
+	// Only allow transition from pending
+	if currentStatus != StatusPending {
+		return ErrInvalidStatusTransition
+	}
+
+	// Update to running with pod_name and timestamps
+	_, err = tx.Exec(ctx,
+		`UPDATE minions SET 
+			status = $1,
+			pod_name = $2,
+			started_at = NOW(),
+			last_activity_at = NOW()
+		WHERE id = $3`,
+		StatusRunning, podName, id,
 	)
 	if err != nil {
 		return err
