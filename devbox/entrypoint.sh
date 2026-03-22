@@ -199,13 +199,24 @@ has_changes() {
     [[ -n "$(git status --porcelain)" ]]
 }
 
+# Exit codes for create_pr
+PR_SUCCESS=0
+PR_NO_CHANGES=10
+PR_PUSH_CONFLICT=11
+PR_ERROR=1
+
 # Create branch, commit, push, and create PR
+# Returns:
+#   PR_SUCCESS (0) - PR created or already exists, URL written to stdout
+#   PR_NO_CHANGES (10) - no changes detected
+#   PR_PUSH_CONFLICT (11) - push failed due to conflicts
+#   PR_ERROR (1) - other error
 create_pr() {
     log "Checking for changes"
 
     if ! has_changes; then
         log "No changes detected"
-        return 1  # Signal "no changes" (not an error, handled separately)
+        return $PR_NO_CHANGES
     fi
 
     local branch_name="minion/${MINION_ID}"
@@ -235,9 +246,24 @@ ${MINION_TASK}"
 
     log "Committed changes"
 
-    # Push to origin
+    # Push to origin - capture stderr for conflict detection
     log "Pushing branch to origin"
-    git push -u origin "${branch_name}"
+    local push_output
+    local push_exit
+    push_output=$(git push -u origin "${branch_name}" 2>&1) && push_exit=0 || push_exit=$?
+
+    if [[ $push_exit -ne 0 ]]; then
+        log "git push stderr: ${push_output}"
+        
+        # Detect conflicts (rejected, non-fast-forward, etc.)
+        if echo "$push_output" | grep -qiE "(rejected|non-fast-forward|conflict|failed to push)"; then
+            log "Push failed due to conflicts"
+            return $PR_PUSH_CONFLICT
+        fi
+        
+        log "Push failed with unknown error"
+        return $PR_ERROR
+    fi
 
     log "Creating PR via gh CLI"
 
@@ -257,18 +283,48 @@ _Automated PR by Minion `\($minion_id)`_
 ')
 
     # gh pr create returns the PR URL on success
+    # Capture both stdout and stderr separately
+    local gh_stderr
+    local gh_exit
     pr_url=$(gh pr create \
         --title "feat: ${commit_subject}" \
         --body "$pr_body" \
         --head "${branch_name}" \
-        2>&1) || {
-        local exit_code=$?
-        log "gh pr create stderr: ${pr_url}"
-        return $exit_code
-    }
+        2> >(tee >(cat >&2) | head -1 > /tmp/gh_stderr.tmp)) && gh_exit=0 || gh_exit=$?
+    
+    # Read stderr (if any)
+    gh_stderr=$(cat /tmp/gh_stderr.tmp 2>/dev/null || echo "")
+    
+    # Always log gh CLI output for debugging
+    [[ -n "$gh_stderr" ]] && log "gh pr create stderr: ${gh_stderr}"
+    
+    if [[ $gh_exit -ne 0 ]]; then
+        # Check if PR already exists for this branch (idempotent)
+        if echo "$gh_stderr" | grep -qiE "already exists|pull request already exists"; then
+            log "PR already exists for branch ${branch_name}, fetching URL"
+            
+            # Get existing PR URL
+            local existing_pr
+            existing_pr=$(gh pr view "${branch_name}" --json url -q '.url' 2>&1) || {
+                log "gh pr view stderr: ${existing_pr}"
+                # If we can't get the URL, still treat as success (PR exists)
+                log "Could not fetch existing PR URL, but PR exists"
+                echo "https://github.com/${MINION_REPO}/pull/unknown"
+                return $PR_SUCCESS
+            }
+            
+            log "Existing PR found: ${existing_pr}"
+            echo "${existing_pr}"
+            return $PR_SUCCESS
+        fi
+        
+        log "gh pr create failed with exit code ${gh_exit}"
+        return $PR_ERROR
+    fi
 
     log "PR created: ${pr_url}"
     echo "${pr_url}"
+    return $PR_SUCCESS
 }
 
 # Callback retry configuration
@@ -277,14 +333,16 @@ CALLBACK_INITIAL_BACKOFF=1  # seconds
 CALLBACK_MAX_BACKOFF=60     # seconds
 
 # Send callback to orchestrator with exponential backoff retry
+# Args: status, pr_url (optional), error_msg (optional), result_type (optional: "no_changes")
 # On failure after all retries, returns non-zero
 send_callback() {
     local status="$1"
     local pr_url="${2:-}"
     local error_msg="${3:-}"
+    local result_type="${4:-}"
 
     local callback_url="${ORCHESTRATOR_URL}/api/minions/${MINION_ID}/callback"
-    log "Sending callback to orchestrator: status=${status}"
+    log "Sending callback to orchestrator: status=${status}${result_type:+ result_type=${result_type}}"
 
     local payload
     payload=$(jq -n \
@@ -292,11 +350,13 @@ send_callback() {
         --arg pr_url "$pr_url" \
         --arg error "$error_msg" \
         --arg session_id "${SESSION_ID:-}" \
+        --arg result_type "$result_type" \
         '{
             status: $status,
             session_id: $session_id
         } + (if $pr_url != "" then {pr_url: $pr_url} else {} end)
-          + (if $error != "" then {error: $error} else {} end)')
+          + (if $error != "" then {error: $error} else {} end)
+          + (if $result_type != "" then {result_type: $result_type} else {} end)')
 
     local attempt=1
     local backoff=$CALLBACK_INITIAL_BACKOFF
@@ -352,31 +412,42 @@ main() {
         
         # Attempt to create PR
         local pr_url
-        if pr_url=$(create_pr); then
-            log "PR created successfully"
-            if ! send_callback "completed" "$pr_url"; then
-                log "FATAL: Failed to notify orchestrator after ${CALLBACK_MAX_RETRIES} attempts"
-                exit 1
-            fi
-        else
-            # No changes or PR creation failed
-            # create_pr returns 1 for "no changes", other codes for errors
-            if ! has_changes; then
-                log "No changes to commit - task completed with no modifications"
-                # Note: devbox-5 will handle this case with a proper "no changes" status
-                if ! send_callback "completed" "" "No changes"; then
+        local pr_exit
+        pr_url=$(create_pr) && pr_exit=0 || pr_exit=$?
+        
+        case $pr_exit in
+            $PR_SUCCESS)
+                log "PR created/found successfully"
+                if ! send_callback "completed" "$pr_url"; then
                     log "FATAL: Failed to notify orchestrator after ${CALLBACK_MAX_RETRIES} attempts"
                     exit 1
                 fi
-            else
+                ;;
+            $PR_NO_CHANGES)
+                log "No changes to commit - task completed with no modifications"
+                # Send "no_changes" status (not failure, per PRD)
+                if ! send_callback "completed" "" "" "no_changes"; then
+                    log "FATAL: Failed to notify orchestrator after ${CALLBACK_MAX_RETRIES} attempts"
+                    exit 1
+                fi
+                ;;
+            $PR_PUSH_CONFLICT)
+                log "Push failed due to branch conflicts"
+                if ! send_callback "failed" "" "Branch push failed: conflicts detected with remote"; then
+                    log "FATAL: Failed to notify orchestrator after ${CALLBACK_MAX_RETRIES} attempts"
+                    exit 1
+                fi
+                exit 1
+                ;;
+            *)
                 log "PR creation failed"
                 if ! send_callback "failed" "" "PR creation failed"; then
                     log "FATAL: Failed to notify orchestrator after ${CALLBACK_MAX_RETRIES} attempts"
                     exit 1
                 fi
                 exit 1
-            fi
-        fi
+                ;;
+        esac
     else
         log "Task failed"
         if ! send_callback "failed" "" "Task execution failed"; then

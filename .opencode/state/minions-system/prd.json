@@ -366,7 +366,7 @@
         "Log all gh CLI stderr for debugging",
         "If no changes detected, callback with 'no changes' status (not failure)"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "bot-1",

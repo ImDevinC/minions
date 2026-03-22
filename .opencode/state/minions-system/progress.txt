@@ -301,3 +301,13 @@ Started: 2026-03-21
 - Non-zero exit ensures k8s marks pod as Failed, visible in orchestrator reconciliation
 - Files: `devbox/entrypoint.sh`
 - **Learnings:** Use `http_code=$(curl ... || http_code="000"` pattern to handle both curl errors and HTTP status; main function must explicitly check all callback returns since set -e doesn't apply to command substitutions
+
+## Task - devbox-5
+- Implemented PR edge case handling in `devbox/entrypoint.sh`
+- Exit codes: PR_SUCCESS=0, PR_NO_CHANGES=10, PR_PUSH_CONFLICT=11, PR_ERROR=1
+- Existing PR detection: checks stderr for "already exists", fetches URL via `gh pr view`
+- Push conflict detection: grep for rejected/non-fast-forward/conflict in push output
+- gh CLI stderr: captured via process substitution `2> >(tee ...)`, always logged
+- No changes: sends `result_type: "no_changes"` with completed status (not failure)
+- Files: `devbox/entrypoint.sh`
+- **Learnings:** Use process substitution `2> >(cmd)` to capture stderr while still showing it; `gh pr view --json url -q '.url'` reliably fetches existing PR URL
