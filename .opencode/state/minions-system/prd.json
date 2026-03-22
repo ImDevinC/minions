@@ -422,7 +422,7 @@
         "If all 3 retries fail, calls orchestrator to mark minion as failed",
         "Posts failure notification to Discord on retry exhaustion"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "bot-5",

@@ -124,3 +124,94 @@ func (c *Client) CreateMinion(ctx context.Context, req CreateMinionRequest) (*Cr
 
 	return &minionResp, nil
 }
+
+// SetClarificationRequest is the request body for PATCH /api/minions/{id}/clarification.
+type SetClarificationRequest struct {
+	Question         string `json:"question"`
+	DiscordMessageID string `json:"discord_message_id"`
+}
+
+// SetClarification updates a minion's clarification state.
+// Stores the question and the Discord message ID for reply tracking.
+func (c *Client) SetClarification(ctx context.Context, minionID string, req SetClarificationRequest) error {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/api/minions/%s/clarification", c.baseURL, minionID)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPatch, url, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+c.apiToken)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return fmt.Errorf("minion not found: %s", minionID)
+	}
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		var errResp ErrorResponse
+		if err := json.Unmarshal(respBody, &errResp); err != nil {
+			return fmt.Errorf("http error %d: %s", resp.StatusCode, string(respBody))
+		}
+		return fmt.Errorf("orchestrator error: %s", errResp.Error)
+	}
+
+	return nil
+}
+
+// MarkFailedRequest is the request body for POST /api/minions/{id}/callback with failure status.
+type MarkFailedRequest struct {
+	Status string `json:"status"`
+	Error  string `json:"error"`
+}
+
+// MarkFailed marks a minion as failed via the callback endpoint.
+// Used when clarification LLM calls fail after all retries.
+func (c *Client) MarkFailed(ctx context.Context, minionID string, errorMsg string) error {
+	req := MarkFailedRequest{
+		Status: "failed",
+		Error:  errorMsg,
+	}
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/api/minions/%s/callback", c.baseURL, minionID)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+c.apiToken)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		var errResp ErrorResponse
+		if err := json.Unmarshal(respBody, &errResp); err != nil {
+			return fmt.Errorf("http error %d: %s", resp.StatusCode, string(respBody))
+		}
+		return fmt.Errorf("orchestrator error: %s", errResp.Error)
+	}
+
+	return nil
+}

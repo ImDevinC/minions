@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/anomalyco/minions/discord-bot/internal/clarify"
 	"github.com/anomalyco/minions/discord-bot/internal/handler"
 	"github.com/anomalyco/minions/discord-bot/internal/orchestrator"
 )
@@ -52,8 +53,19 @@ func main() {
 		os.Exit(1)
 	}
 
+	// ANTHROPIC_API_KEY is required for clarification LLM
+	anthropicKey := os.Getenv("ANTHROPIC_API_KEY")
+	if anthropicKey == "" {
+		logger.Error("ANTHROPIC_API_KEY environment variable is required")
+		os.Exit(1)
+	}
+
 	// Create orchestrator client for minion creation + rate limiting
 	orchClient := orchestrator.NewClient(orchestratorURL, apiToken)
+
+	// Create clarification LLM client and handler
+	llmClient := clarify.NewAnthropicClient(anthropicKey)
+	clarifyHandler := clarify.NewHandler(llmClient, logger)
 
 	// Create Discord session
 	discord, err := discordgo.New("Bot " + botToken)
@@ -77,7 +89,7 @@ func main() {
 	})
 
 	// Add message handler for @minion mentions
-	msgHandler := handler.NewMessageHandler(logger, orchClient)
+	msgHandler := handler.NewMessageHandler(logger, orchClient, clarifyHandler)
 	discord.AddHandler(msgHandler.Handle)
 
 	// Open connection to Discord gateway

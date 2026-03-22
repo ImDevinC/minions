@@ -348,3 +348,15 @@ Started: 2026-03-21
 - Updated `main.go`: requires `ORCHESTRATOR_URL` and `INTERNAL_API_TOKEN` env vars
 - Files: `internal/orchestrator/client.go` (new), `internal/orchestrator/client_test.go` (new), `internal/handler/message.go` (updated), `internal/handler/message_test.go` (new), `cmd/bot/main.go` (updated)
 - **Learnings:** Rate limiting enforcement happens in orchestrator (source of truth), bot just needs to handle 429 gracefully; `MinionCreator` interface allows easy mocking in tests
+
+## Task - bot-4
+- Created `internal/clarify/llm.go` with AnthropicClient for clarification LLM calls
+- Created `internal/clarify/handler.go` with Handler and EvaluateWithRetry (3x exponential backoff)
+- Extended orchestrator client with SetClarification and MarkFailed methods
+- Updated MessageHandler: added Orchestrator and ClarificationEvaluator interfaces
+- processClarification flow: evaluates task, posts question or proceeds, marks failed on retry exhaustion
+- System prompt instructs LLM to respond "READY" or ask a single clarification question
+- Requires ANTHROPIC_API_KEY env var in main.go
+- Comprehensive test suite for handler retry logic and mock interfaces
+- Files: `internal/clarify/llm.go` (new), `internal/clarify/handler.go` (new), `internal/clarify/handler_test.go` (new), `internal/orchestrator/client.go` (updated), `internal/handler/message.go` (updated), `internal/handler/message_test.go` (updated), `cmd/bot/main.go` (updated)
+- **Learnings:** Use interface-based design (Orchestrator, ClarificationEvaluator) for testability; exponential backoff constants as package-level for easy tuning; clarification question posted as reply, clarification_message_id stored for reply tracking

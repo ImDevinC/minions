@@ -5,16 +5,48 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/anomalyco/minions/discord-bot/internal/clarify"
 	"github.com/anomalyco/minions/discord-bot/internal/orchestrator"
 )
 
-// mockMinionCreator is a mock implementation of MinionCreator for testing
-type mockMinionCreator struct {
-	createFunc func(ctx context.Context, req orchestrator.CreateMinionRequest) (*orchestrator.CreateMinionResponse, error)
+// mockOrchestrator is a mock implementation of Orchestrator for testing
+type mockOrchestrator struct {
+	createFunc     func(ctx context.Context, req orchestrator.CreateMinionRequest) (*orchestrator.CreateMinionResponse, error)
+	setClarifyFunc func(ctx context.Context, minionID string, req orchestrator.SetClarificationRequest) error
+	markFailedFunc func(ctx context.Context, minionID string, errorMsg string) error
 }
 
-func (m *mockMinionCreator) CreateMinion(ctx context.Context, req orchestrator.CreateMinionRequest) (*orchestrator.CreateMinionResponse, error) {
-	return m.createFunc(ctx, req)
+func (m *mockOrchestrator) CreateMinion(ctx context.Context, req orchestrator.CreateMinionRequest) (*orchestrator.CreateMinionResponse, error) {
+	if m.createFunc != nil {
+		return m.createFunc(ctx, req)
+	}
+	return &orchestrator.CreateMinionResponse{ID: "test-id", Status: "pending"}, nil
+}
+
+func (m *mockOrchestrator) SetClarification(ctx context.Context, minionID string, req orchestrator.SetClarificationRequest) error {
+	if m.setClarifyFunc != nil {
+		return m.setClarifyFunc(ctx, minionID, req)
+	}
+	return nil
+}
+
+func (m *mockOrchestrator) MarkFailed(ctx context.Context, minionID string, errorMsg string) error {
+	if m.markFailedFunc != nil {
+		return m.markFailedFunc(ctx, minionID, errorMsg)
+	}
+	return nil
+}
+
+// mockClarificationEvaluator is a mock implementation of ClarificationEvaluator
+type mockClarificationEvaluator struct {
+	evaluateFunc func(ctx context.Context, repo, task string) (*clarify.Result, error)
+}
+
+func (m *mockClarificationEvaluator) EvaluateWithRetry(ctx context.Context, repo, task string) (*clarify.Result, error) {
+	if m.evaluateFunc != nil {
+		return m.evaluateFunc(ctx, repo, task)
+	}
+	return &clarify.Result{Ready: true}, nil
 }
 
 func TestHandleOrchestratorError_RateLimit(t *testing.T) {
@@ -58,11 +90,11 @@ func TestHandleOrchestratorError_RateLimit(t *testing.T) {
 	}
 }
 
-func TestMockMinionCreator_Interface(t *testing.T) {
-	// Verify the mock implements MinionCreator
-	var _ MinionCreator = &mockMinionCreator{}
+func TestMockOrchestrator_Interface(t *testing.T) {
+	// Verify the mock implements Orchestrator
+	var _ Orchestrator = &mockOrchestrator{}
 
-	mock := &mockMinionCreator{
+	mock := &mockOrchestrator{
 		createFunc: func(ctx context.Context, req orchestrator.CreateMinionRequest) (*orchestrator.CreateMinionResponse, error) {
 			return &orchestrator.CreateMinionResponse{
 				ID:     "test-id",
@@ -84,8 +116,8 @@ func TestMockMinionCreator_Interface(t *testing.T) {
 	}
 }
 
-func TestMockMinionCreator_RateLimitError(t *testing.T) {
-	mock := &mockMinionCreator{
+func TestMockOrchestrator_RateLimitError(t *testing.T) {
+	mock := &mockOrchestrator{
 		createFunc: func(ctx context.Context, req orchestrator.CreateMinionRequest) (*orchestrator.CreateMinionResponse, error) {
 			return nil, orchestrator.ErrRateLimitExceeded
 		},
@@ -98,8 +130,8 @@ func TestMockMinionCreator_RateLimitError(t *testing.T) {
 	}
 }
 
-func TestMockMinionCreator_ConcurrentLimitError(t *testing.T) {
-	mock := &mockMinionCreator{
+func TestMockOrchestrator_ConcurrentLimitError(t *testing.T) {
+	mock := &mockOrchestrator{
 		createFunc: func(ctx context.Context, req orchestrator.CreateMinionRequest) (*orchestrator.CreateMinionResponse, error) {
 			return nil, orchestrator.ErrConcurrentLimitExceeded
 		},
@@ -109,5 +141,58 @@ func TestMockMinionCreator_ConcurrentLimitError(t *testing.T) {
 
 	if !errors.Is(err, orchestrator.ErrConcurrentLimitExceeded) {
 		t.Errorf("expected ErrConcurrentLimitExceeded, got %v", err)
+	}
+}
+
+func TestMockClarificationEvaluator_Ready(t *testing.T) {
+	var _ ClarificationEvaluator = &mockClarificationEvaluator{}
+
+	mock := &mockClarificationEvaluator{
+		evaluateFunc: func(ctx context.Context, repo, task string) (*clarify.Result, error) {
+			return &clarify.Result{Ready: true}, nil
+		},
+	}
+
+	result, err := mock.EvaluateWithRetry(context.Background(), "owner/repo", "add feature")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Ready {
+		t.Error("expected Ready to be true")
+	}
+}
+
+func TestMockClarificationEvaluator_NeedsClarification(t *testing.T) {
+	mock := &mockClarificationEvaluator{
+		evaluateFunc: func(ctx context.Context, repo, task string) (*clarify.Result, error) {
+			return &clarify.Result{
+				Ready:    false,
+				Question: "What specific feature do you want to add?",
+			}, nil
+		},
+	}
+
+	result, err := mock.EvaluateWithRetry(context.Background(), "owner/repo", "add feature")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Ready {
+		t.Error("expected Ready to be false")
+	}
+	if result.Question == "" {
+		t.Error("expected a clarification question")
+	}
+}
+
+func TestMockClarificationEvaluator_AllRetriesFailed(t *testing.T) {
+	mock := &mockClarificationEvaluator{
+		evaluateFunc: func(ctx context.Context, repo, task string) (*clarify.Result, error) {
+			return nil, clarify.ErrAllRetriesFailed
+		},
+	}
+
+	_, err := mock.EvaluateWithRetry(context.Background(), "owner/repo", "add feature")
+	if !errors.Is(err, clarify.ErrAllRetriesFailed) {
+		t.Errorf("expected ErrAllRetriesFailed, got %v", err)
 	}
 }

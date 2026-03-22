@@ -8,6 +8,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
+	"github.com/anomalyco/minions/discord-bot/internal/clarify"
 	"github.com/anomalyco/minions/discord-bot/internal/command"
 	"github.com/anomalyco/minions/discord-bot/internal/orchestrator"
 )
@@ -21,17 +22,36 @@ type MinionCreator interface {
 	CreateMinion(ctx context.Context, req orchestrator.CreateMinionRequest) (*orchestrator.CreateMinionResponse, error)
 }
 
+// MinionUpdater updates minion state via the orchestrator API.
+type MinionUpdater interface {
+	SetClarification(ctx context.Context, minionID string, req orchestrator.SetClarificationRequest) error
+	MarkFailed(ctx context.Context, minionID string, errorMsg string) error
+}
+
+// Orchestrator combines minion creation and update capabilities.
+type Orchestrator interface {
+	MinionCreator
+	MinionUpdater
+}
+
+// ClarificationEvaluator evaluates tasks for clarification needs.
+type ClarificationEvaluator interface {
+	EvaluateWithRetry(ctx context.Context, repo, task string) (*clarify.Result, error)
+}
+
 // MessageHandler handles incoming Discord messages
 type MessageHandler struct {
-	logger       *slog.Logger
-	orchestrator MinionCreator
+	logger        *slog.Logger
+	orchestrator  Orchestrator
+	clarification ClarificationEvaluator
 }
 
 // NewMessageHandler creates a new message handler
-func NewMessageHandler(logger *slog.Logger, orch MinionCreator) *MessageHandler {
+func NewMessageHandler(logger *slog.Logger, orch Orchestrator, clarification ClarificationEvaluator) *MessageHandler {
 	return &MessageHandler{
-		logger:       logger,
-		orchestrator: orch,
+		logger:        logger,
+		orchestrator:  orch,
+		clarification: clarification,
 	}
 }
 
@@ -115,7 +135,107 @@ func (h *MessageHandler) Handle(s *discordgo.Session, m *discordgo.MessageCreate
 		"model", cmd.Model,
 	)
 
-	// TODO: Send to clarification LLM or proceed to spawn pod directly
+	// Send to clarification LLM
+	h.processClarification(s, m, resp.ID, cmd)
+}
+
+// processClarification evaluates the task with the clarification LLM.
+// If READY, the orchestrator will spawn the pod (happens server-side after minion creation).
+// If a question is needed, posts to Discord and updates minion state.
+// If all retries fail, marks minion as failed.
+func (h *MessageHandler) processClarification(s *discordgo.Session, m *discordgo.MessageCreate, minionID string, cmd *command.Command) {
+	ctx := context.Background()
+
+	result, err := h.clarification.EvaluateWithRetry(ctx, cmd.Repo, cmd.Task)
+	if err != nil {
+		// All retries failed - mark minion as failed
+		h.logger.Error("clarification LLM failed after retries",
+			"error", err,
+			"minion_id", minionID,
+		)
+
+		// Notify orchestrator to mark minion as failed
+		if markErr := h.orchestrator.MarkFailed(ctx, minionID, "Clarification LLM failed after 3 retries"); markErr != nil {
+			h.logger.Error("failed to mark minion as failed",
+				"error", markErr,
+				"minion_id", minionID,
+			)
+		}
+
+		// Notify user
+		msg := "❌ Failed to evaluate task clarity. The minion has been marked as failed. Please try again."
+		_, sendErr := s.ChannelMessageSendReply(m.ChannelID, msg, m.Reference())
+		if sendErr != nil {
+			h.logger.Error("failed to send failure notification", "error", sendErr)
+		}
+		return
+	}
+
+	if result.Ready {
+		h.logger.Info("task is ready, proceeding to spawn",
+			"minion_id", minionID,
+			"repo", cmd.Repo,
+		)
+		// Minion is already in "pending" status. The orchestrator's pod spawner
+		// will pick it up and spawn the pod. We just need to confirm to the user.
+		msg := "✅ Task is clear! Your minion is being spawned..."
+		_, sendErr := s.ChannelMessageSendReply(m.ChannelID, msg, m.Reference())
+		if sendErr != nil {
+			h.logger.Error("failed to send ready notification", "error", sendErr)
+		}
+		return
+	}
+
+	// Task needs clarification - post question to Discord
+	h.logger.Info("task needs clarification",
+		"minion_id", minionID,
+		"question", result.Question,
+	)
+
+	// Send clarification question as a reply
+	clarificationMsg, sendErr := s.ChannelMessageSendReply(
+		m.ChannelID,
+		"❓ "+result.Question+"\n\n*Reply to this message with your answer.*",
+		m.Reference(),
+	)
+	if sendErr != nil {
+		h.logger.Error("failed to send clarification question",
+			"error", sendErr,
+			"minion_id", minionID,
+		)
+		// Mark minion as failed since we can't get clarification
+		if markErr := h.orchestrator.MarkFailed(ctx, minionID, "Failed to send clarification question to Discord"); markErr != nil {
+			h.logger.Error("failed to mark minion as failed", "error", markErr)
+		}
+		return
+	}
+
+	// Update minion state to awaiting_clarification
+	err = h.orchestrator.SetClarification(ctx, minionID, orchestrator.SetClarificationRequest{
+		Question:         result.Question,
+		DiscordMessageID: clarificationMsg.ID,
+	})
+	if err != nil {
+		h.logger.Error("failed to set clarification state",
+			"error", err,
+			"minion_id", minionID,
+		)
+		// Try to clean up by deleting the clarification message
+		_ = s.ChannelMessageDelete(m.ChannelID, clarificationMsg.ID)
+		// Mark as failed
+		if markErr := h.orchestrator.MarkFailed(ctx, minionID, "Failed to update clarification state"); markErr != nil {
+			h.logger.Error("failed to mark minion as failed", "error", markErr)
+		}
+		// Notify user
+		msg := "❌ Failed to set up clarification. Please try again."
+		_, _ = s.ChannelMessageSendReply(m.ChannelID, msg, m.Reference())
+		return
+	}
+
+	h.logger.Info("clarification question posted",
+		"minion_id", minionID,
+		"clarification_message_id", clarificationMsg.ID,
+	)
 }
 
 // handleParseError sends an error message to Discord for parse failures
