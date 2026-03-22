@@ -6,33 +6,48 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/anomalyco/minions/orchestrator/internal/db"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// RouterConfig holds dependencies for creating the router.
+type RouterConfig struct {
+	Logger   *slog.Logger
+	APIToken string
+	Pool     *pgxpool.Pool
+}
+
 // NewRouter creates and configures the chi router with all API endpoints.
-// The apiToken is used for authenticating /api/* routes.
-func NewRouter(logger *slog.Logger, apiToken string) *chi.Mux {
+func NewRouter(cfg RouterConfig) *chi.Mux {
 	r := chi.NewRouter()
 
 	// Middleware stack (applies to all routes)
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
-	r.Use(slogMiddleware(logger))
+	r.Use(slogMiddleware(cfg.Logger))
 	r.Use(middleware.Recoverer)
 
 	// Health check - no auth required
 	r.Get("/health", handleHealth)
 
+	// Create stores and handlers
+	userStore := db.NewUserStore(cfg.Pool)
+	minionStore := db.NewMinionStore(cfg.Pool)
+	minionHandler := NewMinionHandler(userStore, minionStore, cfg.Logger)
+
 	// API routes - auth required
 	r.Route("/api", func(r chi.Router) {
-		r.Use(AuthMiddleware(apiToken))
+		r.Use(AuthMiddleware(cfg.APIToken))
 		// Placeholder ping endpoint - useful for testing auth
 		r.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("pong"))
 		})
-		// Future endpoints will be mounted here
+
+		// Minion endpoints
+		r.Post("/minions", minionHandler.HandleCreate)
 	})
 
 	return r

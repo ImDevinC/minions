@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/anomalyco/minions/orchestrator/internal/api"
+	"github.com/anomalyco/minions/orchestrator/internal/db"
 )
 
 func main() {
@@ -33,7 +34,33 @@ func main() {
 		os.Exit(1)
 	}
 
-	router := api.NewRouter(logger, apiToken)
+	// DATABASE_URL is required for PostgreSQL connection
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		logger.Error("DATABASE_URL environment variable is required")
+		os.Exit(1)
+	}
+
+	// Connect to database
+	ctx := context.Background()
+	pool, err := db.Connect(ctx, db.Config{
+		DSN:             databaseURL,
+		MaxConns:        25,
+		MinConns:        5,
+		MaxConnIdleTime: 5 * time.Minute,
+	})
+	if err != nil {
+		logger.Error("failed to connect to database", "error", err)
+		os.Exit(1)
+	}
+	defer pool.Close()
+	logger.Info("connected to database")
+
+	router := api.NewRouter(api.RouterConfig{
+		Logger:   logger,
+		APIToken: apiToken,
+		Pool:     pool,
+	})
 
 	srv := &http.Server{
 		Addr:         ":" + port,
@@ -59,10 +86,10 @@ func main() {
 
 	logger.Info("shutting down server")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if err := srv.Shutdown(ctx); err != nil {
+	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Error("server forced to shutdown", "error", err)
 	}
 

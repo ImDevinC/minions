@@ -10,7 +10,11 @@ import (
 
 func TestRouter_HealthNoAuth(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	router := NewRouter(logger, "test-token")
+	router := NewRouter(RouterConfig{
+		Logger:   logger,
+		APIToken: "test-token",
+		Pool:     nil, // Health check doesn't need DB
+	})
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rr := httptest.NewRecorder()
@@ -24,7 +28,11 @@ func TestRouter_HealthNoAuth(t *testing.T) {
 
 func TestRouter_ApiRequiresAuth(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	router := NewRouter(logger, "test-token")
+	router := NewRouter(RouterConfig{
+		Logger:   logger,
+		APIToken: "test-token",
+		Pool:     nil, // Auth middleware doesn't need DB
+	})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/ping", nil)
 	rr := httptest.NewRecorder()
@@ -40,7 +48,11 @@ func TestRouter_ApiRequiresAuth(t *testing.T) {
 func TestRouter_ApiWithValidAuth(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	token := "test-token"
-	router := NewRouter(logger, token)
+	router := NewRouter(RouterConfig{
+		Logger:   logger,
+		APIToken: token,
+		Pool:     nil, // Ping endpoint doesn't need DB
+	})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/ping", nil)
 	req.Header.Set("Authorization", "Bearer "+token)

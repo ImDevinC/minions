@@ -81,7 +81,7 @@
         "Returns 429 when rate limit exceeded (10/hr per user)",
         "Returns 429 when concurrent limit exceeded (3 pending/running per user)"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "orchestrator-4",

@@ -53,3 +53,13 @@ Started: 2026-03-21
 - /api/* routes require valid INTERNAL_API_TOKEN env var
 - Added /api/ping placeholder endpoint for testing auth
 - **Learnings:** chi middleware only runs for defined routes in a group; need at least one route for middleware to execute
+
+## Task - orchestrator-3
+- Created POST /api/minions endpoint with full validation
+- Files: `internal/db/db.go` (connection pool), `internal/db/users.go` (user lookup/create), `internal/db/minions.go` (minion CRUD + rate limits), `internal/api/minions.go` (handler)
+- User lookup/create: finds by discord_id, creates if missing, updates username if changed (upsert with ON CONFLICT)
+- Rate limiting: 10/hr per user (count minions created in last hour), 3 concurrent (count pending/running)
+- Repo validation: regex `^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+(/[a-zA-Z0-9_.-]+)*$` supports nested repos
+- Returns 201 with `{id, status, repo, task, created_at}`, 400 for invalid repo, 429 for rate limits
+- Updated main.go: requires DATABASE_URL, creates pool, passes to router
+- **Learnings:** RouterConfig struct pattern better than many params; pgxpool handles connection pooling automatically
