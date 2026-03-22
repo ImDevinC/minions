@@ -3,8 +3,8 @@ import { authOptions } from "@/lib/auth";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import { getMinion, OrchestratorError } from "@/lib/orchestrator";
+import { MinionDetailClient } from "@/components/minion-detail-client";
 
-// Placeholder page - full implementation in panel-3
 export default async function MinionDetailPage({
   params,
 }: {
@@ -42,31 +42,7 @@ export default async function MinionDetailPage({
             Back to Dashboard
           </Link>
 
-          <div className="bg-gray-800 border border-gray-700 rounded-lg p-6">
-            <h1 className="text-2xl font-bold mb-4">{minion.repo}</h1>
-            <p className="text-gray-300 mb-4">{minion.task}</p>
-            <div className="text-sm text-gray-500">
-              <p>Status: {minion.status}</p>
-              <p>Model: {minion.model}</p>
-              <p>Created: {new Date(minion.created_at).toLocaleString()}</p>
-              {minion.pr_url && (
-                <p>
-                  PR:{" "}
-                  <a
-                    href={minion.pr_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-400 hover:underline"
-                  >
-                    {minion.pr_url}
-                  </a>
-                </p>
-              )}
-            </div>
-            <p className="mt-6 text-gray-500 text-sm">
-              Full detail view with live events coming in panel-3.
-            </p>
-          </div>
+          <MinionDetailClient minion={minion} />
         </div>
       </main>
     );

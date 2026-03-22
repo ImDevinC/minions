@@ -417,3 +417,19 @@ Started: 2026-03-21
 - Cards link to `/minions/{id}` detail page
 - Files: `src/types/minion.ts`, `src/lib/orchestrator.ts`, `src/components/minion-card.tsx`, `src/app/page.tsx`, `src/app/minions/[id]/page.tsx`
 - **Learnings:** Server Components + Suspense perfect for data fetching; line-clamp-2 for task truncation; pulse animation on running status provides visual activity indicator
+
+## Task - panel-3
+- Created `src/components/minion-detail-client.tsx` with full detail view and virtualized event log
+- @tanstack/react-virtual for virtual scrolling (handles 10k+ events with ~60px estimated row height)
+- react-syntax-highlighter with Prism oneDark theme for code blocks
+- Event log: auto-scroll to bottom on new events, "Jump to latest" button when scrolled up
+- EventRow component: expandable events with code block extraction from content
+- Event type badges: color-coded (error=red, message=blue, tool_use=purple, tool_result=green)
+- Code block extraction: regex parses ```lang\ncode``` from event content fields
+- Detail header: repo, status badge, cost (formatted $X.XX), token counts (K/M formatting)
+- PR link: green callout box with GitHub PR icon when pr_url exists
+- Error display: red callout box when error field exists
+- Clarification display: yellow callout with question and answer
+- Updated `src/app/minions/[id]/page.tsx` to use MinionDetailClient
+- Files: `src/components/minion-detail-client.tsx` (new), `src/app/minions/[id]/page.tsx` (updated), `package.json` (deps)
+- **Learnings:** @tanstack/react-virtual's measureElement ref enables dynamic row heights; SyntaxHighlighter customStyle needs explicit background override for dark themes

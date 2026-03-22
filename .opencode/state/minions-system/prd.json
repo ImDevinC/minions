@@ -488,7 +488,7 @@
         "Shows live event log with virtual scroll (handles 10k+ events)",
         "Syntax highlighting for code blocks in events"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "panel-4",
