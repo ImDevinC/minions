@@ -83,7 +83,7 @@
         "Spawner continues processing other minions after a failure",
         "Handles edge cases: concurrent spawn (transaction prevents), already running (ErrInvalidStatusTransition), pod name collision (k8s error)"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "integration-0",

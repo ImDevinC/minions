@@ -3,6 +3,7 @@ package spawner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -237,8 +238,25 @@ func (s *Spawner) processMinion(ctx context.Context, m *db.Minion) {
 
 	// spawner-4: Mark minion as running with pod name
 	if err := s.minionUpdate.MarkRunning(ctx, m.ID, podName); err != nil {
-		// Log but don't crash - the pod is running and we don't want to
-		// orphan it. The reconciler can recover this state if needed.
+		// spawner-6 edge case: concurrent spawn
+		// If we get ErrInvalidStatusTransition, another spawner (or reconciler)
+		// already marked this minion as running. This can happen if:
+		// 1. Two spawners polled at the same time and raced to spawn
+		// 2. The reconciler recovered an orphaned minion
+		//
+		// In this case, we should NOT initiate SSE (the winner already did).
+		// The duplicate pod will be cleaned up by the watchdog eventually.
+		if errors.Is(err, db.ErrInvalidStatusTransition) {
+			s.logger.Warn("minion already transitioned from pending (concurrent spawn detected)",
+				"minion_id", m.ID,
+				"pod_name", podName,
+			)
+			return
+		}
+
+		// For other errors (e.g., DB connectivity issues), log but don't crash.
+		// The pod is running and we don't want to orphan it completely.
+		// The reconciler can recover this state if needed.
 		s.logger.Error("failed to mark minion as running",
 			"minion_id", m.ID,
 			"pod_name", podName,
