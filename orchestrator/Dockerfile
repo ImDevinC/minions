@@ -24,6 +24,11 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
 # Runtime stage
 FROM gcr.io/distroless/static:nonroot
 
+# OCI image labels
+LABEL org.opencontainers.image.source="https://github.com/ImDevinC/minions"
+LABEL org.opencontainers.image.description="Orchestrator service for minions"
+LABEL org.opencontainers.image.licenses="MIT"
+
 # Copy binary from builder
 COPY --from=builder /orchestrator /orchestrator
 

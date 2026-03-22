@@ -21,6 +21,11 @@ RUN npm run build
 # Runtime stage
 FROM node:20-alpine AS runner
 
+# OCI image labels
+LABEL org.opencontainers.image.source="https://github.com/ImDevinC/minions"
+LABEL org.opencontainers.image.description="Control panel for minions"
+LABEL org.opencontainers.image.licenses="MIT"
+
 WORKDIR /app
 
 # Don't run as root
