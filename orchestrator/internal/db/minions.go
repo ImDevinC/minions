@@ -421,3 +421,62 @@ func (s *MinionStore) Complete(ctx context.Context, params CompleteParams) (*Com
 	result.WasUpdated = true
 	return result, nil
 }
+
+// Stats contains aggregate statistics for all minions.
+type Stats struct {
+	TotalCostUSD      float64      `json:"total_cost_usd"`
+	TotalInputTokens  int64        `json:"total_input_tokens"`
+	TotalOutputTokens int64        `json:"total_output_tokens"`
+	ByModel           []ModelStats `json:"by_model"`
+}
+
+// ModelStats contains statistics for a specific model.
+type ModelStats struct {
+	Model        string  `json:"model"`
+	CostUSD      float64 `json:"cost_usd"`
+	InputTokens  int64   `json:"input_tokens"`
+	OutputTokens int64   `json:"output_tokens"`
+	Count        int64   `json:"count"`
+}
+
+// GetStats returns aggregate statistics across all minions.
+func (s *MinionStore) GetStats(ctx context.Context) (*Stats, error) {
+	stats := &Stats{
+		ByModel: []ModelStats{},
+	}
+
+	// Get totals
+	err := s.pool.QueryRow(ctx,
+		`SELECT COALESCE(SUM(cost_usd), 0), COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0)
+		 FROM minions`,
+	).Scan(&stats.TotalCostUSD, &stats.TotalInputTokens, &stats.TotalOutputTokens)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get breakdown by model
+	rows, err := s.pool.Query(ctx,
+		`SELECT model, COALESCE(SUM(cost_usd), 0), COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0), COUNT(*)
+		 FROM minions
+		 GROUP BY model
+		 ORDER BY SUM(cost_usd) DESC`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var ms ModelStats
+		if err := rows.Scan(&ms.Model, &ms.CostUSD, &ms.InputTokens, &ms.OutputTokens, &ms.Count); err != nil {
+			return nil, err
+		}
+		stats.ByModel = append(stats.ByModel, ms)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return stats, nil
+}

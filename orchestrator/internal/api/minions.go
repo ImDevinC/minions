@@ -557,3 +557,54 @@ func (h *MinionHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error("failed to encode response", "error", err)
 	}
 }
+
+// StatsResponse is the response body for GET /api/stats.
+type StatsResponse struct {
+	TotalCostUSD      float64              `json:"total_cost_usd"`
+	TotalInputTokens  int64                `json:"total_input_tokens"`
+	TotalOutputTokens int64                `json:"total_output_tokens"`
+	ByModel           []ModelStatsResponse `json:"by_model"`
+}
+
+// ModelStatsResponse is per-model statistics in the stats response.
+type ModelStatsResponse struct {
+	Model        string  `json:"model"`
+	CostUSD      float64 `json:"cost_usd"`
+	InputTokens  int64   `json:"input_tokens"`
+	OutputTokens int64   `json:"output_tokens"`
+	Count        int64   `json:"count"`
+}
+
+// HandleStats handles GET /api/stats.
+// Returns aggregate statistics across all minions.
+func (h *MinionHandler) HandleStats(w http.ResponseWriter, r *http.Request) {
+	stats, err := h.minions.GetStats(r.Context())
+	if err != nil {
+		h.logger.Error("failed to get stats", "error", err)
+		h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+		return
+	}
+
+	resp := StatsResponse{
+		TotalCostUSD:      stats.TotalCostUSD,
+		TotalInputTokens:  stats.TotalInputTokens,
+		TotalOutputTokens: stats.TotalOutputTokens,
+		ByModel:           make([]ModelStatsResponse, len(stats.ByModel)),
+	}
+
+	for i, ms := range stats.ByModel {
+		resp.ByModel[i] = ModelStatsResponse{
+			Model:        ms.Model,
+			CostUSD:      ms.CostUSD,
+			InputTokens:  ms.InputTokens,
+			OutputTokens: ms.OutputTokens,
+			Count:        ms.Count,
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		h.logger.Error("failed to encode response", "error", err)
+	}
+}

@@ -64,6 +64,9 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 		r.Get("/minions/{id}", minionHandler.HandleGet)
 		r.Delete("/minions/{id}", minionHandler.HandleDelete)
 		r.Post("/minions/{id}/callback", minionHandler.HandleCallback)
+
+		// Stats endpoint
+		r.Get("/stats", minionHandler.HandleStats)
 	})
 
 	return r
