@@ -67,7 +67,7 @@
         "Requests without valid token receive 401",
         "/health endpoint is exempt from auth"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "orchestrator-3",

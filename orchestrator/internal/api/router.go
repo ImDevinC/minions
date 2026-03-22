@@ -11,10 +11,11 @@ import (
 )
 
 // NewRouter creates and configures the chi router with all API endpoints.
-func NewRouter(logger *slog.Logger) *chi.Mux {
+// The apiToken is used for authenticating /api/* routes.
+func NewRouter(logger *slog.Logger, apiToken string) *chi.Mux {
 	r := chi.NewRouter()
 
-	// Middleware stack
+	// Middleware stack (applies to all routes)
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(slogMiddleware(logger))
@@ -22,6 +23,17 @@ func NewRouter(logger *slog.Logger) *chi.Mux {
 
 	// Health check - no auth required
 	r.Get("/health", handleHealth)
+
+	// API routes - auth required
+	r.Route("/api", func(r chi.Router) {
+		r.Use(AuthMiddleware(apiToken))
+		// Placeholder ping endpoint - useful for testing auth
+		r.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("pong"))
+		})
+		// Future endpoints will be mounted here
+	})
 
 	return r
 }

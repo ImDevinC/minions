@@ -44,3 +44,12 @@ Started: 2026-03-21
 - `internal/api/router.go`: chi router setup, /health endpoint, request logging middleware
 - GET /health returns `{"status":"ok"}` (verified)
 - **Learnings:** chi's middleware.NewWrapResponseWriter captures status/bytes for logging; use _ = for ignored encoder errors to satisfy errcheck
+
+## Task - orchestrator-2
+- Created `internal/api/middleware.go` with AuthMiddleware
+- Uses `crypto/subtle.ConstantTimeCompare` to prevent timing attacks
+- Validates `Authorization: Bearer <token>` header format
+- /health exempt (defined outside /api route group)
+- /api/* routes require valid INTERNAL_API_TOKEN env var
+- Added /api/ping placeholder endpoint for testing auth
+- **Learnings:** chi middleware only runs for defined routes in a group; need at least one route for middleware to execute

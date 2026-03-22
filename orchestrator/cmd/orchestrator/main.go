@@ -26,7 +26,14 @@ func main() {
 		port = "8080"
 	}
 
-	router := api.NewRouter(logger)
+	// INTERNAL_API_TOKEN is required for authenticating /api/* routes
+	apiToken := os.Getenv("INTERNAL_API_TOKEN")
+	if apiToken == "" {
+		logger.Error("INTERNAL_API_TOKEN environment variable is required")
+		os.Exit(1)
+	}
+
+	router := api.NewRouter(logger, apiToken)
 
 	srv := &http.Server{
 		Addr:         ":" + port,
