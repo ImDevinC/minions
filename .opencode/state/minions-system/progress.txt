@@ -536,3 +536,12 @@ Started: 2026-03-21
 - Environment variables tables for each service
 - Links to detailed setup docs (docs/setup/*.md)
 - **Learnings:** Keep README focused on getting started; detailed architecture lives in docs/architecture.md
+
+## Task - docs-2
+- Created `docs/setup/github-app.md`
+- Documents why GitHub App over PAT (installation tokens, granular perms, audit trail)
+- Required permissions: Contents (R/W), Pull requests (R/W), Metadata (read-only)
+- Webhook config: explicitly not used, disabled during setup
+- Private key generation: step-by-step with kubectl secret creation commands
+- Troubleshooting: common errors (401, 404, rate limits)
+- **Learnings:** Minions doesn't use GitHub webhooks, only installation token auth; Metadata permission is auto-granted by GitHub

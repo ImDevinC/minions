@@ -599,7 +599,7 @@
         "Documents webhook configuration",
         "Documents private key generation"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "docs-3",
