@@ -575,7 +575,7 @@
         "Both reference secrets for credentials",
         "Both have readiness probes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "docs-1",

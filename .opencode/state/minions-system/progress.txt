@@ -515,3 +515,15 @@ Started: 2026-03-21
 - Validated with `kubectl apply --dry-run=client`
 - Files: `infra/network-policies.yaml` (new)
 - **Learnings:** Empty `ingress: []` denies all; excluding private ranges in ipBlock prevents lateral movement within cluster; namespace selectors need labels to match (ingress-nginx uses `kubernetes.io/metadata.name`)
+
+## Task - infra-4
+- Created `infra/deployments.yaml` with Deployment + Service for both orchestrator and discord-bot
+- Orchestrator: 1 replica, Recreate strategy (single-writer for DB), serviceAccount=minions-orchestrator
+- Bot: 1 replica, Recreate strategy (Discord gateway doesn't support dual connections)
+- Both use envFrom secretRef for credentials (minions-db, minions-internal-api, minions-llm-keys, etc.)
+- Both have readiness probes (HTTP GET /health) and liveness probes
+- Both run as non-root (UID 1000), read-only root filesystem, all capabilities dropped
+- Services: orchestrator on 8080, discord-bot on 8081 (ClusterIP type)
+- Service DNS wired: bot's ORCHESTRATOR_URL, orchestrator's DISCORD_BOT_WEBHOOK_URL
+- Validated with `kubectl apply --dry-run=client`
+- **Learnings:** Recreate strategy is appropriate for single-replica stateful services; envFrom secretRef is cleaner than individual env.valueFrom when a service needs all keys from a secret
