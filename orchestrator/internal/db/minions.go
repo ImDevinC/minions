@@ -179,3 +179,88 @@ var ErrRateLimitExceeded = errors.New("rate limit exceeded")
 
 // ErrConcurrentLimitExceeded indicates the user has too many concurrent minions.
 var ErrConcurrentLimitExceeded = errors.New("concurrent limit exceeded")
+
+// ListMinionsParams holds parameters for listing minions.
+type ListMinionsParams struct {
+	Status *MinionStatus // optional filter by status
+	Limit  int           // max results, 0 means default (50)
+}
+
+const defaultListLimit = 50
+const maxListLimit = 200
+
+// List returns minions ordered by created_at desc with optional filters.
+func (s *MinionStore) List(ctx context.Context, params ListMinionsParams) ([]*Minion, error) {
+	limit := params.Limit
+	if limit <= 0 {
+		limit = defaultListLimit
+	}
+	if limit > maxListLimit {
+		limit = maxListLimit
+	}
+
+	// Build query dynamically based on filters
+	query := `SELECT id, user_id, repo, task, model, status,
+		        clarification_question, clarification_answer, clarification_message_id,
+		        input_tokens, output_tokens, cost_usd,
+		        pr_url, error, session_id, pod_name,
+		        discord_message_id, discord_channel_id,
+		        created_at, started_at, completed_at, last_activity_at
+		 FROM minions`
+
+	var args []any
+	argIdx := 1
+
+	if params.Status != nil {
+		query += " WHERE status = $1"
+		args = append(args, *params.Status)
+		argIdx++
+	}
+
+	query += " ORDER BY created_at DESC LIMIT $" + itoa(argIdx)
+	args = append(args, limit)
+
+	rows, err := s.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var minions []*Minion
+	for rows.Next() {
+		m := &Minion{}
+		err := rows.Scan(
+			&m.ID, &m.UserID, &m.Repo, &m.Task, &m.Model, &m.Status,
+			&m.ClarificationQuestion, &m.ClarificationAnswer, &m.ClarificationMessageID,
+			&m.InputTokens, &m.OutputTokens, &m.CostUSD,
+			&m.PRURL, &m.Error, &m.SessionID, &m.PodName,
+			&m.DiscordMessageID, &m.DiscordChannelID,
+			&m.CreatedAt, &m.StartedAt, &m.CompletedAt, &m.LastActivityAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		minions = append(minions, m)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return minions, nil
+}
+
+// itoa converts int to string without importing strconv (tiny helper).
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var buf [20]byte
+	i := len(buf)
+	for n > 0 {
+		i--
+		buf[i] = byte('0' + n%10)
+		n /= 10
+	}
+	return string(buf[i:])
+}

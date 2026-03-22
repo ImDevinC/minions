@@ -47,6 +47,7 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 		})
 
 		// Minion endpoints
+		r.Get("/minions", minionHandler.HandleList)
 		r.Post("/minions", minionHandler.HandleCreate)
 	})
 

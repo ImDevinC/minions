@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/anomalyco/minions/orchestrator/internal/db"
@@ -176,4 +177,75 @@ func (e *RateLimitError) Error() string {
 func IsRateLimitError(err error) bool {
 	var rle *RateLimitError
 	return errors.As(err, &rle)
+}
+
+// ListMinionResponse is a single minion in the list response.
+type ListMinionResponse struct {
+	ID        string  `json:"id"`
+	Status    string  `json:"status"`
+	Repo      string  `json:"repo"`
+	Task      string  `json:"task"`
+	Model     string  `json:"model"`
+	PRURL     *string `json:"pr_url,omitempty"`
+	Error     *string `json:"error,omitempty"`
+	CreatedAt string  `json:"created_at"`
+}
+
+// HandleList handles GET /api/minions.
+// Query params:
+//   - status: filter by status (pending, running, completed, failed, etc.)
+//   - limit: max results (default 50, max 200)
+func (h *MinionHandler) HandleList(w http.ResponseWriter, r *http.Request) {
+	params := db.ListMinionsParams{}
+
+	// Parse status filter
+	if statusStr := r.URL.Query().Get("status"); statusStr != "" {
+		status := db.MinionStatus(statusStr)
+		// Validate status is a known value
+		switch status {
+		case db.StatusPending, db.StatusAwaitingClarification, db.StatusRunning,
+			db.StatusCompleted, db.StatusFailed, db.StatusTerminated:
+			params.Status = &status
+		default:
+			h.writeError(w, http.StatusBadRequest, "invalid status value", "INVALID_STATUS")
+			return
+		}
+	}
+
+	// Parse limit
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		limit, err := strconv.Atoi(limitStr)
+		if err != nil || limit < 1 {
+			h.writeError(w, http.StatusBadRequest, "limit must be a positive integer", "INVALID_LIMIT")
+			return
+		}
+		params.Limit = limit
+	}
+
+	minions, err := h.minions.List(r.Context(), params)
+	if err != nil {
+		h.logger.Error("failed to list minions", "error", err)
+		h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+		return
+	}
+
+	resp := make([]ListMinionResponse, len(minions))
+	for i, m := range minions {
+		resp[i] = ListMinionResponse{
+			ID:        m.ID.String(),
+			Status:    string(m.Status),
+			Repo:      m.Repo,
+			Task:      m.Task,
+			Model:     m.Model,
+			PRURL:     m.PRURL,
+			Error:     m.Error,
+			CreatedAt: m.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		h.logger.Error("failed to encode response", "error", err)
+	}
 }

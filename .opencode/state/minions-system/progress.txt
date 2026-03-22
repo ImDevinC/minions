@@ -63,3 +63,11 @@ Started: 2026-03-21
 - Returns 201 with `{id, status, repo, task, created_at}`, 400 for invalid repo, 429 for rate limits
 - Updated main.go: requires DATABASE_URL, creates pool, passes to router
 - **Learnings:** RouterConfig struct pattern better than many params; pgxpool handles connection pooling automatically
+
+## Task - orchestrator-4
+- Implemented GET /api/minions endpoint with status filter and limit
+- Files changed: `internal/db/minions.go` (List method), `internal/api/minions.go` (HandleList), `internal/api/router.go` (route wiring)
+- Query params: `?status=<status>` filters by status (validated), `?limit=<n>` limits results (default 50, max 200)
+- Results ordered by `created_at DESC`
+- Returns array of minion summaries: id, status, repo, task, model, pr_url, error, created_at
+- **Learnings:** Parameterized query index via helper `itoa` avoids strconv import in db layer; keeping response slim (no full event logs) is the right call for list endpoints
