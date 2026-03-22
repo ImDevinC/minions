@@ -104,7 +104,7 @@
         "Response includes recent events array",
         "Returns 404 for non-existent minion"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "orchestrator-6",

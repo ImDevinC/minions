@@ -35,7 +35,8 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 	// Create stores and handlers
 	userStore := db.NewUserStore(cfg.Pool)
 	minionStore := db.NewMinionStore(cfg.Pool)
-	minionHandler := NewMinionHandler(userStore, minionStore, cfg.Logger)
+	eventStore := db.NewEventStore(cfg.Pool)
+	minionHandler := NewMinionHandler(userStore, minionStore, eventStore, cfg.Logger)
 
 	// API routes - auth required
 	r.Route("/api", func(r chi.Router) {
@@ -49,6 +50,7 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 		// Minion endpoints
 		r.Get("/minions", minionHandler.HandleList)
 		r.Post("/minions", minionHandler.HandleCreate)
+		r.Get("/minions/{id}", minionHandler.HandleGet)
 	})
 
 	return r

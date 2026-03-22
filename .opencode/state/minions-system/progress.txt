@@ -71,3 +71,13 @@ Started: 2026-03-21
 - Results ordered by `created_at DESC`
 - Returns array of minion summaries: id, status, repo, task, model, pr_url, error, created_at
 - **Learnings:** Parameterized query index via helper `itoa` avoids strconv import in db layer; keeping response slim (no full event logs) is the right call for list endpoints
+
+## Task - orchestrator-5
+- Implemented GET /api/minions/{id} endpoint with full minion details and recent events
+- Created `internal/db/events.go` with EventStore and MinionEvent struct for event retrieval
+- Extended MinionHandler to include EventStore dependency
+- Response includes: all minion fields, array of 100 most recent events (timestamp DESC)
+- Returns 400 for invalid UUID format with INVALID_ID code
+- Returns 404 for non-existent minion with NOT_FOUND code
+- Files changed: `internal/db/events.go` (new), `internal/api/minions.go`, `internal/api/router.go`, `internal/api/minions_test.go`
+- **Learnings:** chi.URLParam requires chi.RouteCtxKey context value in tests, mock via chi.NewRouteContext()

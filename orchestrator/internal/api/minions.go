@@ -11,20 +11,24 @@ import (
 	"strings"
 
 	"github.com/anomalyco/minions/orchestrator/internal/db"
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 )
 
 // MinionHandler handles minion-related HTTP endpoints.
 type MinionHandler struct {
 	users   *db.UserStore
 	minions *db.MinionStore
+	events  *db.EventStore
 	logger  *slog.Logger
 }
 
 // NewMinionHandler creates a new MinionHandler.
-func NewMinionHandler(users *db.UserStore, minions *db.MinionStore, logger *slog.Logger) *MinionHandler {
+func NewMinionHandler(users *db.UserStore, minions *db.MinionStore, events *db.EventStore, logger *slog.Logger) *MinionHandler {
 	return &MinionHandler{
 		users:   users,
 		minions: minions,
+		events:  events,
 		logger:  logger,
 	}
 }
@@ -240,6 +244,119 @@ func (h *MinionHandler) HandleList(w http.ResponseWriter, r *http.Request) {
 			PRURL:     m.PRURL,
 			Error:     m.Error,
 			CreatedAt: m.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		h.logger.Error("failed to encode response", "error", err)
+	}
+}
+
+// GetMinionResponse is the response body for GET /api/minions/:id.
+type GetMinionResponse struct {
+	ID                     string         `json:"id"`
+	UserID                 string         `json:"user_id"`
+	Repo                   string         `json:"repo"`
+	Task                   string         `json:"task"`
+	Model                  string         `json:"model"`
+	Status                 string         `json:"status"`
+	ClarificationQuestion  *string        `json:"clarification_question,omitempty"`
+	ClarificationAnswer    *string        `json:"clarification_answer,omitempty"`
+	ClarificationMessageID *string        `json:"clarification_message_id,omitempty"`
+	InputTokens            int64          `json:"input_tokens"`
+	OutputTokens           int64          `json:"output_tokens"`
+	CostUSD                float64        `json:"cost_usd"`
+	PRURL                  *string        `json:"pr_url,omitempty"`
+	Error                  *string        `json:"error,omitempty"`
+	SessionID              *string        `json:"session_id,omitempty"`
+	PodName                *string        `json:"pod_name,omitempty"`
+	DiscordMessageID       *string        `json:"discord_message_id,omitempty"`
+	DiscordChannelID       *string        `json:"discord_channel_id,omitempty"`
+	CreatedAt              string         `json:"created_at"`
+	StartedAt              *string        `json:"started_at,omitempty"`
+	CompletedAt            *string        `json:"completed_at,omitempty"`
+	LastActivityAt         string         `json:"last_activity_at"`
+	Events                 []EventSummary `json:"events"`
+}
+
+// EventSummary is a single event in the minion detail response.
+type EventSummary struct {
+	ID        string         `json:"id"`
+	Timestamp string         `json:"timestamp"`
+	EventType string         `json:"event_type"`
+	Content   map[string]any `json:"content"`
+}
+
+// HandleGet handles GET /api/minions/{id}.
+func (h *MinionHandler) HandleGet(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		h.writeError(w, http.StatusBadRequest, "invalid minion id", "INVALID_ID")
+		return
+	}
+
+	minion, err := h.minions.GetByID(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			h.writeError(w, http.StatusNotFound, "minion not found", "NOT_FOUND")
+			return
+		}
+		h.logger.Error("failed to get minion", "error", err, "minion_id", id)
+		h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+		return
+	}
+
+	// Fetch recent events (last 100)
+	events, err := h.events.GetRecentEvents(r.Context(), id, 100)
+	if err != nil {
+		h.logger.Error("failed to get events", "error", err, "minion_id", id)
+		h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+		return
+	}
+
+	// Build response
+	resp := GetMinionResponse{
+		ID:                     minion.ID.String(),
+		UserID:                 minion.UserID.String(),
+		Repo:                   minion.Repo,
+		Task:                   minion.Task,
+		Model:                  minion.Model,
+		Status:                 string(minion.Status),
+		ClarificationQuestion:  minion.ClarificationQuestion,
+		ClarificationAnswer:    minion.ClarificationAnswer,
+		ClarificationMessageID: minion.ClarificationMessageID,
+		InputTokens:            minion.InputTokens,
+		OutputTokens:           minion.OutputTokens,
+		CostUSD:                minion.CostUSD,
+		PRURL:                  minion.PRURL,
+		Error:                  minion.Error,
+		SessionID:              minion.SessionID,
+		PodName:                minion.PodName,
+		DiscordMessageID:       minion.DiscordMessageID,
+		DiscordChannelID:       minion.DiscordChannelID,
+		CreatedAt:              minion.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		LastActivityAt:         minion.LastActivityAt.Format("2006-01-02T15:04:05Z07:00"),
+		Events:                 make([]EventSummary, len(events)),
+	}
+
+	if minion.StartedAt != nil {
+		ts := minion.StartedAt.Format("2006-01-02T15:04:05Z07:00")
+		resp.StartedAt = &ts
+	}
+	if minion.CompletedAt != nil {
+		ts := minion.CompletedAt.Format("2006-01-02T15:04:05Z07:00")
+		resp.CompletedAt = &ts
+	}
+
+	for i, e := range events {
+		resp.Events[i] = EventSummary{
+			ID:        e.ID.String(),
+			Timestamp: e.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
+			EventType: e.EventType,
+			Content:   e.Content,
 		}
 	}
 
