@@ -377,7 +377,7 @@
         "Bot connects to Discord gateway",
         "Structured logging via log/slog configured"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "bot-2",

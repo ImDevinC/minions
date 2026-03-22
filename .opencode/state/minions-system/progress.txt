@@ -311,3 +311,13 @@ Started: 2026-03-21
 - No changes: sends `result_type: "no_changes"` with completed status (not failure)
 - Files: `devbox/entrypoint.sh`
 - **Learnings:** Use process substitution `2> >(cmd)` to capture stderr while still showing it; `gh pr view --json url -q '.url'` reliably fetches existing PR URL
+
+## Task - bot-1
+- Created `discord-bot/` Go module with discordgo for gateway connection
+- `cmd/bot/main.go`: entry point, graceful shutdown, slog JSON logging
+- Connects to Discord gateway with GuildMessages + MessageContent + Guilds intents
+- HTTP server on port 8081 for webhook callbacks from orchestrator
+- GET /health returns `{"status":"ok"}` (same pattern as orchestrator)
+- Uses chi router with standard middleware (RequestID, RealIP, Recoverer)
+- Files: `discord-bot/cmd/bot/main.go` (new), `discord-bot/go.mod` (new), `discord-bot/go.sum` (new)
+- **Learnings:** discordgo's `Ready` handler is the right place to log connection info; MessageContent intent is required for reading message content since Discord's privileged intents change
