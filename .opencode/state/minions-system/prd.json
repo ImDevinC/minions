@@ -317,7 +317,7 @@
         "Creates non-root user with UID 1000",
         "Sets WORKDIR to /workspace"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "devbox-2",

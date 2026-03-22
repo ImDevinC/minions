@@ -257,3 +257,13 @@ Started: 2026-03-21
 - Also stops watchdog and WebSocket hub gracefully before HTTP server shutdown
 - No code changes needed; marked as passed
 - **Learnings:** Graceful shutdown was built incrementally as orchestrator features were added (hub, watchdog); important to stop background goroutines BEFORE HTTP server to prevent race conditions
+
+## Task - devbox-1
+- Created `devbox/Dockerfile` based on golang:1.22-bookworm
+- Includes: git, curl, jq, gh CLI (via GitHub's apt repo), OpenCode binary
+- OpenCode installed via GitHub releases API with arch detection (amd64→x64, arm64→arm64)
+- Non-root user: minion:minion with UID/GID 1000
+- WORKDIR set to /workspace, owned by minion user
+- Verification step confirms all tools are installed and accessible
+- Files: `devbox/Dockerfile` (new)
+- **Learnings:** OpenCode asset naming uses x64 not amd64; exact jq match (`select(.name == $name)`) is more reliable than contains() for asset selection
