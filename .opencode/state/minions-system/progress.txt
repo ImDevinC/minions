@@ -235,3 +235,14 @@ Started: 2026-03-21
 - Added 4 test cases: basic timeout, skipped-if-too-soon, query error, multiple timeouts
 - Files: `internal/watchdog/watchdog.go`, `internal/watchdog/watchdog_test.go`, `internal/db/minions.go`
 - **Learnings:** Piggyback on existing ticker with skip logic is simpler than separate timers; the clarification timeout uses created_at (not last_activity_at) since minion never became "running"
+
+## Task - dedup-1
+- Implemented duplicate prevention using `pg_advisory_xact_lock` for race-condition-safe duplicate detection
+- Added `CreateOrFindDuplicate` method to `MinionStore` that atomically checks for duplicates and creates
+- Hash function `repoTaskHash` generates 64-bit key from SHA-256 of repo+task for advisory lock
+- `DuplicateWindow` constant set to 5 minutes as per PRD
+- Returns existing minion (with `WasDuplicate: true`) if same repo+task created within window
+- Handler returns HTTP 200 with `duplicate: true` for existing minions, HTTP 201 for new ones
+- Added `TODO: Add --force flag support` comment for future enhancement
+- Files: `internal/db/minions.go`, `internal/db/minions_test.go`, `internal/api/minions.go`
+- **Learnings:** `pg_advisory_xact_lock` (vs `pg_advisory_lock`) is transaction-scoped, auto-releases on commit/rollback; SHA-256 truncated to int64 provides sufficient collision resistance for advisory locks

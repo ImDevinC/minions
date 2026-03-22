@@ -3,6 +3,8 @@ package db
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"time"
 
@@ -102,6 +104,144 @@ func (s *MinionStore) Create(ctx context.Context, params CreateMinionParams) (*M
 	return minion, nil
 }
 
+// repoTaskHash generates a 64-bit hash for use with pg_advisory_lock.
+// Uses SHA-256 truncated to 64 bits for collision resistance.
+func repoTaskHash(repo, task string) int64 {
+	h := sha256.New()
+	h.Write([]byte(repo))
+	h.Write([]byte{0}) // separator
+	h.Write([]byte(task))
+	sum := h.Sum(nil)
+	// Take first 8 bytes as int64
+	return int64(binary.BigEndian.Uint64(sum[:8]))
+}
+
+// FindDuplicateResult holds the result of a duplicate check.
+type FindDuplicateResult struct {
+	// Found indicates whether a duplicate was found.
+	Found bool
+	// ExistingMinion is the existing minion if found.
+	ExistingMinion *Minion
+}
+
+// FindRecentDuplicate checks for a duplicate minion with the same repo+task in the last DuplicateWindow.
+// Uses pg_advisory_xact_lock to prevent race conditions during creation.
+// Must be called within a transaction for the lock to be effective.
+// Returns nil if no duplicate found.
+func (s *MinionStore) FindRecentDuplicate(ctx context.Context, tx pgx.Tx, repo, task string) (*FindDuplicateResult, error) {
+	// Acquire advisory lock based on repo+task hash to serialize duplicate checks
+	lockKey := repoTaskHash(repo, task)
+	_, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", lockKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check for existing minion with same repo+task in the duplicate window
+	var minion Minion
+	err = tx.QueryRow(ctx,
+		`SELECT id, user_id, repo, task, model, status,
+		        clarification_question, clarification_answer, clarification_message_id,
+		        input_tokens, output_tokens, cost_usd,
+		        pr_url, error, session_id, pod_name,
+		        discord_message_id, discord_channel_id,
+		        created_at, started_at, completed_at, last_activity_at
+		 FROM minions 
+		 WHERE repo = $1 AND task = $2 AND created_at > NOW() - $3::interval
+		 ORDER BY created_at DESC
+		 LIMIT 1`,
+		repo, task, DuplicateWindow.String(),
+	).Scan(
+		&minion.ID, &minion.UserID, &minion.Repo, &minion.Task, &minion.Model, &minion.Status,
+		&minion.ClarificationQuestion, &minion.ClarificationAnswer, &minion.ClarificationMessageID,
+		&minion.InputTokens, &minion.OutputTokens, &minion.CostUSD,
+		&minion.PRURL, &minion.Error, &minion.SessionID, &minion.PodName,
+		&minion.DiscordMessageID, &minion.DiscordChannelID,
+		&minion.CreatedAt, &minion.StartedAt, &minion.CompletedAt, &minion.LastActivityAt,
+	)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		return &FindDuplicateResult{Found: false}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &FindDuplicateResult{Found: true, ExistingMinion: &minion}, nil
+}
+
+// CreateOrFindDuplicateResult holds the result of CreateOrFindDuplicate.
+type CreateOrFindDuplicateResult struct {
+	// Minion is the created or existing minion.
+	Minion *Minion
+	// WasDuplicate indicates whether an existing minion was returned.
+	WasDuplicate bool
+}
+
+// CreateOrFindDuplicate creates a new minion or returns an existing duplicate.
+// Uses pg_advisory_xact_lock to prevent race conditions.
+// If a minion with the same repo+task exists within DuplicateWindow (5 min), returns it instead.
+//
+// TODO: Add --force flag support to bypass duplicate detection when explicitly requested.
+func (s *MinionStore) CreateOrFindDuplicate(ctx context.Context, params CreateMinionParams) (*CreateOrFindDuplicateResult, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Check for duplicate (with advisory lock held)
+	dupResult, err := s.FindRecentDuplicate(ctx, tx, params.Repo, params.Task)
+	if err != nil {
+		return nil, err
+	}
+
+	if dupResult.Found {
+		// Return existing minion (no need to commit, nothing changed)
+		return &CreateOrFindDuplicateResult{
+			Minion:       dupResult.ExistingMinion,
+			WasDuplicate: true,
+		}, nil
+	}
+
+	// Create new minion within the same transaction (lock still held)
+	minion := &Minion{
+		ID:     uuid.New(),
+		UserID: params.UserID,
+		Repo:   params.Repo,
+		Task:   params.Task,
+		Model:  params.Model,
+		Status: StatusPending,
+	}
+
+	if params.DiscordMessageID != "" {
+		minion.DiscordMessageID = &params.DiscordMessageID
+	}
+	if params.DiscordChannelID != "" {
+		minion.DiscordChannelID = &params.DiscordChannelID
+	}
+
+	err = tx.QueryRow(ctx,
+		`INSERT INTO minions (id, user_id, repo, task, model, status, discord_message_id, discord_channel_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		 RETURNING created_at, last_activity_at`,
+		minion.ID, minion.UserID, minion.Repo, minion.Task, minion.Model, minion.Status,
+		minion.DiscordMessageID, minion.DiscordChannelID,
+	).Scan(&minion.CreatedAt, &minion.LastActivityAt)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+
+	return &CreateOrFindDuplicateResult{
+		Minion:       minion,
+		WasDuplicate: false,
+	}, nil
+}
+
 // GetByID retrieves a minion by ID.
 func (s *MinionStore) GetByID(ctx context.Context, id uuid.UUID) (*Minion, error) {
 	minion := &Minion{}
@@ -173,6 +313,12 @@ const (
 	MaxMinionsPerHour    = 10
 	MaxConcurrentMinions = 3
 )
+
+// DuplicateWindow is the time window for duplicate detection.
+const DuplicateWindow = 5 * time.Minute
+
+// ErrDuplicateMinion indicates a duplicate minion was found.
+var ErrDuplicateMinion = errors.New("duplicate minion found")
 
 // ErrRateLimitExceeded indicates the user has exceeded their rate limit.
 var ErrRateLimitExceeded = errors.New("rate limit exceeded")

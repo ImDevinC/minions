@@ -291,7 +291,7 @@
         "Discord bot replies with link to existing minion instead of creating new one",
         "Document --force flag as future enhancement in code comment"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "shutdown-1",

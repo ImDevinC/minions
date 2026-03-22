@@ -67,6 +67,7 @@ type CreateMinionResponse struct {
 	Repo      string `json:"repo"`
 	Task      string `json:"task"`
 	CreatedAt string `json:"created_at"`
+	Duplicate bool   `json:"duplicate,omitempty"` // true if returning existing minion
 }
 
 // ErrorResponse is a standard error response.
@@ -132,8 +133,8 @@ func (h *MinionHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create minion
-	minion, err := h.minions.Create(r.Context(), db.CreateMinionParams{
+	// Create minion (with duplicate detection)
+	result, err := h.minions.CreateOrFindDuplicate(r.Context(), db.CreateMinionParams{
 		UserID:           user.ID,
 		Repo:             req.Repo,
 		Task:             req.Task,
@@ -147,12 +148,22 @@ func (h *MinionHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.logger.Info("created minion",
-		"minion_id", minion.ID,
-		"user_id", user.ID,
-		"repo", req.Repo,
-		"model", req.Model,
-	)
+	minion := result.Minion
+
+	if result.WasDuplicate {
+		h.logger.Info("duplicate minion detected",
+			"minion_id", minion.ID,
+			"user_id", user.ID,
+			"repo", req.Repo,
+		)
+	} else {
+		h.logger.Info("created minion",
+			"minion_id", minion.ID,
+			"user_id", user.ID,
+			"repo", req.Repo,
+			"model", req.Model,
+		)
+	}
 
 	resp := CreateMinionResponse{
 		ID:        minion.ID.String(),
@@ -160,10 +171,16 @@ func (h *MinionHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 		Repo:      minion.Repo,
 		Task:      minion.Task,
 		CreatedAt: minion.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		Duplicate: result.WasDuplicate,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
+	// Return 200 for duplicate (existing resource), 201 for newly created
+	if result.WasDuplicate {
+		w.WriteHeader(http.StatusOK)
+	} else {
+		w.WriteHeader(http.StatusCreated)
+	}
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		h.logger.Error("failed to encode response", "error", err)
 	}
