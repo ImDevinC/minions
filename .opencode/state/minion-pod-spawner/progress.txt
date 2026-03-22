@@ -1,0 +1,16 @@
+# Progress Log
+PRD: minion-pod-spawner
+Started: 2026-03-22
+
+## Codebase Patterns
+- Status transitions use transaction + FOR UPDATE row lock to prevent races
+- Check status, enforce constraint, UPDATE, commit (see SetClarification, MarkRunning)
+- ErrNotFound for missing, ErrInvalidStatusTransition for invalid state machine transitions
+
+---
+<!-- Task logs below - APPEND ONLY -->
+
+## Task - db-1
+- Added `MarkRunning(ctx, id, podName)` method to MinionStore
+- Files changed: `orchestrator/internal/db/minions.go` (lines 902-945)
+- **Learnings:** Followed SetClarification pattern exactly - tx.Begin, SELECT FOR UPDATE, status check, UPDATE, tx.Commit

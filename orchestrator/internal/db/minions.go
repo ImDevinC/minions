@@ -898,6 +898,54 @@ func (s *MinionStore) SetClarificationAnswer(ctx context.Context, params SetClar
 	return tx.Commit(ctx)
 }
 
+// MarkRunning transitions a minion from pending to running.
+// Sets status='running', pod_name, started_at=NOW(), last_activity_at=NOW().
+// Uses a transaction with FOR UPDATE row lock to prevent concurrent updates.
+// Returns ErrNotFound if minion doesn't exist.
+// Returns ErrInvalidStatusTransition if not in pending status.
+func (s *MinionStore) MarkRunning(ctx context.Context, id uuid.UUID, podName string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Lock the row and fetch current status
+	var currentStatus MinionStatus
+	err = tx.QueryRow(ctx,
+		`SELECT status FROM minions WHERE id = $1 FOR UPDATE`,
+		id,
+	).Scan(&currentStatus)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+
+	// Only allow transition from pending
+	if currentStatus != StatusPending {
+		return ErrInvalidStatusTransition
+	}
+
+	// Update to running with pod_name and timestamps
+	_, err = tx.Exec(ctx,
+		`UPDATE minions SET 
+			status = $1,
+			pod_name = $2,
+			started_at = NOW(),
+			last_activity_at = NOW()
+		WHERE id = $3`,
+		StatusRunning, podName, id,
+	)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
 // GetStats returns aggregate statistics across all minions.
 func (s *MinionStore) GetStats(ctx context.Context) (*Stats, error) {
 	stats := &Stats{
