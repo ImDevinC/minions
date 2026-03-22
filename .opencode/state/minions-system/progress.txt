@@ -1,0 +1,575 @@
+# Progress Log
+PRD: minions-system
+Started: 2026-03-21
+
+## Codebase Patterns
+- Migrations: `schema/migrations/NNN_description.sql` - raw SQL, no ORM
+- UUID PKs with `gen_random_uuid()` default
+- Timestamps: `TIMESTAMPTZ NOT NULL DEFAULT NOW()` for created_at/updated_at
+- Go services: chi router, JSON handlers, slog for structured logging
+- Router setup in `internal/api/router.go`, entry point in `cmd/<service>/main.go`
+- Interface stubs: Use interface + NoOp implementation for external dependencies (k8s, webhooks) to allow incremental implementation
+- Handler config structs: Use `FooHandlerConfig` struct for >3 dependencies instead of positional params
+
+---
+<!-- Task logs below - APPEND ONLY -->
+
+## Task - db-1
+- Created `schema/migrations/001_create_users_table.sql`
+- Columns: id (UUID PK), discord_id (TEXT UNIQUE NOT NULL), discord_username (TEXT NOT NULL), avatar_url (TEXT nullable), created_at, updated_at
+- Verified against postgres:16-alpine in docker
+- **Learnings:** gen_random_uuid() is built into PG 13+, no extension needed
+
+## Task - db-2
+- Created `schema/migrations/002_create_minions_table.sql`
+- Full lifecycle tracking: status (CHECK constraint), clarification flow, token tracking, cost, PR/error, pod/session, Discord context
+- Status constraint uses CHECK vs ENUM for easier future additions
+- FK to users(id) with CASCADE delete, indexed for joins
+- **Learnings:** CHECK constraint > ENUM for evolving status lists, no migration needed to add values
+
+## Task - db-3
+- Created `schema/migrations/003_create_minion_events_table.sql`
+- Columns: id (UUID PK), minion_id (FK to minions), timestamp (TIMESTAMPTZ), event_type (TEXT), content (JSONB)
+- FK with ON DELETE CASCADE verified, events deleted when parent minion deleted
+- Composite index on (minion_id, timestamp) for efficient chronological event retrieval
+- **Learnings:** JSONB content with default '{}' allows flexible schema evolution for different event types
+
+## Task - db-4
+- Created `schema/migrations/004_create_indexes.sql`
+- Indexes: status (filter), (status, last_activity_at) (watchdog), clarification_message_id (reply lookup)
+- Used partial index for clarification_message_id (WHERE NOT NULL) to save space
+- **Learnings:** Partial indexes exclude NULL values by default, reducing index size for sparse columns
+
+## Task - orchestrator-1
+- Created `orchestrator/` Go module with chi router v5
+- `cmd/orchestrator/main.go`: entry point, graceful shutdown, slog JSON logging
+- `internal/api/router.go`: chi router setup, /health endpoint, request logging middleware
+- GET /health returns `{"status":"ok"}` (verified)
+- **Learnings:** chi's middleware.NewWrapResponseWriter captures status/bytes for logging; use _ = for ignored encoder errors to satisfy errcheck
+
+## Task - orchestrator-2
+- Created `internal/api/middleware.go` with AuthMiddleware
+- Uses `crypto/subtle.ConstantTimeCompare` to prevent timing attacks
+- Validates `Authorization: Bearer <token>` header format
+- /health exempt (defined outside /api route group)
+- /api/* routes require valid INTERNAL_API_TOKEN env var
+- Added /api/ping placeholder endpoint for testing auth
+- **Learnings:** chi middleware only runs for defined routes in a group; need at least one route for middleware to execute
+
+## Task - orchestrator-3
+- Created POST /api/minions endpoint with full validation
+- Files: `internal/db/db.go` (connection pool), `internal/db/users.go` (user lookup/create), `internal/db/minions.go` (minion CRUD + rate limits), `internal/api/minions.go` (handler)
+- User lookup/create: finds by discord_id, creates if missing, updates username if changed (upsert with ON CONFLICT)
+- Rate limiting: 10/hr per user (count minions created in last hour), 3 concurrent (count pending/running)
+- Repo validation: regex `^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+(/[a-zA-Z0-9_.-]+)*$` supports nested repos
+- Returns 201 with `{id, status, repo, task, created_at}`, 400 for invalid repo, 429 for rate limits
+- Updated main.go: requires DATABASE_URL, creates pool, passes to router
+- **Learnings:** RouterConfig struct pattern better than many params; pgxpool handles connection pooling automatically
+
+## Task - orchestrator-4
+- Implemented GET /api/minions endpoint with status filter and limit
+- Files changed: `internal/db/minions.go` (List method), `internal/api/minions.go` (HandleList), `internal/api/router.go` (route wiring)
+- Query params: `?status=<status>` filters by status (validated), `?limit=<n>` limits results (default 50, max 200)
+- Results ordered by `created_at DESC`
+- Returns array of minion summaries: id, status, repo, task, model, pr_url, error, created_at
+- **Learnings:** Parameterized query index via helper `itoa` avoids strconv import in db layer; keeping response slim (no full event logs) is the right call for list endpoints
+
+## Task - orchestrator-5
+- Implemented GET /api/minions/{id} endpoint with full minion details and recent events
+- Created `internal/db/events.go` with EventStore and MinionEvent struct for event retrieval
+- Extended MinionHandler to include EventStore dependency
+- Response includes: all minion fields, array of 100 most recent events (timestamp DESC)
+- Returns 400 for invalid UUID format with INVALID_ID code
+- Returns 404 for non-existent minion with NOT_FOUND code
+- Files changed: `internal/db/events.go` (new), `internal/api/minions.go`, `internal/api/router.go`, `internal/api/minions_test.go`
+- **Learnings:** chi.URLParam requires chi.RouteCtxKey context value in tests, mock via chi.NewRouteContext()
+
+## Task - orchestrator-6
+- Implemented DELETE /api/minions/{id} endpoint for minion termination
+- Created `internal/k8s/pods.go` with PodTerminator interface and NoOpPodTerminator stub
+- Created `internal/webhook/notifier.go` with Notifier interface and NoOpNotifier stub
+- Added `Terminate` method to MinionStore using transaction with FOR UPDATE lock (prevents concurrent updates)
+- Returns idempotent success for already-terminal minions (completed/failed/terminated)
+- Pod termination and webhook notification are best-effort (logged but don't fail request)
+- MinionHandler refactored to use config struct pattern for cleaner dependency injection
+- Files: `internal/k8s/pods.go` (new), `internal/webhook/notifier.go` (new), `internal/db/minions.go`, `internal/api/minions.go`, `internal/api/router.go`, `cmd/orchestrator/main.go`
+- **Learnings:** FOR UPDATE lock in transaction ensures atomic check-and-update; interface stubs allow incremental implementation without blocking dependent tasks
+
+## Task - orchestrator-7
+- Implemented POST /api/minions/{id}/callback endpoint for devbox completion callbacks
+- Added `Complete` method to `MinionStore` with transaction-based atomic status update (FOR UPDATE lock)
+- Handler accepts `{ status, pr_url?, error?, session_id? }` with validation (status must be "completed" or "failed")
+- Updates minion with completion data: pr_url, error, session_id, completed_at, last_activity_at
+- Notifies Discord bot via webhook (NotifyCompleted or NotifyFailed based on status)
+- Returns `{ success: true }` (idempotent: returns success if already terminal)
+- Files: `internal/db/minions.go` (Complete method), `internal/api/minions.go` (HandleCallback), `internal/api/router.go`, `internal/api/minions_test.go`
+- **Learnings:** Reused same transactional pattern from Terminate for Complete; notification type determined by final status
+
+## Task - orchestrator-8
+- Implemented GET /api/stats endpoint for aggregate statistics
+- Added `GetStats` method to `MinionStore` with SQL aggregation queries
+- Response: `total_cost_usd`, `total_input_tokens`, `total_output_tokens`, `by_model` array
+- `by_model` includes: model, cost_usd, input_tokens, output_tokens, count (ordered by cost DESC)
+- Uses COALESCE to handle empty tables (returns 0 instead of NULL)
+- Files: `internal/db/minions.go` (GetStats, Stats, ModelStats), `internal/api/minions.go` (HandleStats), `internal/api/router.go`
+- **Learnings:** COALESCE wrapping SUM aggregates prevents NULL when no rows match; stats endpoint is auth-protected via /api route group
+
+## Task - orchestrator-9
+- Already implemented as part of orchestrator-3
+- Verified all requirements met: user lookup by discord_id, creation if not exists, FK usage, username storage
+- No code changes needed; marked as passed
+- **Learnings:** When tasks are tightly coupled (user handling + minion creation), implementing them together avoids artificial separation
+
+## Task - orchestrator-10
+- Implemented `PATCH /api/minions/:id/clarification` endpoint
+- Added `SetClarification` method to `MinionStore` with transactional status transition (pending → awaiting_clarification)
+- Handler validates: question (required), discord_message_id (required), UUID format
+- Returns 409 Conflict if minion not in pending status
+- Added `ErrInvalidStatusTransition` error type for status transition validation
+- Files: `internal/db/minions.go`, `internal/api/minions.go`, `internal/api/router.go`, `internal/api/minions_test.go`
+- **Learnings:** Status transitions should be explicit and validated; only allow clarification from pending state to prevent race conditions
+
+## Task - k8s-1
+- Implemented pod creation with full security context in `internal/k8s/pods.go`
+- Added k8s client-go dependency (v0.35.3)
+- PodSpawner interface + Client implementation for real k8s operations
+- Security context enforced: runAsNonRoot=true, runAsUser/Group=1000, allowPrivilegeEscalation=false
+- Capabilities: DROP ALL
+- ReadOnlyRootFilesystem=true with EmptyDir volumes for /workspace, /tmp, /home/minion
+- GITHUB_TOKEN and LLM API keys passed via env vars to devbox container
+- NoOpPodManager for testing/non-k8s environments
+- Files: `internal/k8s/pods.go`, `internal/k8s/pods_test.go`, `go.mod`, `go.sum`
+- **Learnings:** client-go uses in-cluster config automatically; EmptyDir volumes needed for writable paths when using read-only root filesystem
+
+## Task - k8s-2
+- Implemented `SpawnPodWithRetry` method with exponential backoff
+- Added to PodSpawner interface, Client implementation, and NoOpPodManager
+- Retry constants: MaxRetries=3, InitialBackoff=1s, MaxBackoff=30s, BackoffMultiplier=2
+- Returns `ErrRetriesExhausted` sentinel error when all attempts fail
+- Respects context cancellation during backoff waits
+- Comprehensive test coverage: success on first attempt, success after retries, exhausted retries, context cancellation
+- Files: `internal/k8s/pods.go`, `internal/k8s/pods_test.go`
+- **Learnings:** Use `errors.Is()` with sentinel errors for retry exhaustion detection; exponential backoff with cap prevents runaway delays
+
+## Task - k8s-3
+- Implemented `WaitForPodReady` method with 5-minute timeout (`PodReadyTimeout`)
+- Polls pod status every 2 seconds (`PodPollInterval`)
+- On timeout: deletes pod, returns `ErrPodTimeout` sentinel error
+- Added `isPodReady` helper that checks for `PodReady` condition with `ConditionTrue`
+- Handles unexpected pod termination (Failed/Succeeded phases) with descriptive error
+- Updated `PodSpawner` interface, `NoOpPodManager` to include new method
+- Files: `internal/k8s/pods.go`, `internal/k8s/pods_test.go`
+- **Learnings:** Pod readiness uses the PodReady condition type, not just phase; ticker-based polling with context timeout is idiomatic for k8s watches without informers
+
+## Task - k8s-4
+- Created `internal/reconciler/reconciler.go` with Reconciler struct
+- Added `ListByStatuses` method to MinionStore for fetching pending/running minions
+- Added `ListPods` method to k8s Client and NoOpPodManager for listing minion pods
+- Added `MarkFailed` method to MinionStore for marking orphaned minions
+- Reconciler runs BEFORE HTTP server in main.go
+- Orphan detection: minion with no pod OR pod in Failed/Succeeded phase
+- Stray pod detection: pods with minion-id label not in active minions, or no label
+- Comprehensive test coverage: 10 test cases covering all scenarios
+- Files: `internal/reconciler/reconciler.go` (new), `internal/reconciler/reconciler_test.go` (new), `internal/db/minions.go`, `internal/k8s/pods.go`, `cmd/orchestrator/main.go`
+- **Learnings:** Reconciliation should be fail-fast (error on list failures) but graceful on individual item failures (continue processing others)
+
+## Task - github-1
+- Created `internal/github/tokens.go` with TokenManager interface and Manager implementation
+- Uses `github.com/bradleyfalzon/ghinstallation/v2` for GitHub App authentication
+- Manager caches installation transports per installation ID; ghinstallation handles auto-refresh internally (1 min before expiry)
+- `GetToken(ctx, repo)` parses "owner/repo", looks up installation via `Apps.FindUserInstallation`, then calls `transport.Token(ctx)`
+- 401/403 errors detected via `isAccessRevokedError()` and wrapped with `ErrAccessRevoked` sentinel
+- Logging: token refresh failures logged with repo context via slog
+- NoOpTokenManager for testing/non-GitHub environments
+- Files: `internal/github/tokens.go` (new), `internal/github/tokens_test.go` (new), `go.mod`, `go.sum`
+- **Learnings:** ghinstallation handles token caching and refresh automatically; use `Apps.FindUserInstallation` to find installation ID from owner (works for both users and orgs)
+
+## Task - streaming-1
+- Created `internal/streaming/sse.go` with SSEClient for connecting to pod /events SSE endpoints
+- Implements reconnection with exponential backoff (1s initial, 30s max, 2x multiplier)
+- EventHandler interface allows pluggable event handling (persistence, broadcasting)
+- Created `internal/streaming/handler.go` with DBEventHandler that persists to minion_events and updates token usage
+- Added `InsertEvent` method to EventStore for persisting events
+- Added `UpdateTokenUsage` method to MinionStore for atomically incrementing token counters
+- Added `GetPodIP` method to k8s Client for resolving pod IP addresses
+- Extended PodManager interface to include PodIPProvider
+- Token usage extraction: looks for `token_usage`, `usage`, or type=token_usage events
+- NoOpEventHandler for testing; mock-based tests for SSE parsing
+- Files: `internal/streaming/sse.go` (new), `internal/streaming/handler.go` (new), `internal/streaming/sse_test.go` (new), `internal/db/events.go`, `internal/db/minions.go`, `internal/k8s/pods.go`
+- **Learnings:** SSE parsing via bufio.Scanner is simpler than full SSE library; token usage can appear in multiple formats depending on LLM provider
+
+## Task - streaming-2
+- Implemented WebSocket endpoint at `GET /api/minions/:id/stream` for live event streaming
+- Created `internal/streaming/hub.go` with Hub struct for managing client connections (pub/sub pattern)
+- Created `internal/streaming/ws_handler.go` with StreamHandler for WebSocket upgrade handling
+- Hub uses channels for register/unregister/broadcast, runs in background goroutine
+- Clients grouped by minion ID; broadcasts only go to clients subscribed to that minion
+- Added `gorilla/websocket` v1.5.3 dependency
+- Updated DBEventHandler to broadcast to Hub after persisting events
+- Hub started in main.go before HTTP server, stopped on graceful shutdown
+- RouterConfig extended with Hub field; stream endpoint wired in /api route group
+- Comprehensive tests: hub lifecycle, multi-client broadcast, minion isolation, graceful disconnect
+- Files: `internal/streaming/hub.go` (new), `internal/streaming/ws_handler.go` (new), `internal/streaming/hub_test.go` (new), `internal/streaming/handler.go`, `internal/api/router.go`, `cmd/orchestrator/main.go`, `go.mod`, `go.sum`
+- **Learnings:** gorilla/websocket needs ReadPump to handle pongs and WritePump for sends; buffered broadcast channel prevents SSE handler blocking
+
+## Task - watchdog-1
+- Created `internal/watchdog/watchdog.go` with Watchdog struct for background monitoring
+- Background goroutine runs every 5 minutes (CheckInterval constant)
+- Queries running minions with last_activity_at > 30min ago via ListIdleRunning method
+- POSTs idle alerts to Discord bot webhook for each idle minion
+- Checks for pods in Failed phase (OOMKilled, Evicted, etc.) via ListPods
+- Marks corresponding minion as failed with "Pod terminated: Failed" error message
+- Added `ListIdleRunning` method to MinionStore using interval-based SQL query
+- Watchdog integrated into main.go: starts as goroutine before HTTP server, stopped on graceful shutdown
+- Comprehensive test suite: 12 tests covering idle detection, failed pods, error handling, run/stop lifecycle
+- Files: `internal/watchdog/watchdog.go` (new), `internal/watchdog/watchdog_test.go` (new), `internal/db/minions.go`, `cmd/orchestrator/main.go`
+- **Learnings:** Use interface-based dependencies (MinionQuerier, PodStatusChecker) for testability; watchdog can use existing k8s.PodManager.ListPods for pod status checks
+
+## Task - watchdog-2
+- Implemented clarification timeout enforcement in `internal/watchdog/watchdog.go`
+- Added `ListClarificationTimeouts` method to `MinionStore` (queries awaiting_clarification + created_at > timeout)
+- Added `ClarificationTimeout` constant (24h) and `ClarificationCheckInterval` (10min)
+- Watchdog runs clarification check every 10 min (piggybacks on existing 5-min ticker, skips every other run)
+- Timed-out minions: marked as failed with "Clarification timeout" error, notified via `NotifyClarificationTimeout` webhook
+- Extended `MinionQuerier` interface with `ListClarificationTimeouts` method
+- Added 4 test cases: basic timeout, skipped-if-too-soon, query error, multiple timeouts
+- Files: `internal/watchdog/watchdog.go`, `internal/watchdog/watchdog_test.go`, `internal/db/minions.go`
+- **Learnings:** Piggyback on existing ticker with skip logic is simpler than separate timers; the clarification timeout uses created_at (not last_activity_at) since minion never became "running"
+
+## Task - dedup-1
+- Implemented duplicate prevention using `pg_advisory_xact_lock` for race-condition-safe duplicate detection
+- Added `CreateOrFindDuplicate` method to `MinionStore` that atomically checks for duplicates and creates
+- Hash function `repoTaskHash` generates 64-bit key from SHA-256 of repo+task for advisory lock
+- `DuplicateWindow` constant set to 5 minutes as per PRD
+- Returns existing minion (with `WasDuplicate: true`) if same repo+task created within window
+- Handler returns HTTP 200 with `duplicate: true` for existing minions, HTTP 201 for new ones
+- Added `TODO: Add --force flag support` comment for future enhancement
+- Files: `internal/db/minions.go`, `internal/db/minions_test.go`, `internal/api/minions.go`
+- **Learnings:** `pg_advisory_xact_lock` (vs `pg_advisory_lock`) is transaction-scoped, auto-releases on commit/rollback; SHA-256 truncated to int64 provides sufficient collision resistance for advisory locks
+
+## Task - shutdown-1
+- Verified graceful shutdown already implemented in `cmd/orchestrator/main.go`
+- SIGTERM/SIGINT handlers: lines 127-129 via `signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)`
+- Stops accepting new requests: `srv.Shutdown()` call at line 144
+- 30s timeout for in-flight requests: `context.WithTimeout(context.Background(), 30*time.Second)` at lines 141-142
+- Database pool closed: `defer pool.Close()` at line 61 (runs after Shutdown returns)
+- Running minions continue in pods: no pod termination logic on shutdown (pods are independent)
+- Also stops watchdog and WebSocket hub gracefully before HTTP server shutdown
+- No code changes needed; marked as passed
+- **Learnings:** Graceful shutdown was built incrementally as orchestrator features were added (hub, watchdog); important to stop background goroutines BEFORE HTTP server to prevent race conditions
+
+## Task - devbox-1
+- Created `devbox/Dockerfile` based on golang:1.22-bookworm
+- Includes: git, curl, jq, gh CLI (via GitHub's apt repo), OpenCode binary
+- OpenCode installed via GitHub releases API with arch detection (amd64→x64, arm64→arm64)
+- Non-root user: minion:minion with UID/GID 1000
+- WORKDIR set to /workspace, owned by minion user
+- Verification step confirms all tools are installed and accessible
+- Files: `devbox/Dockerfile` (new)
+- **Learnings:** OpenCode asset naming uses x64 not amd64; exact jq match (`select(.name == $name)`) is more reliable than contains() for asset selection
+
+## Task - devbox-2
+- Created `devbox/entrypoint.sh` for minion task execution
+- Clones repo using GITHUB_TOKEN via git credential helper (safer than embedding in URL)
+- Starts `opencode serve` on port 4096 (configurable via OPENCODE_PORT)
+- Waits for `/global/health` endpoint readiness with 60s timeout
+- Creates session via POST /session, sends task via POST /session/:id/prompt_async
+- Uses jq for all JSON construction, preventing shell injection from task content
+- Polls /session/status for completion detection (idle = done)
+- Updated Dockerfile to COPY entrypoint.sh and set as ENTRYPOINT
+- Files: `devbox/entrypoint.sh` (new), `devbox/Dockerfile` (updated)
+- **Learnings:** OpenCode's prompt_async is non-blocking (returns 204 immediately), use /session/status polling to detect completion; git credential helper is cleaner than URL-embedded tokens
+
+## Task - devbox-3
+- Implemented full PR creation flow in `devbox/entrypoint.sh`
+- `has_changes()` function checks `git status --porcelain` for any modifications
+- `create_pr()` creates branch `minion/<uuid>`, stages all changes, commits with task-based message
+- Git user config: `minion@anomaly.co` / `Minion`
+- `git push -u origin` pushes branch, `gh pr create` creates PR (uses GITHUB_TOKEN automatically)
+- `send_callback()` POSTs to orchestrator with status, pr_url, error, session_id
+- Updated k8s `SpawnParams` to use `OrchestratorURL` + `InternalAPIToken` instead of `CallbackURL`
+- Added `INTERNAL_API_TOKEN` to required env vars in entrypoint.sh
+- Files: `devbox/entrypoint.sh`, `orchestrator/internal/k8s/pods.go`, `orchestrator/internal/k8s/pods_test.go`
+- **Learnings:** gh CLI uses GITHUB_TOKEN env var automatically for auth; jq's `--arg` is great for safe JSON construction without shell escaping issues
+
+## Task - devbox-4
+- Implemented callback retry with exponential backoff in `devbox/entrypoint.sh`
+- Constants: `CALLBACK_MAX_RETRIES=5`, `CALLBACK_INITIAL_BACKOFF=1`, `CALLBACK_MAX_BACKOFF=60`
+- Backoff doubles each retry (1s → 2s → 4s → 8s → 16s), capped at 60s
+- Curl captures HTTP status reliably, falls back to "000" on network failure
+- All `send_callback` calls in `main()` now check return value, exit 1 on failure
+- Non-zero exit ensures k8s marks pod as Failed, visible in orchestrator reconciliation
+- Files: `devbox/entrypoint.sh`
+- **Learnings:** Use `http_code=$(curl ... || http_code="000"` pattern to handle both curl errors and HTTP status; main function must explicitly check all callback returns since set -e doesn't apply to command substitutions
+
+## Task - devbox-5
+- Implemented PR edge case handling in `devbox/entrypoint.sh`
+- Exit codes: PR_SUCCESS=0, PR_NO_CHANGES=10, PR_PUSH_CONFLICT=11, PR_ERROR=1
+- Existing PR detection: checks stderr for "already exists", fetches URL via `gh pr view`
+- Push conflict detection: grep for rejected/non-fast-forward/conflict in push output
+- gh CLI stderr: captured via process substitution `2> >(tee ...)`, always logged
+- No changes: sends `result_type: "no_changes"` with completed status (not failure)
+- Files: `devbox/entrypoint.sh`
+- **Learnings:** Use process substitution `2> >(cmd)` to capture stderr while still showing it; `gh pr view --json url -q '.url'` reliably fetches existing PR URL
+
+## Task - bot-1
+- Created `discord-bot/` Go module with discordgo for gateway connection
+- `cmd/bot/main.go`: entry point, graceful shutdown, slog JSON logging
+- Connects to Discord gateway with GuildMessages + MessageContent + Guilds intents
+- HTTP server on port 8081 for webhook callbacks from orchestrator
+- GET /health returns `{"status":"ok"}` (same pattern as orchestrator)
+- Uses chi router with standard middleware (RequestID, RealIP, Recoverer)
+- Files: `discord-bot/cmd/bot/main.go` (new), `discord-bot/go.mod` (new), `discord-bot/go.sum` (new)
+- **Learnings:** discordgo's `Ready` handler is the right place to log connection info; MessageContent intent is required for reading message content since Discord's privileged intents change
+
+## Task - bot-2
+- Created `discord-bot/internal/command/parser.go` for command parsing
+- Parses `@minion --repo Owner/Repo [--model provider/model] <task>` format
+- Supports quoted values: `--repo="value"` and `--repo='value'`
+- Validates repo format: `^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+(/[a-zA-Z0-9_.-]+)*$` (supports nested paths)
+- Model validation: must start with `anthropic/` or `openai/`, defaults to `anthropic/claude-sonnet-4-5`
+- Task validation: max 10k chars, no control characters (except newline/tab/CR)
+- Created `discord-bot/internal/handler/message.go` for Discord event handling
+- Reacts with 🤔 emoji immediately on command receipt (acknowledgment)
+- User-friendly error messages for all parse failures
+- Wired message handler into `main.go` via `discord.AddHandler()`
+- Files: `internal/command/parser.go` (new), `internal/command/parser_test.go` (new), `internal/handler/message.go` (new), `cmd/bot/main.go` (updated)
+- **Learnings:** Discord mentions use `<@USER_ID>` or `<@!USER_ID>` (nickname) format; regex-based flag extraction handles both quoted and space-separated values
+
+## Task - bot-3
+- Created `internal/orchestrator/client.go` for orchestrator API client
+- Client calls POST /api/minions with auth token, handles 429 responses with sentinel errors
+- `ErrRateLimitExceeded` and `ErrConcurrentLimitExceeded` sentinel errors for rate limit handling
+- Updated `MessageHandler` to use `MinionCreator` interface (abstraction for testability)
+- On command receipt: calls orchestrator API, handles rate limits with user-friendly messages
+- Rate limit message: "⏳ You've hit the hourly limit (10 minions/hour). Please wait a bit before spawning more."
+- Concurrent limit message: "⏳ You have too many minions running (max 3). Wait for some to finish!"
+- Duplicate detection: replies with warning if minion already working on same task
+- Updated `main.go`: requires `ORCHESTRATOR_URL` and `INTERNAL_API_TOKEN` env vars
+- Files: `internal/orchestrator/client.go` (new), `internal/orchestrator/client_test.go` (new), `internal/handler/message.go` (updated), `internal/handler/message_test.go` (new), `cmd/bot/main.go` (updated)
+- **Learnings:** Rate limiting enforcement happens in orchestrator (source of truth), bot just needs to handle 429 gracefully; `MinionCreator` interface allows easy mocking in tests
+
+## Task - bot-4
+- Created `internal/clarify/llm.go` with AnthropicClient for clarification LLM calls
+- Created `internal/clarify/handler.go` with Handler and EvaluateWithRetry (3x exponential backoff)
+- Extended orchestrator client with SetClarification and MarkFailed methods
+- Updated MessageHandler: added Orchestrator and ClarificationEvaluator interfaces
+- processClarification flow: evaluates task, posts question or proceeds, marks failed on retry exhaustion
+- System prompt instructs LLM to respond "READY" or ask a single clarification question
+- Requires ANTHROPIC_API_KEY env var in main.go
+- Comprehensive test suite for handler retry logic and mock interfaces
+- Files: `internal/clarify/llm.go` (new), `internal/clarify/handler.go` (new), `internal/clarify/handler_test.go` (new), `internal/orchestrator/client.go` (updated), `internal/handler/message.go` (updated), `internal/handler/message_test.go` (updated), `cmd/bot/main.go` (updated)
+- **Learnings:** Use interface-based design (Orchestrator, ClarificationEvaluator) for testability; exponential backoff constants as package-level for easy tuning; clarification question posted as reply, clarification_message_id stored for reply tracking
+
+## Task - bot-5
+- Implemented clarification reply handling in Discord bot
+- Added orchestrator API: `GET /api/minions/by-clarification/{messageId}` for lookup
+- Added orchestrator API: `PATCH /api/minions/{id}/clarification-answer` for setting answer
+- Added `GetByClarificationMessageID` and `SetClarificationAnswer` to MinionStore
+- Extended bot orchestrator client with `GetByClarificationMessageID` and `SetClarificationAnswer` methods
+- Created `HandleReply` method in MessageHandler for Discord reply detection
+- Reply detection uses `m.MessageReference.MessageID` to check if it's a reply to a clarification
+- Status transition: `awaiting_clarification` → `pending` (with answer stored)
+- HandleReply wired as additional handler in main.go via `discord.AddHandler(msgHandler.HandleReply)`
+- Extended Orchestrator interface with `ClarificationLookup` interface for testability
+- Added test cases for mock orchestrator clarification methods
+- Files: `orchestrator/internal/db/minions.go`, `orchestrator/internal/api/minions.go`, `orchestrator/internal/api/router.go`, `discord-bot/internal/orchestrator/client.go`, `discord-bot/internal/handler/message.go`, `discord-bot/internal/handler/message_test.go`, `discord-bot/cmd/bot/main.go`
+- **Learnings:** discordgo's MessageReference.MessageID is set when a message is a reply; separate HandleReply handler keeps concerns clean; status transition back to `pending` allows orchestrator pod spawner to pick it up
+
+## Task - bot-6
+- Created `discord-bot/internal/handler/webhook.go` with WebhookHandler
+- POST `/webhook` endpoint receives callbacks from orchestrator
+- Auth validation uses `crypto/subtle.ConstantTimeCompare` to prevent timing attacks
+- Returns 401 for invalid/missing Authorization header
+- Notification types handled: completed, failed, terminated, idle, clarification_timeout
+- Completion: posts PR URL or "No changes" message
+- Failure: posts error summary (truncated to 500 chars for Discord)
+- Termination: posts "Minion was terminated" with short ID
+- Idle: posts warning about 30-minute idle time
+- Clarification timeout: posts 24h timeout message
+- Created `orchestrator/internal/webhook/notifier.go` HTTPNotifier for sending webhooks
+- HTTPNotifier sends JSON payload with Bearer auth to Discord bot
+- Orchestrator uses DISCORD_BOT_WEBHOOK_URL env var to configure webhook (optional)
+- Comprehensive tests for both webhook handler and notifier
+- Files: `discord-bot/internal/handler/webhook.go`, `discord-bot/internal/handler/webhook_test.go`, `discord-bot/cmd/bot/main.go`, `orchestrator/internal/webhook/notifier.go`, `orchestrator/internal/webhook/notifier_test.go`, `orchestrator/cmd/orchestrator/main.go`
+- **Learnings:** Return 200 from webhook even if Discord send fails (best-effort, prevent retries); shortID(uuid) for display-friendly minion IDs in messages
+
+## Task - panel-1
+- Created `control-panel/` Next.js 14 project with App Router
+- NextAuth 4.x with Discord OAuth provider configured in `src/lib/auth.ts`
+- API route at `src/app/api/auth/[...nextauth]/route.ts` handles /api/auth/* endpoints
+- SessionProvider wrapper in `src/app/providers.tsx` for client components
+- Server session access via `getServerSession(authOptions)` in page.tsx
+- Custom sign-in page at `/auth/signin` with Discord branding
+- Custom error page at `/auth/error` with error message handling
+- TypeScript module augmentation for session.user.id in `src/types/next-auth.d.ts`
+- Files: `control-panel/` (new module), `src/app/`, `src/lib/auth.ts`, `src/components/sign-out-button.tsx`
+- **Learnings:** NextAuth 4.x uses route handlers in App Router (not pages/api); JWT strategy needed for stateless session; module augmentation extends Session type for custom fields
+
+## Task - panel-2
+- Created `src/types/minion.ts` with MinionSummary, MinionDetail, MinionStatus types matching orchestrator API
+- Created `src/lib/orchestrator.ts` with server-side API client (listMinions, getMinion, terminateMinion)
+- Created `src/components/minion-card.tsx` with MinionCard and MinionCardSkeleton components
+- Status indicators: pending (gray), awaiting_clarification (yellow), running (blue+pulse), completed (green), failed (red), terminated (orange)
+- Updated `src/app/page.tsx` with minion card grid, empty state, error handling, Suspense loading
+- Created placeholder `src/app/minions/[id]/page.tsx` for detail page (full implementation in panel-3)
+- Cards show: status badge, repo (owner/repo split), task preview, model, relative time, error/PR indicator
+- Cards link to `/minions/{id}` detail page
+- Files: `src/types/minion.ts`, `src/lib/orchestrator.ts`, `src/components/minion-card.tsx`, `src/app/page.tsx`, `src/app/minions/[id]/page.tsx`
+- **Learnings:** Server Components + Suspense perfect for data fetching; line-clamp-2 for task truncation; pulse animation on running status provides visual activity indicator
+
+## Task - panel-3
+- Created `src/components/minion-detail-client.tsx` with full detail view and virtualized event log
+- @tanstack/react-virtual for virtual scrolling (handles 10k+ events with ~60px estimated row height)
+- react-syntax-highlighter with Prism oneDark theme for code blocks
+- Event log: auto-scroll to bottom on new events, "Jump to latest" button when scrolled up
+- EventRow component: expandable events with code block extraction from content
+- Event type badges: color-coded (error=red, message=blue, tool_use=purple, tool_result=green)
+- Code block extraction: regex parses ```lang\ncode``` from event content fields
+- Detail header: repo, status badge, cost (formatted $X.XX), token counts (K/M formatting)
+- PR link: green callout box with GitHub PR icon when pr_url exists
+- Error display: red callout box when error field exists
+- Clarification display: yellow callout with question and answer
+- Updated `src/app/minions/[id]/page.tsx` to use MinionDetailClient
+- Files: `src/components/minion-detail-client.tsx` (new), `src/app/minions/[id]/page.tsx` (updated), `package.json` (deps)
+- **Learnings:** @tanstack/react-virtual's measureElement ref enables dynamic row heights; SyntaxHighlighter customStyle needs explicit background override for dark themes
+
+## Task - panel-4
+- Created `src/components/terminate-modal.tsx` with confirmation dialog
+- Modal features: escape key close, backdrop click close, loading state, error display
+- Added terminate button to `MinionDetailClient`, visible for pending/running/awaiting_clarification statuses
+- `canTerminate()` helper checks if minion is in terminable state
+- Created API route `src/app/api/minions/[id]/terminate/route.ts` for server-side termination
+- API route validates session via NextAuth (includes CSRF protection), validates UUID format
+- Uses POST method to `/api/minions/:id/terminate` (proxies to orchestrator DELETE)
+- UI updates: local status state, `router.refresh()` after successful termination
+- Files: `src/components/terminate-modal.tsx` (new), `src/components/minion-detail-client.tsx` (updated), `src/app/api/minions/[id]/terminate/route.ts` (new)
+- **Learnings:** NextAuth's `getServerSession` provides CSRF protection via session token validation; using POST for terminate action allows cleaner client-side fetch (no need for DELETE method in form)
+
+## Task - panel-5
+- Created `/stats` route in `control-panel/src/app/stats/page.tsx`
+- Added Stats and ModelStats types to `src/types/minion.ts`
+- Added `getStats()` function to `src/lib/orchestrator.ts`
+- Extended `ListMinionResponse` in orchestrator to include `cost_usd` field
+- Updated `MinionSummary` type to include `cost_usd`
+- Stats page displays: total cost, input tokens, output tokens in summary cards
+- Model breakdown table: model name, cost, input tokens, output tokens, run count
+- Per-minion costs table: repo link, model, status badge, cost (sorted by cost DESC)
+- Uses Suspense with skeleton loading state for async data fetching
+- Files: `control-panel/src/app/stats/page.tsx` (new), `control-panel/src/types/minion.ts`, `control-panel/src/lib/orchestrator.ts`, `orchestrator/internal/api/minions.go`
+- **Learnings:** Server Components with Suspense are ideal for stats pages; adding cost_usd to list response avoids N+1 queries for per-minion costs
+
+## Task - panel-6
+- Implemented WebSocket connection with reconnection and exponential backoff
+- Created `src/hooks/use-minion-events.ts` with `useMinionEvents` hook
+- WebSocket constants: INITIAL_BACKOFF_MS=1000, MAX_BACKOFF_MS=60000, BACKOFF_MULTIPLIER=2
+- On connect: fetches WS config from `/api/ws-config` (returns orchestrator URL + token)
+- Auth: token passed as query param `?token=...` (browsers can't set WS headers)
+- Updated orchestrator middleware to accept auth via query param for WebSocket upgrades
+- Added `GetEventsSince` method to EventStore for fetching events after timestamp
+- Added `GET /api/minions/{id}/events?since=<timestamp>` endpoint in orchestrator
+- Created `/api/minions/[id]/events` route in control panel to proxy event fetching
+- Created `/api/ws-config` route to securely pass orchestrator URL + token to client
+- `mergeEvents()` function deduplicates by event ID and sorts by timestamp
+- `lastTimestampRef` tracks latest event timestamp for reconnection catch-up
+- On reconnect: calls `fetchEventsSince()` to get missed events, merges into state
+- Updated `MinionDetailClient` to use `useMinionEvents` hook for live updates
+- Connection status indicator: green dot + "Live" when connected, yellow pulse + "Connecting..." otherwise
+- Terminal status check: no WebSocket connection for completed/failed/terminated minions
+- Files: `src/hooks/use-minion-events.ts` (new), `src/app/api/ws-config/route.ts` (new), `src/app/api/minions/[id]/events/route.ts` (new), `src/lib/orchestrator.ts`, `src/components/minion-detail-client.tsx`, `orchestrator/internal/db/events.go`, `orchestrator/internal/api/minions.go`, `orchestrator/internal/api/router.go`, `orchestrator/internal/api/middleware.go`
+- **Learnings:** WebSocket auth via query param is necessary for browser clients; use refs for values that need to persist across reconnection attempts; always deduplicate by ID when merging event streams
+
+## Task - infra-1
+- Created `infra/namespace.yaml` with minions namespace
+- Pod Security Standards: enforce=baseline, warn=restricted
+- Created `infra/rbac.yaml` with ServiceAccount, Role, RoleBinding
+- ServiceAccount: `minions-orchestrator` (used by orchestrator deployment)
+- Role: `minions-pod-manager` with pods verbs: create, delete, get, list, watch + pods/log: get
+- RoleBinding: connects SA to Role
+- All manifests validated with `kubectl apply --dry-run=client`
+- Files: `infra/namespace.yaml` (new), `infra/rbac.yaml` (new)
+- **Learnings:** Pod Security Standards baseline is enforced at namespace level; warn=restricted helps catch stricter violations early
+
+## Task - infra-2
+- Created `infra/secrets.yaml` with 5 Secret resources
+- `minions-db`: DATABASE_URL for PostgreSQL connection string
+- `minions-llm-keys`: ANTHROPIC_API_KEY, OPENAI_API_KEY for LLM providers
+- `minions-github-app`: GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY (PEM) for token management
+- `minions-discord-bot`: DISCORD_BOT_TOKEN for gateway connection
+- `minions-internal-api`: INTERNAL_API_TOKEN for service-to-service auth
+- Uses `stringData` for readability (k8s auto-encodes to base64)
+- Includes inline comments with kubectl commands for creating from literals/files
+- Validated with `kubectl apply --dry-run=client`
+- Files: `infra/secrets.yaml` (new)
+- **Learnings:** Use `stringData` over `data` for human-readable templates; multi-line PEM keys work well with YAML literal block scalars (`|`)
+
+## Task - infra-3
+- Created `infra/network-policies.yaml` with 6 NetworkPolicy resources
+- Devbox egress: DNS (kube-dns pods), HTTPS (0.0.0.0/0:443 excluding private ranges), orchestrator callback (8080)
+- Devbox ingress: deny all (empty ingress list)
+- Orchestrator ingress: from devbox (callbacks), control-panel namespace, ingress-nginx namespace
+- Orchestrator egress: DNS, K8s API (443/6443), PostgreSQL (5432), Discord bot webhook (8081), GitHub API, devbox SSE (4096)
+- Discord bot egress: DNS, Discord API/Gateway (443), orchestrator API (8080)
+- Discord bot ingress: from orchestrator (webhooks on 8081)
+- Private IP ranges excluded from external egress: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+- Validated with `kubectl apply --dry-run=client`
+- Files: `infra/network-policies.yaml` (new)
+- **Learnings:** Empty `ingress: []` denies all; excluding private ranges in ipBlock prevents lateral movement within cluster; namespace selectors need labels to match (ingress-nginx uses `kubernetes.io/metadata.name`)
+
+## Task - infra-4
+- Created `infra/deployments.yaml` with Deployment + Service for both orchestrator and discord-bot
+- Orchestrator: 1 replica, Recreate strategy (single-writer for DB), serviceAccount=minions-orchestrator
+- Bot: 1 replica, Recreate strategy (Discord gateway doesn't support dual connections)
+- Both use envFrom secretRef for credentials (minions-db, minions-internal-api, minions-llm-keys, etc.)
+- Both have readiness probes (HTTP GET /health) and liveness probes
+- Both run as non-root (UID 1000), read-only root filesystem, all capabilities dropped
+- Services: orchestrator on 8080, discord-bot on 8081 (ClusterIP type)
+- Service DNS wired: bot's ORCHESTRATOR_URL, orchestrator's DISCORD_BOT_WEBHOOK_URL
+- Validated with `kubectl apply --dry-run=client`
+- **Learnings:** Recreate strategy is appropriate for single-replica stateful services; envFrom secretRef is cleaner than individual env.valueFrom when a service needs all keys from a secret
+
+## Task - docs-1
+- Created `README.md` at repo root
+- Project overview with one-liner architecture ASCII diagram
+- Components table linking each directory to its purpose
+- Quick start guide: database setup, orchestrator, discord-bot, control-panel, devbox image
+- Environment variables tables for each service
+- Links to detailed setup docs (docs/setup/*.md)
+- **Learnings:** Keep README focused on getting started; detailed architecture lives in docs/architecture.md
+
+## Task - docs-2
+- Created `docs/setup/github-app.md`
+- Documents why GitHub App over PAT (installation tokens, granular perms, audit trail)
+- Required permissions: Contents (R/W), Pull requests (R/W), Metadata (read-only)
+- Webhook config: explicitly not used, disabled during setup
+- Private key generation: step-by-step with kubectl secret creation commands
+- Troubleshooting: common errors (401, 404, rate limits)
+- **Learnings:** Minions doesn't use GitHub webhooks, only installation token auth; Metadata permission is auto-granted by GitHub
+
+## Task - docs-3
+- Created `docs/setup/discord-app.md`
+- Single application serves both Bot and OAuth2 (control panel)
+- Bot intents: GuildMessages, MessageContent (privileged), Guilds
+- Bot permissions: Send Messages, Add Reactions, Read Message History, View Channels
+- OAuth2: DISCORD_CLIENT_ID + DISCORD_CLIENT_SECRET for NextAuth Discord provider
+- Redirect URL config for NextAuth callback `/api/auth/callback/discord`
+- Troubleshooting: intents errors, OAuth redirect mismatches, Message Content Intent
+- **Learnings:** Message Content Intent became privileged in April 2022; one Discord app handles both bot and OAuth flows
+
+## Task - docs-4
+- Created `docs/setup/kubernetes.md` with comprehensive deployment guide
+- Sections: namespace + Pod Security Standards, RBAC, secrets (3 options: kubectl, templates, external-secrets), network policies, deployments
+- Architecture diagram (ASCII) showing minions namespace components
+- All manifests from `infra/` referenced with inline examples
+- kubectl commands for verification and troubleshooting
+- Security checklist at the end
+- **Learnings:** kubectl create secret --from-file handles multi-line PEM keys cleanly; baseline PSS + restricted warn catches security issues early
+
+## Task - docs-5
+- Verified `docs/architecture.md` already exists (commit ce710cb)
+- File contains comprehensive system overview ASCII diagram
+- Documents component interactions: orchestrator, discord bot, control panel, devbox pods, PostgreSQL
+- Documents data flow: Command Invocation, Pod Lifecycle, Event Streaming sequences
+- Includes: Key Design Decisions, Database Schema, Network Topology, Security Considerations, Failure Modes, Cost Calculation
+- No code changes needed; marked as passed
+- **Learnings:** Architecture docs created during initial planning phase; PRD state got out of sync with actual implementation

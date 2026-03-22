@@ -1,0 +1,14 @@
+# Kubernetes namespace for minion pods
+# Uses Pod Security Standards "baseline" profile to enforce basic security
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: minions
+  labels:
+    # Pod Security Standards: baseline profile blocks known privilege escalations
+    # https://kubernetes.io/docs/concepts/security/pod-security-standards/
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce-version: latest
+    # Warn on restricted violations (useful for debugging)
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest

@@ -1,0 +1,679 @@
+{
+  "prdName": "minions-system",
+  "tasks": [
+    {
+      "id": "db-1",
+      "category": "db",
+      "description": "Create users table for Discord OAuth",
+      "steps": [
+        "Run migration creating users table",
+        "Verify columns: id (UUID), discord_id (TEXT), discord_username (TEXT), avatar_url (TEXT)",
+        "Verify unique constraint on discord_id"
+      ],
+      "passes": true
+    },
+    {
+      "id": "db-2",
+      "category": "db",
+      "description": "Create minions table with full lifecycle state",
+      "steps": [
+        "Run migration creating minions table",
+        "Verify columns include: id, user_id, status, repo, task, model, clarification_question, clarification_answer, clarification_message_id, input_tokens, output_tokens, cost_usd, pr_url, error, session_id, pod_name, discord_message_id, discord_channel_id, created_at, started_at, completed_at, last_activity_at",
+        "Verify status enum or check constraint: pending, awaiting_clarification, running, completed, failed, terminated",
+        "Verify foreign key to users table"
+      ],
+      "passes": true
+    },
+    {
+      "id": "db-3",
+      "category": "db",
+      "description": "Create minion_events table for append-only event log",
+      "steps": [
+        "Run migration creating minion_events table",
+        "Verify columns: id, minion_id (FK), timestamp, event_type, content (JSONB)",
+        "Verify foreign key to minions table with CASCADE delete",
+        "Verify index on (minion_id, timestamp)"
+      ],
+      "passes": true
+    },
+    {
+      "id": "db-4",
+      "category": "db",
+      "description": "Create indexes for common queries",
+      "steps": [
+        "Verify index on minions(status)",
+        "Verify index on minions(status, last_activity_at) for watchdog query",
+        "Verify index on minions(clarification_message_id) for reply lookup"
+      ],
+      "passes": true
+    },
+    {
+      "id": "orchestrator-1",
+      "category": "orchestrator",
+      "description": "Set up orchestrator project structure with chi router and health endpoint",
+      "steps": [
+        "orchestrator/cmd/orchestrator/main.go exists with chi router setup",
+        "GET /health returns { status: \"ok\" }",
+        "Structured logging via log/slog configured"
+      ],
+      "passes": true
+    },
+    {
+      "id": "orchestrator-2",
+      "category": "orchestrator",
+      "description": "Implement API authentication via INTERNAL_API_TOKEN",
+      "steps": [
+        "Middleware validates Authorization header against INTERNAL_API_TOKEN",
+        "Requests without valid token receive 401",
+        "/health endpoint is exempt from auth"
+      ],
+      "passes": true
+    },
+    {
+      "id": "orchestrator-3",
+      "category": "orchestrator",
+      "description": "Implement POST /api/minions endpoint",
+      "steps": [
+        "POST /api/minions with { repo, task, model, discord_message_id, discord_channel_id, discord_user_id }",
+        "Creates minion record in database",
+        "Returns { id, status, repo, task, created_at }",
+        "Returns 400 for invalid repo format",
+        "Returns 429 when rate limit exceeded (10/hr per user)",
+        "Returns 429 when concurrent limit exceeded (3 pending/running per user)"
+      ],
+      "passes": true
+    },
+    {
+      "id": "orchestrator-4",
+      "category": "orchestrator",
+      "description": "Implement GET /api/minions endpoint with status filter",
+      "steps": [
+        "GET /api/minions returns list of minions",
+        "?status=running filters by status",
+        "?limit=50 limits results",
+        "Results ordered by created_at desc"
+      ],
+      "passes": true
+    },
+    {
+      "id": "orchestrator-5",
+      "category": "orchestrator",
+      "description": "Implement GET /api/minions/:id endpoint",
+      "steps": [
+        "GET /api/minions/:id returns minion details",
+        "Response includes recent events array",
+        "Returns 404 for non-existent minion"
+      ],
+      "passes": true
+    },
+    {
+      "id": "orchestrator-6",
+      "category": "orchestrator",
+      "description": "Implement DELETE /api/minions/:id endpoint",
+      "steps": [
+        "DELETE /api/minions/:id terminates the pod",
+        "Updates minion status to 'terminated' in database",
+        "Sends notification to Discord bot webhook",
+        "Returns { success: true }",
+        "Returns 404 for non-existent minion",
+        "Idempotent: returns success if already terminated/completed",
+        "Uses DB transaction to check status before update (handles concurrent requests)"
+      ],
+      "passes": true
+    },
+    {
+      "id": "orchestrator-7",
+      "category": "orchestrator",
+      "description": "Implement POST /api/minions/:id/callback endpoint",
+      "steps": [
+        "POST /api/minions/:id/callback accepts { status, pr_url?, error?, session_id? }",
+        "Updates minion record with completion data",
+        "Notifies Discord bot via webhook",
+        "Returns { success: true }"
+      ],
+      "passes": true
+    },
+    {
+      "id": "orchestrator-8",
+      "category": "orchestrator",
+      "description": "Implement GET /api/stats endpoint",
+      "steps": [
+        "GET /api/stats returns aggregate statistics",
+        "Response includes: total_cost_usd, total_input_tokens, total_output_tokens",
+        "Response includes by_model breakdown"
+      ],
+      "passes": true
+    },
+    {
+      "id": "orchestrator-9",
+      "category": "orchestrator",
+      "description": "Implement user lookup/creation from Discord ID",
+      "steps": [
+        "POST /api/minions looks up user by discord_user_id",
+        "Creates user record in users table if not exists",
+        "Uses user.id as FK for minions.user_id",
+        "Stores discord_username from request"
+      ],
+      "passes": true
+    },
+    {
+      "id": "orchestrator-10",
+      "category": "orchestrator",
+      "description": "Implement clarification state API",
+      "steps": [
+        "PATCH /api/minions/:id/clarification accepts { question, discord_message_id }",
+        "Updates minion status to 'awaiting_clarification'",
+        "Stores clarification_question and clarification_message_id",
+        "Returns { success: true }",
+        "Returns 404 for non-existent minion"
+      ],
+      "passes": true
+    },
+    {
+      "id": "k8s-1",
+      "category": "k8s",
+      "description": "Implement pod creation with security context",
+      "steps": [
+        "Pod spawns in 'minions' namespace",
+        "Pod runs as non-root (runAsNonRoot: true)",
+        "allowPrivilegeEscalation: false",
+        "Capabilities dropped",
+        "GITHUB_TOKEN env var set from orchestrator"
+      ],
+      "passes": true
+    },
+    {
+      "id": "k8s-2",
+      "category": "k8s",
+      "description": "Implement pod creation retry with backoff",
+      "steps": [
+        "Pod creation retries up to 3 times on failure",
+        "Uses exponential backoff between retries",
+        "Minion marked as failed after all retries exhausted"
+      ],
+      "passes": true
+    },
+    {
+      "id": "k8s-3",
+      "category": "k8s",
+      "description": "Implement 5-minute pod creation timeout",
+      "steps": [
+        "Orchestrator waits up to 5min for pod to become ready",
+        "If timeout exceeded, pod is deleted",
+        "Minion marked as failed with timeout error"
+      ],
+      "passes": true
+    },
+    {
+      "id": "k8s-4",
+      "category": "k8s",
+      "description": "Implement startup reconciliation",
+      "steps": [
+        "Reconciliation runs on orchestrator startup BEFORE HTTP server starts",
+        "List all minions with status pending/running",
+        "For each, check if corresponding pod exists and is healthy",
+        "Mark minion as failed if pod missing or in terminal phase",
+        "Delete stray pods not associated with known minions",
+        "Log count of orphaned minions marked as failed",
+        "Log count of stray pods deleted"
+      ],
+      "passes": true
+    },
+    {
+      "id": "github-1",
+      "category": "github",
+      "description": "Implement GitHub App token management",
+      "steps": [
+        "Use ghinstallation/v2 library for token management",
+        "Tokens auto-refresh before expiry",
+        "Token passed to pod via GITHUB_TOKEN env var",
+        "If ghinstallation returns 401/403, mark minion as failed with 'GitHub access revoked' error",
+        "Log token refresh failures with repo context"
+      ],
+      "passes": true
+    },
+    {
+      "id": "streaming-1",
+      "category": "streaming",
+      "description": "Implement SSE client for pod events",
+      "steps": [
+        "SSE client connects to pod's /event endpoint",
+        "Implements reconnection with exponential backoff",
+        "Events persisted to minion_events table",
+        "Token usage extracted and accumulated in minion record"
+      ],
+      "passes": true
+    },
+    {
+      "id": "streaming-2",
+      "category": "streaming",
+      "description": "Implement WebSocket endpoint for live streaming",
+      "steps": [
+        "WS /api/minions/:id/stream accepts connections",
+        "Broadcasts events from SSE client to connected clients",
+        "Handles client disconnections gracefully"
+      ],
+      "passes": true
+    },
+    {
+      "id": "watchdog-1",
+      "category": "watchdog",
+      "description": "Implement idle minion detection",
+      "steps": [
+        "Background goroutine runs every 5 minutes",
+        "Queries for running minions with last_activity_at > 30min ago",
+        "POSTs alert to Discord bot webhook for each idle minion",
+        "Also checks for pods in Failed phase (OOMKilled, Evicted)",
+        "Marks corresponding minion as failed with termination reason"
+      ],
+      "passes": true
+    },
+    {
+      "id": "watchdog-2",
+      "category": "watchdog",
+      "description": "Implement clarification timeout enforcement",
+      "steps": [
+        "Background goroutine checks every 10 minutes",
+        "Queries for minions with status=awaiting_clarification AND created_at > 24h ago",
+        "Updates status to 'failed' with error 'Clarification timeout'",
+        "POSTs timeout notification to Discord bot webhook"
+      ],
+      "passes": true
+    },
+    {
+      "id": "dedup-1",
+      "category": "dedup",
+      "description": "Implement duplicate prevention",
+      "steps": [
+        "Use pg_advisory_lock to prevent race conditions",
+        "Check for existing minion with same repo+task hash in last 5 minutes",
+        "If duplicate found, return existing minion ID",
+        "Discord bot replies with link to existing minion instead of creating new one",
+        "Document --force flag as future enhancement in code comment"
+      ],
+      "passes": true
+    },
+    {
+      "id": "shutdown-1",
+      "category": "shutdown",
+      "description": "Implement graceful shutdown",
+      "steps": [
+        "SIGTERM handler initiates shutdown",
+        "Stops accepting new requests",
+        "Waits up to 30s for in-flight requests to complete",
+        "Closes database connection pool",
+        "Running minions continue in their pods"
+      ],
+      "passes": true
+    },
+    {
+      "id": "devbox-1",
+      "category": "devbox",
+      "description": "Create Dockerfile for devbox image",
+      "steps": [
+        "Dockerfile based on golang:1.22-bookworm",
+        "Includes git, curl, jq, gh CLI",
+        "Includes OpenCode binary",
+        "Creates non-root user with UID 1000",
+        "Sets WORKDIR to /workspace"
+      ],
+      "passes": true
+    },
+    {
+      "id": "devbox-2",
+      "category": "devbox",
+      "description": "Create entrypoint script for task execution",
+      "steps": [
+        "entrypoint.sh clones repo using GITHUB_TOKEN",
+        "Starts opencode serve on port 4096",
+        "Waits for /global/health readiness (up to 60s)",
+        "Creates session and sends task via OpenCode API",
+        "Uses jq for JSON construction (no shell injection)"
+      ],
+      "passes": true
+    },
+    {
+      "id": "devbox-3",
+      "category": "devbox",
+      "description": "Implement PR creation in entrypoint",
+      "steps": [
+        "On changes: creates branch minion/<uuid>",
+        "Commits changes with descriptive message",
+        "Pushes branch to origin",
+        "Creates PR via gh CLI",
+        "POSTs callback with pr_url to orchestrator"
+      ],
+      "passes": true
+    },
+    {
+      "id": "devbox-4",
+      "category": "devbox",
+      "description": "Implement failure handling and callback retry",
+      "steps": [
+        "On failure: POSTs callback with error message",
+        "Callback uses exponential backoff (max 5 attempts)",
+        "Non-zero exit if callback fails after all retries"
+      ],
+      "passes": true
+    },
+    {
+      "id": "devbox-5",
+      "category": "devbox",
+      "description": "Implement PR edge case handling",
+      "steps": [
+        "If gh pr create fails due to existing PR for branch, treat as success (idempotent)",
+        "If branch push fails due to conflicts, callback with specific conflict error",
+        "Log all gh CLI stderr for debugging",
+        "If no changes detected, callback with 'no changes' status (not failure)"
+      ],
+      "passes": true
+    },
+    {
+      "id": "bot-1",
+      "category": "bot",
+      "description": "Set up Discord bot project structure",
+      "steps": [
+        "discord-bot/cmd/bot/main.go exists",
+        "Bot connects to Discord gateway",
+        "Structured logging via log/slog configured"
+      ],
+      "passes": true
+    },
+    {
+      "id": "bot-2",
+      "category": "bot",
+      "description": "Implement command parsing and acknowledgment",
+      "steps": [
+        "Bot responds to @minion mentions",
+        "Immediately reacts with 🤔 emoji on command message",
+        "Parses --repo Owner/Repo (required)",
+        "Parses --model provider/model-name (optional)",
+        "Validates model name against allowed list (anthropic/*, openai/*)",
+        "Defaults to anthropic/claude-sonnet-4-5 if model not specified",
+        "Extracts task description from remaining text",
+        "Validates repo format (contains /)",
+        "Rejects tasks >10k chars or with control characters",
+        "Rejects unknown model with 'Unknown model' error"
+      ],
+      "passes": true
+    },
+    {
+      "id": "bot-3",
+      "category": "bot",
+      "description": "Implement rate limiting",
+      "steps": [
+        "Tracks minions per user per hour",
+        "Rejects with message if >10 minions/hour",
+        "Tracks concurrent pending/running minions",
+        "Rejects with message if >3 concurrent"
+      ],
+      "passes": true
+    },
+    {
+      "id": "bot-4",
+      "category": "bot",
+      "description": "Implement clarification flow",
+      "steps": [
+        "Sends task to clarification LLM",
+        "If LLM responds 'READY', proceeds to spawn minion",
+        "If LLM responds with question, posts question to Discord",
+        "Calls PATCH /api/minions/:id/clarification to store state",
+        "Retries LLM call 3x with exponential backoff on failure",
+        "If all 3 retries fail, calls orchestrator to mark minion as failed",
+        "Posts failure notification to Discord on retry exhaustion"
+      ],
+      "passes": true
+    },
+    {
+      "id": "bot-5",
+      "category": "bot",
+      "description": "Implement clarification reply handling",
+      "steps": [
+        "Bot detects replies to clarification messages via message reference",
+        "Looks up minion by clarification_message_id",
+        "Appends user's answer to original task",
+        "Proceeds to spawn minion via orchestrator API",
+        "Handles MessageNotFound gracefully (clarification message deleted)",
+        "If clarification message deleted, fails minion with 'Clarification cancelled'"
+      ],
+      "passes": true
+    },
+    {
+      "id": "bot-6",
+      "category": "bot",
+      "description": "Implement webhook handler for orchestrator callbacks",
+      "steps": [
+        "POST endpoint receives callbacks from orchestrator",
+        "Validates INTERNAL_API_TOKEN in Authorization header",
+        "Returns 401 for invalid/missing token",
+        "On completion: posts PR URL to Discord channel",
+        "On failure: posts error summary to Discord",
+        "On termination: posts 'terminated by @user'",
+        "On idle: posts idle warning with link",
+        "On clarification_timeout: posts timeout notification"
+      ],
+      "passes": true
+    },
+    {
+      "id": "panel-1",
+      "category": "panel",
+      "description": "Set up Next.js project with NextAuth Discord OAuth",
+      "steps": [
+        "control-panel/app directory exists with Next.js App Router",
+        "NextAuth configured with Discord provider",
+        "/api/auth/* routes work",
+        "Session available in server and client components"
+      ],
+      "passes": true
+    },
+    {
+      "id": "panel-2",
+      "category": "panel",
+      "description": "Implement dashboard page with minion cards",
+      "steps": [
+        "/ route shows list of minion cards",
+        "Cards show: status, repo, user, created time",
+        "Status indicators: pending (gray), running (blue pulse), completed (green), failed (red), terminated (orange)",
+        "Cards link to detail page"
+      ],
+      "passes": true
+    },
+    {
+      "id": "panel-3",
+      "category": "panel",
+      "description": "Implement minion detail page with live events",
+      "steps": [
+        "/minions/:id shows minion details",
+        "Displays: task, model, PR link (if available), cost",
+        "Shows live event log with virtual scroll (handles 10k+ events)",
+        "Syntax highlighting for code blocks in events"
+      ],
+      "passes": true
+    },
+    {
+      "id": "panel-4",
+      "category": "panel",
+      "description": "Implement terminate functionality",
+      "steps": [
+        "Terminate button visible for running minions",
+        "Clicking shows confirmation modal",
+        "Confirming calls DELETE /api/minions/:id",
+        "Request includes NextAuth CSRF token",
+        "UI updates to show terminated status"
+      ],
+      "passes": true
+    },
+    {
+      "id": "panel-5",
+      "category": "panel",
+      "description": "Implement stats page",
+      "steps": [
+        "/stats route shows cost statistics",
+        "Displays: per-minion costs, totals",
+        "Shows breakdown by model"
+      ],
+      "passes": true
+    },
+    {
+      "id": "panel-6",
+      "category": "panel",
+      "description": "Implement WebSocket connection with reconnection",
+      "steps": [
+        "WebSocket connects to orchestrator /api/minions/:id/stream",
+        "Exponential backoff on disconnect (max 60s interval)",
+        "Infinite retries while page open",
+        "Tracks last_received_timestamp from events",
+        "On reconnect: fetches events with timestamp > last_received_timestamp",
+        "Merges fetched events into log, deduplicating by event ID",
+        "Updates TanStack Query cache on WebSocket events",
+        "Test: disconnect for 30s, verify all events appear after reconnect"
+      ],
+      "passes": true
+    },
+    {
+      "id": "infra-1",
+      "category": "infra",
+      "description": "Create Kubernetes namespace and RBAC",
+      "steps": [
+        "Namespace 'minions' with pod-security.kubernetes.io/enforce: baseline",
+        "ServiceAccount 'minions-orchestrator'",
+        "Role with pod create/delete/get/list/watch permissions",
+        "RoleBinding connecting SA to Role"
+      ],
+      "passes": true
+    },
+    {
+      "id": "infra-2",
+      "category": "infra",
+      "description": "Create Kubernetes secrets",
+      "steps": [
+        "Secret for database credentials",
+        "Secret for API keys (Anthropic, etc.)",
+        "Secret for GitHub App (app ID, private key)",
+        "Secret for Discord bot token",
+        "Secret for INTERNAL_API_TOKEN"
+      ],
+      "passes": true
+    },
+    {
+      "id": "infra-3",
+      "category": "infra",
+      "description": "Create NetworkPolicies",
+      "steps": [
+        "Devbox pods: egress to DNS, HTTPS, orchestrator callback only",
+        "Orchestrator: ingress from devbox pods, control panel, external"
+      ],
+      "passes": true
+    },
+    {
+      "id": "infra-4",
+      "category": "infra",
+      "description": "Create orchestrator and bot Deployments",
+      "steps": [
+        "Orchestrator Deployment with 1 replica",
+        "Bot Deployment with 1 replica",
+        "Both reference secrets for credentials",
+        "Both have readiness probes"
+      ],
+      "passes": true
+    },
+    {
+      "id": "docs-1",
+      "category": "docs",
+      "description": "Create README.md with project overview",
+      "steps": [
+        "README.md exists in repo root",
+        "Contains project overview",
+        "Contains quick start instructions",
+        "Links to detailed setup docs"
+      ],
+      "passes": true
+    },
+    {
+      "id": "docs-2",
+      "category": "docs",
+      "description": "Create GitHub App setup guide",
+      "steps": [
+        "docs/setup/github-app.md exists",
+        "Documents required permissions",
+        "Documents webhook configuration",
+        "Documents private key generation"
+      ],
+      "passes": true
+    },
+    {
+      "id": "docs-3",
+      "category": "docs",
+      "description": "Create Discord bot setup guide",
+      "steps": [
+        "docs/setup/discord-app.md exists",
+        "Documents bot creation process",
+        "Documents required intents/permissions",
+        "Documents OAuth2 configuration for control panel"
+      ],
+      "passes": true
+    },
+    {
+      "id": "docs-4",
+      "category": "docs",
+      "description": "Create Kubernetes deployment guide",
+      "steps": [
+        "docs/setup/kubernetes.md exists",
+        "Includes all manifest examples",
+        "Documents secrets configuration",
+        "Documents namespace setup"
+      ],
+      "passes": true
+    },
+    {
+      "id": "docs-5",
+      "category": "docs",
+      "description": "Create architecture documentation",
+      "steps": [
+        "docs/architecture.md exists",
+        "Contains system diagram",
+        "Documents component interactions",
+        "Documents data flow"
+      ],
+      "passes": true
+    }
+  ],
+  "context": {
+    "patterns": [
+      "Go services: chi router, pgx for PostgreSQL, client-go for K8s",
+      "Structured logging: log/slog (stdlib)",
+      "WebSocket: gorilla/websocket",
+      "GitHub App: ghinstallation/v2 for token management",
+      "Next.js: App Router, shadcn/ui, TanStack Query, NextAuth"
+    ],
+    "keyFiles": [
+      "devbox/Dockerfile",
+      "devbox/entrypoint.sh",
+      "orchestrator/cmd/orchestrator/main.go",
+      "orchestrator/internal/api/router.go",
+      "orchestrator/internal/k8s/pods.go",
+      "orchestrator/internal/streaming/sse.go",
+      "orchestrator/internal/streaming/hub.go",
+      "discord-bot/cmd/bot/main.go",
+      "discord-bot/internal/clarify/handler.go",
+      "control-panel/app/page.tsx",
+      "control-panel/app/minions/[id]/page.tsx",
+      "schema/migrations/001_initial.sql"
+    ],
+    "nonGoals": [
+      "Multi-turn conversation",
+      "Hard timeout (watchdog alerts only)",
+      "Persistent volumes",
+      "Multi-repo tasks",
+      "Custom Docker images per task",
+      "Non-Go language support",
+      "OAuth providers beyond Discord",
+      "User-level budget caps",
+      "Event partitioning implementation",
+      "Horizontal orchestrator scaling",
+      "Priority queuing",
+      "Prometheus metrics & alerting",
+      "Zero-downtime deployments"
+    ]
+  }
+}

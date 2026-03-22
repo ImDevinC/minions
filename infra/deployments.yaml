@@ -1,0 +1,324 @@
+# Deployments for orchestrator and discord-bot services
+# Both services run as single replicas (no horizontal scaling per PRD non-goals)
+
+---
+# Orchestrator Deployment
+# Manages minion lifecycle: pod spawning, callbacks, streaming, watchdog
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orchestrator
+  namespace: minions
+  labels:
+    app.kubernetes.io/name: orchestrator
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: minions
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: orchestrator
+  strategy:
+    type: Recreate  # single replica, avoid dual-writer issues during rollout
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: orchestrator
+        app.kubernetes.io/component: backend
+        app.kubernetes.io/part-of: minions
+    spec:
+      serviceAccountName: minions-orchestrator
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: orchestrator
+          image: ghcr.io/imdevinc/minions/orchestrator:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "8080"
+            # Discord bot webhook for notifications
+            - name: DISCORD_BOT_WEBHOOK_URL
+              value: "http://discord-bot.minions.svc.cluster.local:8081/webhook"
+          envFrom:
+            # DATABASE_URL
+            - secretRef:
+                name: minions-db
+            # INTERNAL_API_TOKEN
+            - secretRef:
+                name: minions-internal-api
+            # ANTHROPIC_API_KEY, OPENAI_API_KEY (passed to devbox pods)
+            - secretRef:
+                name: minions-llm-keys
+            # GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY
+            - secretRef:
+                name: minions-github-app
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+
+---
+# Orchestrator Service
+# Exposes orchestrator to discord-bot and devbox pods
+apiVersion: v1
+kind: Service
+metadata:
+  name: orchestrator
+  namespace: minions
+  labels:
+    app.kubernetes.io/name: orchestrator
+    app.kubernetes.io/part-of: minions
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: orchestrator
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+
+---
+# Discord Bot Deployment
+# Handles Discord gateway events and webhook callbacks from orchestrator
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: discord-bot
+  namespace: minions
+  labels:
+    app.kubernetes.io/name: discord-bot
+    app.kubernetes.io/component: bot
+    app.kubernetes.io/part-of: minions
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: discord-bot
+  strategy:
+    type: Recreate  # single replica, Discord gateway doesn't support dual connections well
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: discord-bot
+        app.kubernetes.io/component: bot
+        app.kubernetes.io/part-of: minions
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: discord-bot
+          image: ghcr.io/imdevinc/minions/discord-bot:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8081
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "8081"
+            # Orchestrator API endpoint
+            - name: ORCHESTRATOR_URL
+              value: "http://orchestrator.minions.svc.cluster.local:8080"
+          envFrom:
+            # DISCORD_BOT_TOKEN
+            - secretRef:
+                name: minions-discord-bot
+            # INTERNAL_API_TOKEN
+            - secretRef:
+                name: minions-internal-api
+            # ANTHROPIC_API_KEY (for clarification LLM)
+            - secretRef:
+                name: minions-llm-keys
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+
+---
+# Discord Bot Service
+# Exposes webhook endpoint to orchestrator
+apiVersion: v1
+kind: Service
+metadata:
+  name: discord-bot
+  namespace: minions
+  labels:
+    app.kubernetes.io/name: discord-bot
+    app.kubernetes.io/part-of: minions
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: discord-bot
+  ports:
+    - name: http
+      port: 8081
+      targetPort: http
+      protocol: TCP
+
+---
+# Control Panel Deployment
+# Web UI for monitoring and managing minions
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: control-panel
+  namespace: minions
+  labels:
+    app.kubernetes.io/name: control-panel
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/part-of: minions
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: control-panel
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: control-panel
+        app.kubernetes.io/component: frontend
+        app.kubernetes.io/part-of: minions
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+        - name: control-panel
+          image: ghcr.io/imdevinc/minions/control-panel:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "3000"
+            - name: HOSTNAME
+              value: "0.0.0.0"
+            # Orchestrator API endpoint for server-side requests
+            - name: ORCHESTRATOR_URL
+              value: "http://orchestrator.minions.svc.cluster.local:8080"
+          envFrom:
+            # NEXTAUTH_SECRET, NEXTAUTH_URL (if using next-auth)
+            - secretRef:
+                name: minions-control-panel
+                optional: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false  # Next.js needs to write to .next/cache
+            capabilities:
+              drop:
+                - ALL
+
+---
+# Control Panel Service
+# Exposes web UI within cluster
+apiVersion: v1
+kind: Service
+metadata:
+  name: control-panel
+  namespace: minions
+  labels:
+    app.kubernetes.io/name: control-panel
+    app.kubernetes.io/part-of: minions
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: control-panel
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+      protocol: TCP
