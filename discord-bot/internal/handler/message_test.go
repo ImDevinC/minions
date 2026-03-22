@@ -11,9 +11,11 @@ import (
 
 // mockOrchestrator is a mock implementation of Orchestrator for testing
 type mockOrchestrator struct {
-	createFunc     func(ctx context.Context, req orchestrator.CreateMinionRequest) (*orchestrator.CreateMinionResponse, error)
-	setClarifyFunc func(ctx context.Context, minionID string, req orchestrator.SetClarificationRequest) error
-	markFailedFunc func(ctx context.Context, minionID string, errorMsg string) error
+	createFunc             func(ctx context.Context, req orchestrator.CreateMinionRequest) (*orchestrator.CreateMinionResponse, error)
+	setClarifyFunc         func(ctx context.Context, minionID string, req orchestrator.SetClarificationRequest) error
+	markFailedFunc         func(ctx context.Context, minionID string, errorMsg string) error
+	getByClarificationFunc func(ctx context.Context, messageID string) (*orchestrator.MinionByClarificationResponse, error)
+	setAnswerFunc          func(ctx context.Context, minionID string, answer string) error
 }
 
 func (m *mockOrchestrator) CreateMinion(ctx context.Context, req orchestrator.CreateMinionRequest) (*orchestrator.CreateMinionResponse, error) {
@@ -33,6 +35,20 @@ func (m *mockOrchestrator) SetClarification(ctx context.Context, minionID string
 func (m *mockOrchestrator) MarkFailed(ctx context.Context, minionID string, errorMsg string) error {
 	if m.markFailedFunc != nil {
 		return m.markFailedFunc(ctx, minionID, errorMsg)
+	}
+	return nil
+}
+
+func (m *mockOrchestrator) GetByClarificationMessageID(ctx context.Context, messageID string) (*orchestrator.MinionByClarificationResponse, error) {
+	if m.getByClarificationFunc != nil {
+		return m.getByClarificationFunc(ctx, messageID)
+	}
+	return nil, orchestrator.ErrClarificationNotFound
+}
+
+func (m *mockOrchestrator) SetClarificationAnswer(ctx context.Context, minionID string, answer string) error {
+	if m.setAnswerFunc != nil {
+		return m.setAnswerFunc(ctx, minionID, answer)
 	}
 	return nil
 }
@@ -194,5 +210,88 @@ func TestMockClarificationEvaluator_AllRetriesFailed(t *testing.T) {
 	_, err := mock.EvaluateWithRetry(context.Background(), "owner/repo", "add feature")
 	if !errors.Is(err, clarify.ErrAllRetriesFailed) {
 		t.Errorf("expected ErrAllRetriesFailed, got %v", err)
+	}
+}
+
+func TestMockOrchestrator_GetByClarificationMessageID(t *testing.T) {
+	var _ Orchestrator = &mockOrchestrator{}
+
+	question := "What feature?"
+	channelID := "123456789"
+
+	mock := &mockOrchestrator{
+		getByClarificationFunc: func(ctx context.Context, messageID string) (*orchestrator.MinionByClarificationResponse, error) {
+			if messageID == "clarification-msg-123" {
+				return &orchestrator.MinionByClarificationResponse{
+					ID:                    "minion-123",
+					Repo:                  "owner/repo",
+					Task:                  "add feature",
+					Model:                 "anthropic/claude-sonnet-4-5",
+					Status:                "awaiting_clarification",
+					ClarificationQuestion: &question,
+					DiscordChannelID:      &channelID,
+				}, nil
+			}
+			return nil, orchestrator.ErrClarificationNotFound
+		},
+	}
+
+	// Found case
+	resp, err := mock.GetByClarificationMessageID(context.Background(), "clarification-msg-123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.ID != "minion-123" {
+		t.Errorf("expected minion ID 'minion-123', got %s", resp.ID)
+	}
+	if resp.Status != "awaiting_clarification" {
+		t.Errorf("expected status 'awaiting_clarification', got %s", resp.Status)
+	}
+
+	// Not found case
+	_, err = mock.GetByClarificationMessageID(context.Background(), "unknown-msg")
+	if !errors.Is(err, orchestrator.ErrClarificationNotFound) {
+		t.Errorf("expected ErrClarificationNotFound, got %v", err)
+	}
+}
+
+func TestMockOrchestrator_SetClarificationAnswer(t *testing.T) {
+	var called bool
+	var capturedID, capturedAnswer string
+
+	mock := &mockOrchestrator{
+		setAnswerFunc: func(ctx context.Context, minionID string, answer string) error {
+			called = true
+			capturedID = minionID
+			capturedAnswer = answer
+			return nil
+		},
+	}
+
+	err := mock.SetClarificationAnswer(context.Background(), "minion-123", "Add dark mode toggle")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !called {
+		t.Error("expected SetClarificationAnswer to be called")
+	}
+	if capturedID != "minion-123" {
+		t.Errorf("expected minion ID 'minion-123', got %s", capturedID)
+	}
+	if capturedAnswer != "Add dark mode toggle" {
+		t.Errorf("unexpected answer: %s", capturedAnswer)
+	}
+}
+
+func TestMockOrchestrator_SetClarificationAnswer_NotFound(t *testing.T) {
+	mock := &mockOrchestrator{
+		setAnswerFunc: func(ctx context.Context, minionID string, answer string) error {
+			return orchestrator.ErrClarificationNotFound
+		},
+	}
+
+	err := mock.SetClarificationAnswer(context.Background(), "unknown-minion", "some answer")
+	if !errors.Is(err, orchestrator.ErrClarificationNotFound) {
+		t.Errorf("expected ErrClarificationNotFound, got %v", err)
 	}
 }

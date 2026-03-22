@@ -215,3 +215,105 @@ func (c *Client) MarkFailed(ctx context.Context, minionID string, errorMsg strin
 
 	return nil
 }
+
+// ErrClarificationNotFound is returned when no minion is found for a clarification message ID.
+var ErrClarificationNotFound = errors.New("no minion found for clarification message")
+
+// MinionByClarificationResponse is the response from GET /api/minions/by-clarification/{messageId}.
+type MinionByClarificationResponse struct {
+	ID                    string  `json:"id"`
+	Repo                  string  `json:"repo"`
+	Task                  string  `json:"task"`
+	Model                 string  `json:"model"`
+	Status                string  `json:"status"`
+	ClarificationQuestion *string `json:"clarification_question,omitempty"`
+	DiscordChannelID      *string `json:"discord_channel_id,omitempty"`
+}
+
+// GetByClarificationMessageID looks up a minion by its Discord clarification message ID.
+// Used to find the minion when a user replies to a clarification question.
+func (c *Client) GetByClarificationMessageID(ctx context.Context, messageID string) (*MinionByClarificationResponse, error) {
+	url := fmt.Sprintf("%s/api/minions/by-clarification/%s", c.baseURL, messageID)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+
+	httpReq.Header.Set("Authorization", "Bearer "+c.apiToken)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, ErrClarificationNotFound
+	}
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+
+	if resp.StatusCode >= 400 {
+		var errResp ErrorResponse
+		if err := json.Unmarshal(respBody, &errResp); err != nil {
+			return nil, fmt.Errorf("http error %d: %s", resp.StatusCode, string(respBody))
+		}
+		return nil, fmt.Errorf("orchestrator error: %s", errResp.Error)
+	}
+
+	var minionResp MinionByClarificationResponse
+	if err := json.Unmarshal(respBody, &minionResp); err != nil {
+		return nil, fmt.Errorf("unmarshal response: %w", err)
+	}
+
+	return &minionResp, nil
+}
+
+// SetClarificationAnswerRequest is the request body for PATCH /api/minions/{id}/clarification-answer.
+type SetClarificationAnswerRequest struct {
+	Answer string `json:"answer"`
+}
+
+// SetClarificationAnswer sets the user's answer and transitions the minion to pending.
+// After this call, the orchestrator will spawn the pod with the updated task.
+func (c *Client) SetClarificationAnswer(ctx context.Context, minionID string, answer string) error {
+	req := SetClarificationAnswerRequest{Answer: answer}
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/api/minions/%s/clarification-answer", c.baseURL, minionID)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPatch, url, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+c.apiToken)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return ErrClarificationNotFound
+	}
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		var errResp ErrorResponse
+		if err := json.Unmarshal(respBody, &errResp); err != nil {
+			return fmt.Errorf("http error %d: %s", resp.StatusCode, string(respBody))
+		}
+		return fmt.Errorf("orchestrator error: %s", errResp.Error)
+	}
+
+	return nil
+}

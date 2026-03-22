@@ -816,6 +816,88 @@ func (s *MinionStore) ListClarificationTimeouts(ctx context.Context, timeout tim
 	return minions, nil
 }
 
+// GetByClarificationMessageID looks up a minion by its Discord clarification message ID.
+// Used for processing replies to clarification questions.
+func (s *MinionStore) GetByClarificationMessageID(ctx context.Context, messageID string) (*Minion, error) {
+	m := &Minion{}
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, user_id, repo, task, model, status,
+		        clarification_question, clarification_answer, clarification_message_id,
+		        input_tokens, output_tokens, cost_usd,
+		        pr_url, error, session_id, pod_name,
+		        discord_message_id, discord_channel_id,
+		        created_at, started_at, completed_at, last_activity_at
+		 FROM minions WHERE clarification_message_id = $1`,
+		messageID,
+	).Scan(
+		&m.ID, &m.UserID, &m.Repo, &m.Task, &m.Model, &m.Status,
+		&m.ClarificationQuestion, &m.ClarificationAnswer, &m.ClarificationMessageID,
+		&m.InputTokens, &m.OutputTokens, &m.CostUSD,
+		&m.PRURL, &m.Error, &m.SessionID, &m.PodName,
+		&m.DiscordMessageID, &m.DiscordChannelID,
+		&m.CreatedAt, &m.StartedAt, &m.CompletedAt, &m.LastActivityAt,
+	)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return m, nil
+}
+
+// SetClarificationAnswerParams holds parameters for SetClarificationAnswer.
+type SetClarificationAnswerParams struct {
+	ID     uuid.UUID
+	Answer string
+}
+
+// SetClarificationAnswer sets the user's answer and transitions to pending (ready to spawn).
+// Only valid from awaiting_clarification status.
+func (s *MinionStore) SetClarificationAnswer(ctx context.Context, params SetClarificationAnswerParams) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Lock the row and fetch current status
+	var currentStatus MinionStatus
+	err = tx.QueryRow(ctx,
+		`SELECT status FROM minions WHERE id = $1 FOR UPDATE`,
+		params.ID,
+	).Scan(&currentStatus)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+
+	// Only allow transition from awaiting_clarification
+	if currentStatus != StatusAwaitingClarification {
+		return ErrInvalidStatusTransition
+	}
+
+	// Update to pending with answer
+	_, err = tx.Exec(ctx,
+		`UPDATE minions SET 
+			status = $1,
+			clarification_answer = $2,
+			last_activity_at = NOW()
+		WHERE id = $3`,
+		StatusPending, params.Answer, params.ID,
+	)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
 // GetStats returns aggregate statistics across all minions.
 func (s *MinionStore) GetStats(ctx context.Context) (*Stats, error) {
 	stats := &Stats{

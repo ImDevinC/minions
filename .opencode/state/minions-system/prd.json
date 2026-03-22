@@ -436,7 +436,7 @@
         "Handles MessageNotFound gracefully (clarification message deleted)",
         "If clarification message deleted, fails minion with 'Clarification cancelled'"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "bot-6",

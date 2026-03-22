@@ -91,6 +91,8 @@ func main() {
 	// Add message handler for @minion mentions
 	msgHandler := handler.NewMessageHandler(logger, orchClient, clarifyHandler)
 	discord.AddHandler(msgHandler.Handle)
+	// Also handle replies to clarification questions
+	discord.AddHandler(msgHandler.HandleReply)
 
 	// Open connection to Discord gateway
 	if err := discord.Open(); err != nil {

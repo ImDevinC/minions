@@ -28,10 +28,17 @@ type MinionUpdater interface {
 	MarkFailed(ctx context.Context, minionID string, errorMsg string) error
 }
 
-// Orchestrator combines minion creation and update capabilities.
+// ClarificationLookup looks up minions by clarification message ID.
+type ClarificationLookup interface {
+	GetByClarificationMessageID(ctx context.Context, messageID string) (*orchestrator.MinionByClarificationResponse, error)
+	SetClarificationAnswer(ctx context.Context, minionID string, answer string) error
+}
+
+// Orchestrator combines minion creation, update, and lookup capabilities.
 type Orchestrator interface {
 	MinionCreator
 	MinionUpdater
+	ClarificationLookup
 }
 
 // ClarificationEvaluator evaluates tasks for clarification needs.
@@ -333,4 +340,100 @@ func containsSubstring(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// HandleReply processes a Discord message that is a reply to another message.
+// If the replied-to message is a clarification question, it processes the answer.
+func (h *MessageHandler) HandleReply(s *discordgo.Session, m *discordgo.MessageCreate) {
+	// Ignore messages from bots
+	if m.Author.Bot {
+		return
+	}
+
+	// Check if this is a reply to another message
+	if m.MessageReference == nil || m.MessageReference.MessageID == "" {
+		return
+	}
+
+	ctx := context.Background()
+	referencedMsgID := m.MessageReference.MessageID
+
+	// Look up minion by the referenced message ID (could be a clarification question)
+	minion, err := h.orchestrator.GetByClarificationMessageID(ctx, referencedMsgID)
+	if err != nil {
+		if errors.Is(err, orchestrator.ErrClarificationNotFound) {
+			// Not a clarification message, ignore
+			return
+		}
+		h.logger.Error("failed to look up clarification",
+			"error", err,
+			"referenced_message_id", referencedMsgID,
+		)
+		return
+	}
+
+	h.logger.Info("received clarification reply",
+		"minion_id", minion.ID,
+		"author", m.Author.Username,
+		"author_id", m.Author.ID,
+		"channel_id", m.ChannelID,
+	)
+
+	// Check if minion is still awaiting clarification
+	if minion.Status != "awaiting_clarification" {
+		h.logger.Warn("minion not awaiting clarification",
+			"minion_id", minion.ID,
+			"status", minion.Status,
+		)
+		msg := "⚠️ This minion is no longer waiting for clarification (status: " + minion.Status + ")"
+		_, _ = s.ChannelMessageSendReply(m.ChannelID, msg, m.Reference())
+		return
+	}
+
+	// React with thinking emoji to acknowledge
+	if err := s.MessageReactionAdd(m.ChannelID, m.ID, ThinkingEmoji); err != nil {
+		h.logger.Error("failed to add thinking reaction",
+			"error", err,
+			"channel_id", m.ChannelID,
+			"message_id", m.ID,
+		)
+	}
+
+	// Get the answer (the content of the reply)
+	answer := m.Content
+	if answer == "" {
+		msg := "❌ Your reply is empty. Please provide an answer to the clarification question."
+		_, _ = s.ChannelMessageSendReply(m.ChannelID, msg, m.Reference())
+		return
+	}
+
+	// Set the clarification answer and transition minion back to pending
+	err = h.orchestrator.SetClarificationAnswer(ctx, minion.ID, answer)
+	if err != nil {
+		if errors.Is(err, orchestrator.ErrClarificationNotFound) {
+			// Minion was deleted or clarification message changed (rare race)
+			msg := "❌ The minion for this clarification no longer exists."
+			_, _ = s.ChannelMessageSendReply(m.ChannelID, msg, m.Reference())
+			return
+		}
+		h.logger.Error("failed to set clarification answer",
+			"error", err,
+			"minion_id", minion.ID,
+		)
+		msg := "❌ Failed to process your answer. Please try again or contact support."
+		_, _ = s.ChannelMessageSendReply(m.ChannelID, msg, m.Reference())
+		return
+	}
+
+	h.logger.Info("clarification answer accepted",
+		"minion_id", minion.ID,
+		"answer_length", len(answer),
+	)
+
+	// Confirm to the user
+	msg := "✅ Got it! Your minion is now being spawned with the clarified task..."
+	_, sendErr := s.ChannelMessageSendReply(m.ChannelID, msg, m.Reference())
+	if sendErr != nil {
+		h.logger.Error("failed to send confirmation", "error", sendErr)
+	}
 }

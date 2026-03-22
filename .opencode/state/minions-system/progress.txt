@@ -360,3 +360,18 @@ Started: 2026-03-21
 - Comprehensive test suite for handler retry logic and mock interfaces
 - Files: `internal/clarify/llm.go` (new), `internal/clarify/handler.go` (new), `internal/clarify/handler_test.go` (new), `internal/orchestrator/client.go` (updated), `internal/handler/message.go` (updated), `internal/handler/message_test.go` (updated), `cmd/bot/main.go` (updated)
 - **Learnings:** Use interface-based design (Orchestrator, ClarificationEvaluator) for testability; exponential backoff constants as package-level for easy tuning; clarification question posted as reply, clarification_message_id stored for reply tracking
+
+## Task - bot-5
+- Implemented clarification reply handling in Discord bot
+- Added orchestrator API: `GET /api/minions/by-clarification/{messageId}` for lookup
+- Added orchestrator API: `PATCH /api/minions/{id}/clarification-answer` for setting answer
+- Added `GetByClarificationMessageID` and `SetClarificationAnswer` to MinionStore
+- Extended bot orchestrator client with `GetByClarificationMessageID` and `SetClarificationAnswer` methods
+- Created `HandleReply` method in MessageHandler for Discord reply detection
+- Reply detection uses `m.MessageReference.MessageID` to check if it's a reply to a clarification
+- Status transition: `awaiting_clarification` → `pending` (with answer stored)
+- HandleReply wired as additional handler in main.go via `discord.AddHandler(msgHandler.HandleReply)`
+- Extended Orchestrator interface with `ClarificationLookup` interface for testability
+- Added test cases for mock orchestrator clarification methods
+- Files: `orchestrator/internal/db/minions.go`, `orchestrator/internal/api/minions.go`, `orchestrator/internal/api/router.go`, `discord-bot/internal/orchestrator/client.go`, `discord-bot/internal/handler/message.go`, `discord-bot/internal/handler/message_test.go`, `discord-bot/cmd/bot/main.go`
+- **Learnings:** discordgo's MessageReference.MessageID is set when a message is a reply; separate HandleReply handler keeps concerns clean; status transition back to `pending` allows orchestrator pod spawner to pick it up
