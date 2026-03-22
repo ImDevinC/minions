@@ -34,7 +34,7 @@
         "Verify foreign key to minions table with CASCADE delete",
         "Verify index on (minion_id, timestamp)"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "db-4",

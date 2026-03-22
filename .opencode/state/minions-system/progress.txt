@@ -22,3 +22,10 @@ Started: 2026-03-21
 - Status constraint uses CHECK vs ENUM for easier future additions
 - FK to users(id) with CASCADE delete, indexed for joins
 - **Learnings:** CHECK constraint > ENUM for evolving status lists, no migration needed to add values
+
+## Task - db-3
+- Created `schema/migrations/003_create_minion_events_table.sql`
+- Columns: id (UUID PK), minion_id (FK to minions), timestamp (TIMESTAMPTZ), event_type (TEXT), content (JSONB)
+- FK with ON DELETE CASCADE verified, events deleted when parent minion deleted
+- Composite index on (minion_id, timestamp) for efficient chronological event retrieval
+- **Learnings:** JSONB content with default '{}' allows flexible schema evolution for different event types
