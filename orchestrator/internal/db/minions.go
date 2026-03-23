@@ -53,7 +53,7 @@ type Minion struct {
 	Error                  *string
 	SessionID              *string
 	PodName                *string
-	OpencodePassword       string
+	OpencodePassword       *string
 	DiscordMessageID       *string
 	DiscordChannelID       *string
 	CreatedAt              time.Time

@@ -706,7 +706,7 @@ func TestSpawner_ReusesExistingPasswordOnRetry(t *testing.T) {
 		Repo:             "owner/repo",
 		Task:             "test task",
 		Model:            "test-model",
-		OpencodePassword: existingPassword, // Already has a password (crash recovery scenario)
+		OpencodePassword: &existingPassword, // Already has a password (crash recovery scenario)
 	}
 
 	querier := &mockMinionQuerier{minions: []*db.Minion{minion}}
