@@ -97,7 +97,7 @@
         "Manual E2E: Restart orchestrator mid-task, verify events continue streaming in control panel",
         "Verify if reconnection fails, minion continues executing (observability loss acceptable)"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "orchestrator-cleanup-1",

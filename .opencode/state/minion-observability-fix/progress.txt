@@ -5,6 +5,7 @@ Started: 2026-03-22
 ## Codebase Patterns
 - **Database column additions**: Add field to Minion struct, update all query SELECT/Scan statements (8 methods in this case), add accessor methods
 - **Idempotent operations**: StorePassword and ClearPassword are both idempotent - safe to call multiple times
+- **Reconnection on restart**: Query active minions from DB, filter by password + pod name presence, call Connect() for each (fire-and-forget)
 
 ---
 <!-- Task logs below - APPEND ONLY -->
@@ -86,4 +87,19 @@ Started: 2026-03-22
 - All orchestrator tests pass (9 packages)
 - Go build successful
 - **Learnings**: Password lifecycle is: generate (idempotent) → store → pass to pod env → pass to SSE auth. StorePassword must succeed before pod spawn to prevent unauthenticated pods. The password flows through three layers: spawner → k8s params → pod env vars.
+
+## Task - orchestrator-reconnect-1
+- Added reconnection logic in orchestrator/cmd/orchestrator/main.go (lines 181-204) after SSE client initialization
+- Query active minions using ListByStatuses with StatusRunning and StatusPending
+- Filter minions with nil-safe checks: OpencodePassword != "" AND PodName != nil AND *PodName != ""
+- For each eligible minion:
+  - Log reconnection attempt with minion_id and pod_name
+  - Call sseClient.Connect(ctx, m.ID, *m.PodName, m.OpencodePassword) with password from DB
+  - Connect is fire-and-forget (no error return) - spawns goroutine with internal retry logic
+  - Count successful reconnection attempts
+- Log final reconnection summary: total_active and reconnected counts
+- On ListByStatuses error, log error and continue startup (non-fatal)
+- All orchestrator tests pass
+- Go build successful
+- **Learnings**: Connect() is fire-and-forget with internal retry - no error handling needed at call site. Reconnection reads password from DB (Minion.OpencodePassword field), not from in-memory connections map (map is empty after restart). PodName is *string so requires nil check before dereferencing.
 

@@ -177,6 +177,26 @@ func main() {
 	})
 	logger.Info("SSE client initialized", "pod_port", 4096)
 
+	// Reconnect to active minions on orchestrator restart
+	// Query minions that are running or pending (may have been spawned before restart)
+	activeMinions, err := minionStore.ListByStatuses(ctx, []db.MinionStatus{db.StatusRunning, db.StatusPending})
+	if err != nil {
+		logger.Error("failed to query active minions for reconnection", "error", err)
+		// Non-fatal - continue startup but log warning
+	} else {
+		reconnectCount := 0
+		for _, m := range activeMinions {
+			// Only reconnect if we have both a password and a pod name
+			if m.OpencodePassword != "" && m.PodName != nil && *m.PodName != "" {
+				logger.Info("reconnecting to minion", "minion_id", m.ID, "pod_name", *m.PodName)
+				// Connect is fire-and-forget; it spawns a goroutine and handles retries internally
+				sseClient.Connect(ctx, m.ID, *m.PodName, m.OpencodePassword)
+				reconnectCount++
+			}
+		}
+		logger.Info("reconnection completed", "total_active", len(activeMinions), "reconnected", reconnectCount)
+	}
+
 	// Initialize spawner for background pod creation
 	spwn := spawner.New(
 		minionStore, // MinionQuerier
