@@ -72,3 +72,13 @@ Started: 2026-03-23
 - Updated `sessionState` derivation to check `status` prop for terminal states before deriving from events
 - Files changed: control-panel/src/components/chat-view.tsx
 - **Learnings:** Terminal states come from minion status prop, not from event stream; check status first, then fall through to event-based derivation for running minions
+
+## Task - ui-3
+- Added comprehensive tests for `deriveSessionState` function to verify status bar visibility logic
+- Exported `deriveSessionState` for testing (marked as @internal)
+- Tests verify: null returned for empty events, idle returned for events without activity indicators
+- Tests verify: busy/retry states correctly detected from various event types
+- Tests verify: only last 10 events are checked for activity indicators
+- Implementation was already correct from ui-1/ui-2, but now has explicit test coverage
+- Files changed: control-panel/src/components/chat-view.tsx, control-panel/src/components/chat-view.test.ts
+- **Learnings:** Status bar visibility relies on: (1) terminal states from minion status, (2) status !== "running" returns null, (3) events.length === 0 returns null, (4) events with activity indicators return busy/retry, (5) fallback to idle

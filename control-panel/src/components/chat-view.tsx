@@ -20,8 +20,10 @@ type SessionState = "busy" | "idle" | "retry" | "completed" | "failed" | "termin
 /**
  * Derive the current session state from events.
  * Looks at recent events to determine if agent is thinking, retrying, or idle.
+ * Returns null if no events available (status bar hidden).
+ * @internal Exported for testing only.
  */
-function deriveSessionState(events: MinionEvent[]): SessionState | null {
+export function deriveSessionState(events: MinionEvent[]): SessionState | null {
   if (events.length === 0) return null;
 
   // Check recent events (last 10) for status indicators

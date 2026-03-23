@@ -103,7 +103,7 @@
         "Status bar hidden for pending minions before first event",
         "Status bar appears once first status event is received"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "debug-1",
