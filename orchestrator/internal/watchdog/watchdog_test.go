@@ -48,11 +48,6 @@ func (m *mockMinionQuerier) MarkFailed(_ context.Context, id uuid.UUID, _ string
 	return m.failErr
 }
 
-func (m *mockMinionQuerier) ClearPassword(_ context.Context, id uuid.UUID) error {
-	// No-op for tests
-	return nil
-}
-
 func (m *mockMinionQuerier) getFailedCalls() []uuid.UUID {
 	m.mu.Lock()
 	defer m.mu.Unlock()

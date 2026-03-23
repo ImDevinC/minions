@@ -31,10 +31,6 @@ type MinionUpdater interface {
 	// MarkRunning transitions a minion to running status with its pod name.
 	// Must be called after the pod is ready.
 	MarkRunning(ctx context.Context, id uuid.UUID, podName string) error
-
-	// StorePassword stores a per-minion OpenCode password for SSE authentication.
-	// Safe to call multiple times with the same password (idempotent).
-	StorePassword(ctx context.Context, id uuid.UUID, password string) error
 }
 
 // TokenManager generates GitHub App installation tokens for repository access.
@@ -57,7 +53,7 @@ type PodSpawner interface {
 type SSEConnector interface {
 	// Connect starts streaming events from a pod. Runs in a goroutine and
 	// reconnects automatically on disconnection. Non-blocking.
-	Connect(ctx context.Context, minionID uuid.UUID, podName string, password string)
+	Connect(ctx context.Context, minionID uuid.UUID, podName string)
 
 	// Disconnect stops streaming events for a minion.
 	Disconnect(minionID uuid.UUID)
@@ -188,35 +184,6 @@ func (s *Spawner) processMinion(ctx context.Context, m *db.Minion) {
 		"repo", m.Repo,
 	)
 
-	// spawner-1: Generate and store per-minion password for SSE authentication
-	// Idempotent: reuse existing password if orchestrator crashed between generate and spawn
-	password := ""
-	if m.OpencodePassword != nil {
-		password = *m.OpencodePassword
-	}
-	if password == "" {
-		password = uuid.New().String()
-	}
-
-	if err := s.minionUpdate.StorePassword(ctx, m.ID, password); err != nil {
-		errMsg := fmt.Sprintf("failed to store opencode password: %v", err)
-		s.logger.Error("password storage failed",
-			"minion_id", m.ID,
-			"error", err,
-		)
-		if markErr := s.minionUpdate.MarkFailed(ctx, m.ID, errMsg); markErr != nil {
-			s.logger.Error("failed to mark minion as failed",
-				"minion_id", m.ID,
-				"error", markErr,
-			)
-		}
-		return
-	}
-
-	s.logger.Debug("stored opencode password",
-		"minion_id", m.ID,
-	)
-
 	// spawner-3: Spawn pod with retry
 	params := k8s.SpawnParams{
 		MinionID:         m.ID,
@@ -226,7 +193,6 @@ func (s *Spawner) processMinion(ctx context.Context, m *db.Minion) {
 		GitHubToken:      token,
 		OrchestratorURL:  s.config.OrchestratorURL,
 		InternalAPIToken: s.config.InternalAPIToken,
-		OpencodePassword: password,
 	}
 
 	podName, err := s.pods.SpawnPodWithRetry(ctx, params)
@@ -309,7 +275,7 @@ func (s *Spawner) processMinion(ctx context.Context, m *db.Minion) {
 
 	// spawner-5: Initiate SSE streaming
 	// Connection failures are non-fatal; SSEClient retries automatically.
-	s.sse.Connect(ctx, m.ID, podName, password)
+	s.sse.Connect(ctx, m.ID, podName)
 	s.logger.Info("SSE streaming initiated",
 		"minion_id", m.ID,
 		"pod_name", podName,

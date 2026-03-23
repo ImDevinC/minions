@@ -1,0 +1,180 @@
+# Progress Log
+PRD: remove-opencode-password
+Started: 2026-03-22
+
+## Codebase Patterns
+- Migrations are sequential SQL files in schema/migrations/NNN_description.sql
+- All migrations embedded in infra/configmap.yaml db-migrations ConfigMap
+- Orchestrator applies migrations on startup (automatic)
+- Use IF EXISTS/IF NOT EXISTS for idempotency
+
+---
+
+## Task - db-1
+- Created schema/migrations/006_remove_opencode_password.sql
+- Uses DROP COLUMN IF EXISTS for idempotency
+- Comment explains removal: SSE now trusts pod network instead of password auth
+- **Learnings:** Standard migration format - comment explaining "why" at top, idempotent DDL
+
+## Task - db-2
+- Added migration 006 to infra/configmap.yaml db-migrations ConfigMap
+- Inserted after 005_add_opencode_password.sql (both migrations coexist in ConfigMap)
+- Files changed: infra/configmap.yaml (added 4 lines after line 112)
+- **Learnings:** ConfigMap migrations use `NNN_description.sql: |` key format with literal block scalar
+
+## Task - code-1
+- Removed OpencodePassword field from Minion struct (orchestrator/internal/db/minions.go:56)
+- Removed opencode_password column from all 8 database query methods:
+  - FindRecentDuplicate: SELECT and Scan
+  - GetByID: SELECT and Scan
+  - List: SELECT and Scan
+  - ListByStatuses: SELECT and Scan
+  - ListPending: SELECT and Scan
+  - ListIdleRunning: SELECT and Scan
+  - ListClarificationTimeouts: SELECT and Scan
+  - GetByClarificationMessageID: SELECT and Scan
+- Removed StorePassword() and ClearPassword() methods (lines 1051-1069)
+- Files changed: orchestrator/internal/db/minions.go
+- **Learnings:** When removing a struct field, must update ALL query SELECT lists and Scan calls to match column count. Go will panic at runtime if SELECT/Scan column counts mismatch.
+
+## Task - code-2
+- Verified no references to StorePassword/ClearPassword remain in non-test code
+- Methods were already removed in code-1
+- Files verified: orchestrator/internal/**/*.go (excluding tests)
+
+## Task - code-3, code-4, code-5, code-6, code-7, code-8 (completed together)
+These tasks were tightly coupled due to interface dependencies, completed as one atomic change:
+
+### code-3: Remove password generation from spawner
+- Removed lines 191-218 from orchestrator/internal/spawner/spawner.go
+  - Password generation logic (UUID generation, reuse check)
+  - StorePassword() call and error handling
+  - Debug logging for password storage
+- Removed OpencodePassword from SpawnParams struct initialization
+
+### code-4: Remove password from pod environment
+- Removed OpencodePassword field from k8s.SpawnParams struct (orchestrator/internal/k8s/pods.go:99)
+- Removed OPENCODE_SERVER_PASSWORD env var from buildEnvVars() (orchestrator/internal/k8s/pods.go:427)
+
+### code-5: Remove password from SSE interfaces and implementation
+- Updated MinionUpdater interface in spawner.go: removed StorePassword() method (lines 35-37)
+- Updated SSEConnector interface in spawner.go: removed password parameter from Connect() (line 60)
+- Updated spawner call site: s.sse.Connect(ctx, m.ID, podName) without password (line 282)
+- Updated SSE client implementation (orchestrator/internal/streaming/sse.go):
+  - Removed password field from connection struct (line 76)
+  - Removed password parameter from Connect(), connectWithRetry(), streamEvents()
+  - Removed HTTP Basic Auth logic (lines 221-224: base64 encoding, Authorization header)
+  - Removed encoding/base64 import (no longer needed)
+
+### code-6: Update reconnection logic
+- Updated orchestrator/cmd/orchestrator/main.go reconnection block (lines 189-196)
+- Changed filter: removed password check, now only checks for pod name
+- Updated Connect call: sseClient.Connect(ctx, m.ID, *m.PodName) without password
+
+### code-7: Remove password cleanup from watchdog
+- Removed ClearPassword() from MinionQuerier interface (orchestrator/internal/watchdog/watchdog.go:44-45)
+- Removed ClearPassword() calls from checkFailedPods (line 228)
+- Removed ClearPassword() calls from checkClarificationTimeouts (line 267)
+- Removed associated error/success log messages
+
+### code-8: Remove password cleanup from API handlers
+- Removed ClearPassword() calls from HandleDelete (orchestrator/internal/api/minions.go:452)
+- Removed ClearPassword() calls from HandleCallback (orchestrator/internal/api/minions.go:554)
+- Removed associated error/success log messages
+
+**Learnings:**
+- Interface changes cascade through all implementations and call sites
+- When removing cross-cutting concerns like authentication, it's more efficient to do all layers at once rather than leave broken intermediate states
+- Go's strict type checking makes it impossible to commit half-done interface changes
+- The build passed immediately after all changes, confirming the coupling was handled correctly
+
+## Task - test-1, test-2, test-3 (completed together)
+Test fixes were done as one unit since they all fix compilation errors from the code changes above.
+
+### test-1: Remove password tests from minions_test.go
+- Deleted entire TestPasswordMethods function (lines 63-99)
+- Removed unused uuid import after test deletion
+- Files changed: orchestrator/internal/db/minions_test.go
+
+### test-2: Remove password tests from spawner_test.go
+- Removed passwordCalls and storePasswordErr fields from mockMinionUpdater struct
+- Removed StorePassword() method from mockMinionUpdater (lines 64-72)
+- Updated mockSSEConnector to remove password parameter:
+  - Removed password field from connectCalls struct
+  - Updated Connect() signature to match interface
+  - Updated getConnectCalls() return type and implementation
+- Removed password assertions from TestSpawner_GeneratesAndStoresPassword
+- Deleted TestSpawner_ReusesExistingPasswordOnRetry test (entire test was about password reuse)
+- Deleted TestSpawner_HandlesStorePasswordFailure test (tested password storage failures)
+- Fixed accidentally deleted failOnceTokenManager helper (was removed with deleted test)
+- Files changed: orchestrator/internal/spawner/spawner_test.go
+
+### test-3: Update SSE client test signatures
+- Updated Connect() calls to remove password parameter (3 occurrences)
+- Deleted TestSSEClient_HTTPBasicAuthHeader test (tested auth header formatting)
+- Removed unused "net" import after test deletion
+- Files changed: orchestrator/internal/streaming/sse_test.go
+
+All tests pass after these changes.
+
+## Task - code-9
+- Removed OPENCODE_SERVER_PASSWORD from required env var list (devbox/entrypoint.sh:51)
+- Removed OPENCODE_SERVER_PASSWORD documentation from header comment (devbox/entrypoint.sh:13)
+- Files changed: devbox/entrypoint.sh
+- **Learnings:** Simple grep verification ensures complete removal of env var references
+
+## Task - test-4
+- Removed leftover ClearPassword() method from mockMinionQuerier (orchestrator/internal/watchdog/watchdog_test.go:51-54)
+- Verified full test suite passes: all 9 test packages pass
+- Verified discord-bot builds successfully
+- Verified zero references to StorePassword/ClearPassword/storePasswordErr in test files
+- Verified zero references to OpencodePassword in test files
+- Files changed: orchestrator/internal/watchdog/watchdog_test.go
+- **Learnings:** Mock methods can linger as no-ops even after interface changes - always verify mocks match updated interfaces
+
+## Task - docs-1
+- Updated AGENTS.md line 93: changed "with per-pod UUID password authentication" to "over unsecured HTTP (trusted pod network)"
+- Removed entire Password Lifecycle section (lines 95-128): UUID generation flow diagram, key points list
+- Updated Orchestrator Restart Behavior: removed password filter from reconnection query (step 2), removed password parameter from Connect call (step 3)
+- Updated Control Panel SSE Proxy diagram: changed HTTP+Auth to HTTP
+- Updated SSE Connection Troubleshooting table: removed 401 Unauthorized and password mismatch rows
+- Removed password-related debug commands: DB password check, pod env var check
+- Removed Database Migration subsection: entire section about migration 005 adding password column
+- Files changed: AGENTS.md (154 lines, down from 197 lines - removed 43 lines of password documentation)
+- **Learnings:** Documentation archaeology - when removing a feature, search for all conceptual references (lifecycle diagrams, troubleshooting steps, debug commands) not just direct API mentions
+
+## Task - build-1
+- Verified orchestrator builds successfully with no compilation errors
+- Build command: `cd orchestrator && go build ./...` completed without errors
+- Binary size verified as reasonable: 70MB (includes all dependencies)
+- All password removal changes compile cleanly
+- Files verified: orchestrator/**/*.go
+- **Learnings:** Full build verification after large refactors confirms no import cycles or hidden compilation errors across packages
+
+## Task - build-2
+- Verified devbox Docker image builds successfully
+- Build command: `docker build -t devbox:test ./devbox` completed without errors
+- Image ID: 713b14816f29
+- Entrypoint script verified executable: `-rwxr-xr-x 1 root root 14875` at `/usr/local/bin/entrypoint.sh`
+- All dependency checks pass: git, curl, jq, gh, opencode versions all validated in build
+- Files verified: devbox/Dockerfile, devbox/entrypoint.sh
+- **Learnings:** Docker build layer caching speeds up rebuilds (only entrypoint.sh layer rebuilt after changes)
+
+## Task - validation-1
+- Verified OpenCode starts up quickly without password authentication
+- Test command: `docker run --rm --entrypoint bash devbox:test -c 'cd /tmp && timeout 10 opencode serve --port 4096 --hostname 0.0.0.0 > /dev/null 2>&1 & sleep 1; for i in {1..10}; do if curl -sf http://localhost:4096/global/health > /dev/null 2>&1; then end=$(date +%s); echo "Health check succeeded"; exit 0; fi; sleep 0.5; done'`
+- Health check responds in 2 seconds (well under 5 second requirement)
+- Container exit code 0 (no timeout)
+- Files validated: devbox image built from devbox/Dockerfile and devbox/entrypoint.sh
+- **Learnings:** OpenCode startup is fast when password validation is removed; using `--entrypoint bash` bypasses the full entrypoint script to isolate just the OpenCode server startup test
+
+## Task - integration-1
+- Verified complete removal of password references from codebase
+- Ran verification greps across orchestrator/, devbox/, infra/ directories
+- Found exactly 6 password references, all in infra/configmap.yaml (migrations 005 and 006)
+- Zero references to OpencodePassword field in code
+- Zero references to SSE password authentication in code
+- Confirmed migration 005 (adds password column) and 006 (removes password column) are correctly preserved as historical migration records
+- Files verified: All Go source files in orchestrator/, devbox/entrypoint.sh, infra/configmap.yaml, schema/migrations/*.sql
+- **Learnings:** Final integration verification ensures no password remnants - only historical migrations remain as documentation of schema evolution
+

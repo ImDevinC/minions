@@ -4,7 +4,6 @@ package streaming
 import (
 	"bufio"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -72,9 +71,8 @@ type SSEClientConfig struct {
 
 // connection tracks an active SSE connection for a minion.
 type connection struct {
-	cancel   context.CancelFunc
-	password string
-	podName  string
+	cancel  context.CancelFunc
+	podName string
 }
 
 // SSEClient connects to pod SSE endpoints and handles events.
@@ -117,7 +115,7 @@ func NewSSEClient(podIPProvider PodIPProvider, handler EventHandler, config SSEC
 // Connect starts streaming events from a pod.
 // This runs in a goroutine and reconnects automatically on disconnection.
 // Call Disconnect to stop streaming.
-func (c *SSEClient) Connect(ctx context.Context, minionID uuid.UUID, podName string, password string) {
+func (c *SSEClient) Connect(ctx context.Context, minionID uuid.UUID, podName string) {
 	// Create a cancellable context for this connection
 	connCtx, cancel := context.WithCancel(ctx)
 
@@ -127,13 +125,12 @@ func (c *SSEClient) Connect(ctx context.Context, minionID uuid.UUID, podName str
 		existingConn.cancel()
 	}
 	c.connections[minionID] = &connection{
-		cancel:   cancel,
-		password: password,
-		podName:  podName,
+		cancel:  cancel,
+		podName: podName,
 	}
 	c.mu.Unlock()
 
-	go c.connectWithRetry(connCtx, minionID, podName, password)
+	go c.connectWithRetry(connCtx, minionID, podName)
 }
 
 // Disconnect stops streaming events for a minion.
@@ -147,7 +144,7 @@ func (c *SSEClient) Disconnect(minionID uuid.UUID) {
 }
 
 // connectWithRetry handles the reconnection loop with exponential backoff.
-func (c *SSEClient) connectWithRetry(ctx context.Context, minionID uuid.UUID, podName string, password string) {
+func (c *SSEClient) connectWithRetry(ctx context.Context, minionID uuid.UUID, podName string) {
 	backoff := InitialReconnectDelay
 
 	for {
@@ -161,7 +158,7 @@ func (c *SSEClient) connectWithRetry(ctx context.Context, minionID uuid.UUID, po
 		default:
 		}
 
-		err := c.streamEvents(ctx, minionID, podName, password)
+		err := c.streamEvents(ctx, minionID, podName)
 		if err == nil {
 			// Normal termination (context cancelled or pod completed)
 			return
@@ -197,7 +194,7 @@ func (c *SSEClient) connectWithRetry(ctx context.Context, minionID uuid.UUID, po
 }
 
 // streamEvents connects to the pod and streams events until disconnection or error.
-func (c *SSEClient) streamEvents(ctx context.Context, minionID uuid.UUID, podName string, password string) error {
+func (c *SSEClient) streamEvents(ctx context.Context, minionID uuid.UUID, podName string) error {
 	// Get pod IP
 	podIP, err := c.podIPProvider.GetPodIP(ctx, podName)
 	if err != nil {
@@ -217,11 +214,6 @@ func (c *SSEClient) streamEvents(ctx context.Context, minionID uuid.UUID, podNam
 	}
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Cache-Control", "no-cache")
-
-	// Add HTTP Basic Auth header with opencode username and per-minion password
-	authString := "opencode:" + password
-	encodedAuth := base64.StdEncoding.EncodeToString([]byte(authString))
-	req.Header.Set("Authorization", "Basic "+encodedAuth)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

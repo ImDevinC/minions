@@ -1,0 +1,275 @@
+{
+  "prdName": "remove-opencode-password",
+  "tasks": [
+    {
+      "id": "db-1",
+      "category": "db",
+      "description": "Create migration 006 to drop opencode_password column",
+      "steps": [
+        "File schema/migrations/006_remove_opencode_password.sql exists",
+        "Migration uses DROP COLUMN IF EXISTS for idempotency",
+        "Migration includes comment explaining why password was removed"
+      ],
+      "passes": true
+    },
+    {
+      "id": "db-2",
+      "category": "db",
+      "description": "Add migration 006 to ConfigMap",
+      "steps": [
+        "Migration 006 added to infra/configmap.yaml db-migrations ConfigMap",
+        "Migration 005 remains in ConfigMap: grep -c '005_add_opencode_password.sql:' infra/configmap.yaml returns 1",
+        "Migration 006 present: grep -c '006_remove_opencode_password.sql:' infra/configmap.yaml returns 1",
+        "ConfigMap validates: kubectl create --dry-run=client -f infra/configmap.yaml succeeds"
+      ],
+      "passes": true
+    },
+    {
+      "id": "code-1",
+      "category": "code",
+      "description": "Remove OpencodePassword field from Minion struct",
+      "steps": [
+        "OpencodePassword field removed from Minion struct in orchestrator/internal/db/minions.go",
+        "All 8 database query methods no longer SELECT or Scan opencode_password column",
+        "No compilation errors in minions.go"
+      ],
+      "passes": true
+    },
+    {
+      "id": "code-2",
+      "category": "code",
+      "description": "Remove password storage and clearing methods",
+      "steps": [
+        "StorePassword() method removed from orchestrator/internal/db/minions.go",
+        "ClearPassword() method removed from orchestrator/internal/db/minions.go",
+        "No references to these methods remain in codebase"
+      ],
+      "passes": true
+    },
+    {
+      "id": "code-3",
+      "category": "code",
+      "description": "Remove password generation from spawner",
+      "steps": [
+        "Password generation logic removed from orchestrator/internal/spawner/spawner.go (lines 194-229 region)",
+        "No UUID password generation code remains",
+        "Spawner builds without errors"
+      ],
+      "passes": true
+    },
+    {
+      "id": "code-4",
+      "category": "code",
+      "description": "Remove password from pod environment variables",
+      "steps": [
+        "OpencodePassword field removed from SpawnParams in orchestrator/internal/k8s/pods.go",
+        "OPENCODE_SERVER_PASSWORD env var removed from buildEnvVars() in orchestrator/internal/k8s/pods.go",
+        "kubectl describe pod shows no OPENCODE_SERVER_PASSWORD env var"
+      ],
+      "passes": true
+    },
+    {
+      "id": "code-5-interfaces",
+      "category": "code",
+      "description": "Remove password authentication from SSE (interfaces + implementation)",
+      "steps": [
+        "SSEConnector interface updated: password parameter removed from Connect() signature in orchestrator/internal/spawner/spawner.go:60",
+        "Spawner call site updated: s.sse.Connect(ctx, m.ID, podName) without password at orchestrator/internal/spawner/spawner.go:312",
+        "MinionUpdater interface updated: StorePassword() method removed from orchestrator/internal/spawner/spawner.go:35-37",
+        "SSE client implementation: password parameter removed from Connect() in orchestrator/internal/streaming/sse.go",
+        "SSE client implementation: password parameter removed from connectWithRetry() in orchestrator/internal/streaming/sse.go",
+        "SSE client implementation: password parameter removed from streamEvents() in orchestrator/internal/streaming/sse.go",
+        "SSE client implementation: password field removed from connection struct in orchestrator/internal/streaming/sse.go",
+        "SSE client implementation: HTTP Basic Auth header logic removed from streamEvents() (Base64 encoding and Authorization header)",
+        "Interface and implementation signatures match (no compilation errors)"
+      ],
+      "passes": true
+    },
+    {
+      "id": "code-6",
+      "category": "code",
+      "description": "Update reconnection logic to not use password",
+      "steps": [
+        "Reconnection logic in orchestrator/cmd/orchestrator/main.go updated to call Connect() without password",
+        "No password filtering in reconnection query",
+        "Orchestrator builds without errors"
+      ],
+      "passes": true
+    },
+    {
+      "id": "code-7",
+      "category": "code",
+      "description": "Remove password cleanup from watchdog",
+      "steps": [
+        "ClearPassword() method removed from MinionUpdater interface in orchestrator/internal/watchdog/watchdog.go",
+        "ClearPassword() calls removed from checkFailedPods in orchestrator/internal/watchdog/watchdog.go (line ~228)",
+        "ClearPassword() calls removed from checkClarificationTimeouts in orchestrator/internal/watchdog/watchdog.go (line ~267)",
+        "Password-related log messages removed from watchdog (grep -r 'password.*logger\\|logger.*password' orchestrator/internal/watchdog/ returns no matches)"
+      ],
+      "passes": true
+    },
+    {
+      "id": "code-8",
+      "category": "code",
+      "description": "Remove password cleanup from API handlers",
+      "steps": [
+        "ClearPassword() calls removed from HandleDelete in orchestrator/internal/api/minions.go (line ~452)",
+        "ClearPassword() calls removed from HandleCallback in orchestrator/internal/api/minions.go (line ~554)",
+        "Password-related log messages removed from API handlers (grep -r 'password.*logger\\|logger.*password' orchestrator/internal/api/ returns no matches)",
+        "API handlers build without errors"
+      ],
+      "passes": true
+    },
+    {
+      "id": "code-9",
+      "category": "code",
+      "description": "Remove password validation from devbox entrypoint",
+      "steps": [
+        "OPENCODE_SERVER_PASSWORD removed from required env var list in devbox/entrypoint.sh",
+        "OPENCODE_SERVER_PASSWORD documentation removed from header comment in devbox/entrypoint.sh",
+        "Entrypoint script has valid bash syntax"
+      ],
+      "passes": true
+    },
+    {
+      "id": "test-1",
+      "category": "test",
+      "description": "Remove password tests from minions_test.go",
+      "steps": [
+        "StorePassword test block (lines 74-81) removed from orchestrator/internal/db/minions_test.go",
+        "Mock StorePassword method removed from mockMinionUpdater struct in orchestrator/internal/db/minions_test.go",
+        "Tests compile without errors"
+      ],
+      "passes": true
+    },
+    {
+      "id": "test-2",
+      "category": "test",
+      "description": "Remove password tests from spawner_test.go",
+      "steps": [
+        "OpencodePassword assertions removed from orchestrator/internal/spawner/spawner_test.go",
+        "Mock StorePassword method (line 64) removed from orchestrator/internal/spawner/spawner_test.go",
+        "Password call count assertions (lines 665, 725) removed",
+        "TestSpawner_HandlesStorePasswordFailure test function (line 744) deleted"
+      ],
+      "passes": true
+    },
+    {
+      "id": "test-3",
+      "category": "test",
+      "description": "Update SSE client test signatures",
+      "steps": [
+        "SSE client test signatures updated to remove password parameter in orchestrator/internal/streaming/sse_test.go",
+        "All SSE tests compile and pass"
+      ],
+      "passes": true
+    },
+    {
+      "id": "test-4",
+      "category": "test",
+      "description": "Run full test suite (after ALL code tasks complete)",
+      "steps": [
+        "All code-* tasks marked complete before running this test",
+        "cd orchestrator && go test ./... passes with no failures",
+        "cd discord-bot && go build ./... succeeds",
+        "Verify removed: grep -r 'StorePassword\\|ClearPassword\\|storePasswordErr' orchestrator/internal/*_test.go returns no matches",
+        "Verify removed: grep -r 'OpencodePassword' orchestrator/internal/*_test.go returns no matches"
+      ],
+      "passes": true
+    },
+    {
+      "id": "docs-1",
+      "category": "docs",
+      "description": "Update AGENTS.md to remove password sections",
+      "steps": [
+        "AGENTS.md line 93 header text updated to note unsecured SSE (change 'with per-pod UUID password authentication' to 'over unsecured HTTP (trusted pod network)')",
+        "Password Lifecycle diagram removed from AGENTS.md",
+        "SSE Connection Troubleshooting table updated to remove password-related errors (401 Unauthorized, password mismatch rows)",
+        "Orchestrator Restart Behavior section updated to remove password filtering logic",
+        "Deployment Notes section updated to remove migration 005 reference"
+      ],
+      "passes": true
+    },
+    {
+      "id": "build-1",
+      "category": "build",
+      "description": "Verify orchestrator builds",
+      "steps": [
+        "cd orchestrator && go build ./... succeeds",
+        "No compilation errors related to password removal",
+        "Binary size is reasonable"
+      ],
+      "passes": true
+    },
+    {
+      "id": "build-2",
+      "category": "build",
+      "description": "Verify devbox image builds",
+      "steps": [
+        "docker build -t devbox:test ./devbox succeeds",
+        "Image builds without errors",
+        "Entrypoint script is executable in container"
+      ],
+      "passes": true
+    },
+    {
+      "id": "validation-1",
+      "category": "validation",
+      "description": "Verify OpenCode startup time without password",
+      "steps": [
+        "docker run --rm -e GITHUB_TOKEN=test -e ORCHESTRATOR_URL=http://test -e INTERNAL_API_TOKEN=test -e TASK='test' -e REPO='test/test' devbox:test bash -c 'timeout 10 opencode serve > /dev/null 2>&1 & sleep 2 && curl -f http://localhost:4096/global/health'",
+        "Health check responds within 5 seconds",
+        "Container doesn't timeout (exit code 0)"
+      ],
+      "passes": true
+    },
+    {
+      "id": "integration-1",
+      "category": "integration",
+      "description": "Verify no password references in codebase",
+      "steps": [
+        "grep -ri 'OPENCODE.*PASSWORD\\|opencode.*password' orchestrator/ devbox/ infra/ returns only migration 005 in ConfigMap",
+        "grep -r 'OpencodePassword' orchestrator/ returns no matches",
+        "grep -ri 'password.*sse\\|sse.*password' orchestrator/ returns no matches",
+        "Manually verify schema/migrations/005_add_opencode_password.sql is the only remaining reference in ConfigMap"
+      ],
+      "passes": true
+    }
+  ],
+  "context": {
+    "patterns": [
+      "Database migrations: schema/migrations/NNN_description.sql - Sequential numbered migrations",
+      "Orchestrator applies migrations automatically on startup",
+      "ConfigMap: infra/configmap.yaml contains all migration SQL",
+      "SSE streaming: orchestrator/internal/streaming/sse.go - Client connects to pod's OpenCode /events endpoint",
+      "Spawner password flow (being removed): orchestrator/internal/spawner/spawner.go:194-229"
+    ],
+    "keyFiles": [
+      "orchestrator/internal/db/minions.go",
+      "orchestrator/internal/spawner/spawner.go",
+      "orchestrator/internal/k8s/pods.go",
+      "orchestrator/internal/streaming/sse.go",
+      "orchestrator/cmd/orchestrator/main.go",
+      "orchestrator/internal/watchdog/watchdog.go",
+      "orchestrator/internal/api/minions.go",
+      "orchestrator/internal/db/minions_test.go",
+      "orchestrator/internal/spawner/spawner_test.go",
+      "orchestrator/internal/streaming/sse_test.go",
+      "devbox/entrypoint.sh",
+      "schema/migrations/006_remove_opencode_password.sql",
+      "infra/configmap.yaml",
+      "AGENTS.md"
+    ],
+    "nonGoals": [
+      "Re-implementing SSE authentication",
+      "NetworkPolicy restrictions for SSE",
+      "Adding OpenCode startup time monitoring",
+      "Removing migration 005 from ConfigMap",
+      "Investigating root cause of OpenCode password delay",
+      "Adding Kubernetes readiness probes to minion pods",
+      "Cleaning up .opencode/state/minion-observability-fix/ directory",
+      "SSE connection authentication metrics",
+      "Reconciler password cleanup"
+    ]
+  }
+}
