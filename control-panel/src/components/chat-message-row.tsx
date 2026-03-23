@@ -8,6 +8,7 @@ import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import type { ChatMessage } from "@/types/minion";
 import { ThinkingBlock } from "./thinking-block";
 import { ToolCallCard } from "./tool-call-card";
+import { SubtaskBlock } from "./subtask-block";
 
 interface ChatMessageRowProps {
   message: ChatMessage;
@@ -73,10 +74,17 @@ export function ChatMessageRow({ message, expandedToolId, onToolToggle }: ChatMe
         </div>
       )}
 
-      {/* Subtasks placeholder - will be replaced in component-6 */}
+      {/* Subtask threads - nested conversation from spawned subagents */}
       {message.subtasks.length > 0 && (
-        <div className="mt-2 text-xs text-cyan-400">
-          {message.subtasks.length} subtask(s)
+        <div className="mt-2">
+          {message.subtasks.map((subtask) => (
+            <SubtaskBlock
+              key={subtask.sessionID}
+              subtask={subtask}
+              expandedToolId={expandedToolId}
+              onToolToggle={onToolToggle}
+            />
+          ))}
         </div>
       )}
     </div>

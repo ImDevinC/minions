@@ -116,3 +116,14 @@ Started: 2026-03-23
 - Memoized summary computation in ToolCallCard via useMemo
 - Files changed: control-panel/src/components/tool-call-card.tsx (lines 47-120)
 - **Learnings:** Tool input field names vary (filePath vs file_path vs path), check multiple keys
+
+## Task - component-6
+- Created SubtaskBlock component for nested conversation threads
+- Collapsible header: "▶ Subtask: [description] (agent)" with message count badge
+- Default collapsed state, click expands to show nested messages
+- Visual distinction: cyan left border, gray-800/40 background, rounded container
+- SubtaskMessageRow for simplified nested message rendering (no full markdown)
+- Recursively renders nested subtasks within subtask threads
+- Integrated into ChatMessageRow, replaced placeholder
+- Files changed: control-panel/src/components/subtask-block.tsx (new), control-panel/src/components/chat-message-row.tsx
+- **Learnings:** Simplified nested rendering (no markdown, just pre-wrap text) keeps subtask threads clean and performant

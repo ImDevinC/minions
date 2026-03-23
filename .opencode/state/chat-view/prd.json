@@ -166,7 +166,7 @@
         "Clicking expands to show subtask's messages inline (indented)",
         "Subtask thread has visual distinction (left border or background)"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "component-7",
