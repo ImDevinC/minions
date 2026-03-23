@@ -55,6 +55,56 @@ export interface MinionEvent {
   content: Record<string, unknown>;
 }
 
+// Chat view types for aggregated message rendering
+
+export type ToolCallStatus = "pending" | "running" | "completed" | "error";
+
+/**
+ * A tool invocation within a ChatMessage.
+ * Rendered as a compact expandable card.
+ */
+export interface ToolCall {
+  id: string;
+  tool: string;
+  status: ToolCallStatus;
+  title?: string;
+  /** Human-readable summary (e.g., "Read src/foo.ts") */
+  summary: string;
+  input: Record<string, unknown>;
+  output?: string;
+  error?: string;
+}
+
+/**
+ * An aggregated chat message from grouped events.
+ * Events with the same messageID are combined into one ChatMessage.
+ */
+export interface ChatMessage {
+  id: string;
+  timestamp: string;
+  /** Accumulated reasoning/thinking text (collapsed by default) */
+  thinking?: string;
+  /** Accumulated text content rendered as markdown */
+  text: string;
+  /** Tool calls in chronological order */
+  tools: ToolCall[];
+  /** True while message is still receiving streaming events */
+  isStreaming: boolean;
+}
+
+/**
+ * A system message for events without a messageID.
+ * Rendered as subtle banners outside the main conversation flow.
+ */
+export interface SystemMessage {
+  id: string;
+  timestamp: string;
+  /** System message type (e.g., "agent", "session.error", "retry") */
+  type: string;
+  /** Display content or raw event data */
+  content: string | Record<string, unknown>;
+}
+
 // Response from GET /api/stats
 export interface Stats {
   total_cost_usd: number;

@@ -22,7 +22,7 @@
         "SystemMessage interface exists for events without messageID (id, timestamp, type, content)",
         "Types compile without errors"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "aggregation-1",

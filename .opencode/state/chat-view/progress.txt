@@ -12,3 +12,8 @@ Started: 2026-03-23
 - Added react-markdown@^9.1.0 and remark-gfm@^4.0.1 to control-panel
 - Files changed: control-panel/package.json, control-panel/package-lock.json
 - **Learnings:** .next/types can hold stale references to deleted routes; `rm -rf .next` clears this
+
+## Task - types-1
+- Defined ChatMessage, ToolCall, ToolCallStatus, and SystemMessage types
+- Files changed: control-panel/src/types/minion.ts (lines 58-106)
+- **Learnings:** None - straightforward type definitions following PRD spec
