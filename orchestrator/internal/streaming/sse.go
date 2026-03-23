@@ -33,9 +33,11 @@ const (
 var ErrPodTerminated = errors.New("pod terminated or unreachable")
 
 // PodEvent represents an event received from a devbox pod's /events SSE endpoint.
+// OpenCode sends events in {type, properties} format, but we normalize to {type, content}.
 type PodEvent struct {
-	Type    string         `json:"type"`              // event type (e.g., "message", "tool_use", "token_usage")
-	Content map[string]any `json:"content,omitempty"` // event-specific payload
+	Type       string         `json:"type"`                 // event type (e.g., "message.part.delta", "session.status")
+	Content    map[string]any `json:"content,omitempty"`    // event-specific payload (our internal format)
+	Properties map[string]any `json:"properties,omitempty"` // event-specific payload (OpenCode format)
 }
 
 // TokenUsage represents token usage data extracted from events.
@@ -304,6 +306,11 @@ func (c *SSEClient) processEvent(ctx context.Context, minionID uuid.UUID, eventT
 	}
 	if event.Type == "" {
 		event.Type = "unknown"
+	}
+
+	// Normalize: OpenCode sends {type, properties}, we use {type, content}
+	if event.Content == nil && event.Properties != nil {
+		event.Content = event.Properties
 	}
 
 	// Extract and accumulate token usage if present

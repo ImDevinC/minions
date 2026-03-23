@@ -276,6 +276,90 @@ func TestExtractTokenUsage(t *testing.T) {
 	}
 }
 
+func TestSSEClient_OpenCodePropertiesFormat(t *testing.T) {
+	// Test that OpenCode's {type, properties} format is normalized to {type, content}
+	eventsSent := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.WriteHeader(http.StatusOK)
+
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			t.Fatal("ResponseWriter doesn't support Flush")
+		}
+
+		// Send events in OpenCode format: {type, properties} instead of {type, content}
+		events := []string{
+			"data: {\"type\":\"message.part.delta\",\"properties\":{\"sessionID\":\"sess-1\",\"messageID\":\"msg-1\",\"partID\":\"part-1\",\"delta\":\"Hello\"}}\n\n",
+			"data: {\"type\":\"message.part.updated\",\"properties\":{\"sessionID\":\"sess-1\",\"messageID\":\"msg-1\",\"partID\":\"part-1\",\"type\":\"text\",\"text\":\"Hello world\"}}\n\n",
+			"data: {\"type\":\"session.status\",\"properties\":{\"status\":\"running\"}}\n\n",
+		}
+
+		for _, event := range events {
+			fmt.Fprint(w, event)
+			flusher.Flush()
+		}
+		close(eventsSent)
+
+		// Keep connection open briefly for client to process
+		time.Sleep(100 * time.Millisecond)
+	}))
+	defer server.Close()
+
+	handler := newMockEventHandler()
+	provider := &mockPodIPProvider{ip: "127.0.0.1"}
+
+	client := NewSSEClient(provider, handler, SSEClientConfig{
+		PodPort: 4096,
+	})
+
+	minionID := uuid.New()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Use test helper to connect to specific URL
+	err := client.streamEventsTestURL(ctx, minionID, server.URL+"/event")
+	// Stream will end when server closes connection
+	if err != nil {
+		t.Logf("stream ended with: %v", err)
+	}
+
+	<-eventsSent
+
+	// Wait a bit for events to be processed
+	time.Sleep(50 * time.Millisecond)
+
+	events := handler.getEvents()
+	if len(events) != 3 {
+		t.Fatalf("expected 3 events, got %d", len(events))
+	}
+
+	// Verify properties were normalized to content
+	if events[0].Type != "message.part.delta" {
+		t.Errorf("event 0: expected type 'message.part.delta', got '%s'", events[0].Type)
+	}
+	if events[0].Content == nil {
+		t.Fatal("event 0: content should not be nil after normalization")
+	}
+	if events[0].Content["delta"] != "Hello" {
+		t.Errorf("event 0: expected delta 'Hello', got '%v'", events[0].Content["delta"])
+	}
+	if events[0].Content["messageID"] != "msg-1" {
+		t.Errorf("event 0: expected messageID 'msg-1', got '%v'", events[0].Content["messageID"])
+	}
+
+	// Verify second event
+	if events[1].Content["text"] != "Hello world" {
+		t.Errorf("event 1: expected text 'Hello world', got '%v'", events[1].Content["text"])
+	}
+
+	// Verify third event
+	if events[2].Content["status"] != "running" {
+		t.Errorf("event 2: expected status 'running', got '%v'", events[2].Content["status"])
+	}
+}
+
 func TestSSEClient_ConnectDisconnect(t *testing.T) {
 	handler := newMockEventHandler()
 	provider := &mockPodIPProvider{ip: "127.0.0.1"}
