@@ -168,3 +168,13 @@ All tests pass after these changes.
 - Files validated: devbox image built from devbox/Dockerfile and devbox/entrypoint.sh
 - **Learnings:** OpenCode startup is fast when password validation is removed; using `--entrypoint bash` bypasses the full entrypoint script to isolate just the OpenCode server startup test
 
+## Task - integration-1
+- Verified complete removal of password references from codebase
+- Ran verification greps across orchestrator/, devbox/, infra/ directories
+- Found exactly 6 password references, all in infra/configmap.yaml (migrations 005 and 006)
+- Zero references to OpencodePassword field in code
+- Zero references to SSE password authentication in code
+- Confirmed migration 005 (adds password column) and 006 (removes password column) are correctly preserved as historical migration records
+- Files verified: All Go source files in orchestrator/, devbox/entrypoint.sh, infra/configmap.yaml, schema/migrations/*.sql
+- **Learnings:** Final integration verification ensures no password remnants - only historical migrations remain as documentation of schema evolution
+

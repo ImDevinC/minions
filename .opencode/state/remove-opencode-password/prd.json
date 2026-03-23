@@ -233,7 +233,7 @@
         "grep -ri 'password.*sse\\|sse.*password' orchestrator/ returns no matches",
         "Manually verify schema/migrations/005_add_opencode_password.sql is the only remaining reference in ConfigMap"
       ],
-      "passes": false
+      "passes": true
     }
   ],
   "context": {
