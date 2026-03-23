@@ -223,6 +223,17 @@ function shouldSkipEvent(event: MinionEvent): boolean {
   const partType = getPartType(event);
   if (partType && SKIP_PART_TYPES.has(partType)) return true;
 
+  const content = event.content;
+
+  // Skip bare file change events: {file: string} or {event: string, file: string}
+  // These are noise from file watcher notifications
+  if (
+    typeof content.file === "string" &&
+    Object.keys(content).length <= 2
+  ) {
+    return true;
+  }
+
   return false;
 }
 

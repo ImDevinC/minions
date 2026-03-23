@@ -1,0 +1,16 @@
+# Progress Log
+PRD: chat-view-improvements
+Started: 2026-03-23
+
+## Codebase Patterns
+- Event filtering in `shouldSkipEvent()` at event-aggregation.ts:220
+- Pattern: check content properties + key count for noise filtering
+
+---
+<!-- Task logs below - APPEND ONLY -->
+
+## Task - filtering-1
+- Added detection for `content.file` (string) with ≤2 keys in `shouldSkipEvent()`
+- Skips file watcher noise like `{file: "/path"}` or `{event: "change", file: "..."}`
+- Files changed: control-panel/src/lib/event-aggregation.ts
+- **Learnings:** content is typed as Record<string, unknown>, can safely check typeof + Object.keys()
