@@ -211,7 +211,7 @@
         "Add deployment notes: in-flight minions lose observability during redeploy (acceptable blast radius)",
         "Document password lifecycle in code comments at key locations (spawner, cleanup, reconnection)"
       ],
-      "passes": false
+      "passes": true
     }
   ],
   "context": {

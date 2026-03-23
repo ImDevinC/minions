@@ -209,3 +209,23 @@ data: <json>
   - ghcr.io/imdevinc/minions/control-panel:test (multi-stage: node:20-alpine build → node:20-alpine runtime)
 - Files changed: none (validation task only)
 - **Learnings**: All automated tests pass. The implementation is ready for manual E2E validation with live Kubernetes cluster (spawn minion, verify password lifecycle, test reconnection, verify SSE auth). Manual E2E steps in testing-1 require deployed orchestrator and access to DB, which must be performed by human. The automated validation covers: unit tests for all new methods, Go compilation, TypeScript compilation, Next.js build, and Docker image builds.
+
+## Task - docs-1
+- Added comprehensive password lifecycle documentation to AGENTS.md (after "Monorepo Versioning" section):
+  - Password state machine ASCII diagram showing lifecycle from NULL → generated → stored → passed to pod → cleared on terminal states
+  - Documented key points: generation in spawner, storage before pod spawn, idempotent crash recovery, env var passing, SSE auth mechanism
+  - Orchestrator restart behavior: query active minions, filter by password + pod name, reconnect fire-and-forget with internal retry
+  - Control panel SSE proxy architecture diagram: Browser EventSource → Next.js API route → WebSocket → Orchestrator → HTTP+Auth → Minion pod
+  - Why server-side proxy: keeps token secret, avoids CORS, WebSocket→SSE transformation, survives restarts
+  - SSE connection troubleshooting table: 401 Unauthorized, Connection refused, Connection timeout, SSE reconnection loop with causes and fixes
+  - Debug commands: check password in DB (psql), check pod env var (kubectl exec), check OpenCode listening (netstat), check orchestrator logs (kubectl logs)
+  - Deployment notes: observability loss during redeploy (30-60s), acceptable blast radius, automatic reconnection, no task interruption
+  - Database migration notes: migration 005 adds column, existing minions have NULL (cannot reconnect but complete normally), new minions get passwords
+- Verified code comments already exist at key locations:
+  - spawner.go:191-192: "Generate and store per-minion password for SSE authentication" with idempotency note
+  - minions.go:552: "Clean up SSE connection and password" before Disconnect and ClearPassword calls
+  - main.go:180-197: Detailed comments on reconnection logic (query active, filter by password+pod, fire-and-forget connect)
+  - entrypoint.sh:13: OPENCODE_SERVER_PASSWORD documented as required env var with purpose "Per-minion password for SSE authentication"
+  - sse.go:221-224: "Add HTTP Basic Auth header with opencode username and per-minion password" with encoding logic
+- Files changed: AGENTS.md (added 122 lines of documentation in Architecture section)
+- **Learnings**: Comprehensive documentation prevents future bugs and reduces onboarding time. The state machine diagram clarifies the password lifecycle. Troubleshooting tables with debug commands save debugging time. Deployment notes set expectations for acceptable blast radius. Code comments were already in place from implementation tasks - good practice to add them during implementation rather than retrofitting.
