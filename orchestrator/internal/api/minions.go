@@ -32,6 +32,7 @@ type MinionHandler struct {
 	podTerminator k8s.PodTerminator
 	notifier      webhook.Notifier
 	sse           SSEDisconnector
+	defaultModel  string
 	logger        *slog.Logger
 }
 
@@ -43,6 +44,7 @@ type MinionHandlerConfig struct {
 	PodTerminator k8s.PodTerminator
 	Notifier      webhook.Notifier
 	SSE           SSEDisconnector
+	DefaultModel  string
 	Logger        *slog.Logger
 }
 
@@ -55,6 +57,7 @@ func NewMinionHandler(cfg MinionHandlerConfig) *MinionHandler {
 		podTerminator: cfg.PodTerminator,
 		notifier:      cfg.Notifier,
 		sse:           cfg.SSE,
+		defaultModel:  cfg.DefaultModel,
 		logger:        cfg.Logger,
 	}
 }
@@ -89,6 +92,9 @@ type ErrorResponse struct {
 // repoRegex validates repo format: owner/repo with optional subgroups for nested repos
 var repoRegex = regexp.MustCompile(`^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+(/[a-zA-Z0-9_.-]+)*$`)
 
+// allowedModelPrefixes defines valid model provider prefixes
+var allowedModelPrefixes = []string{"anthropic/", "openai/"}
+
 // HandleCreate handles POST /api/minions.
 func (h *MinionHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 	var req CreateMinionRequest
@@ -98,8 +104,19 @@ func (h *MinionHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate required fields
-	if req.Repo == "" || req.Task == "" || req.Model == "" || req.DiscordUserID == "" {
-		h.writeError(w, http.StatusBadRequest, "missing required fields: repo, task, model, discord_user_id", "")
+	if req.Repo == "" || req.Task == "" || req.DiscordUserID == "" {
+		h.writeError(w, http.StatusBadRequest, "missing required fields: repo, task, discord_user_id", "")
+		return
+	}
+
+	// Apply default model if not specified
+	if req.Model == "" {
+		req.Model = h.defaultModel
+	}
+
+	// Validate model format
+	if !isAllowedModel(req.Model) {
+		h.writeError(w, http.StatusBadRequest, "invalid model: must be anthropic/* or openai/*", "INVALID_MODEL")
 		return
 	}
 
@@ -199,11 +216,17 @@ func (h *MinionHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 func (h *MinionHandler) writeError(w http.ResponseWriter, status int, message, code string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	resp := ErrorResponse{Error: message}
-	if code != "" {
-		resp.Code = code
+	_ = json.NewEncoder(w).Encode(ErrorResponse{Error: message, Code: code})
+}
+
+// isAllowedModel checks if a model matches the allowed prefixes
+func isAllowedModel(model string) bool {
+	for _, prefix := range allowedModelPrefixes {
+		if strings.HasPrefix(model, prefix) {
+			return true
+		}
 	}
-	_ = json.NewEncoder(w).Encode(resp)
+	return false
 }
 
 // RateLimitError wraps rate limit errors with detail.

@@ -51,16 +51,14 @@ type MessageHandler struct {
 	logger        *slog.Logger
 	orchestrator  Orchestrator
 	clarification ClarificationEvaluator
-	defaultModel  string
 }
 
 // NewMessageHandler creates a new message handler
-func NewMessageHandler(logger *slog.Logger, orch Orchestrator, clarification ClarificationEvaluator, defaultModel string) *MessageHandler {
+func NewMessageHandler(logger *slog.Logger, orch Orchestrator, clarification ClarificationEvaluator) *MessageHandler {
 	return &MessageHandler{
 		logger:        logger,
 		orchestrator:  orch,
 		clarification: clarification,
-		defaultModel:  defaultModel,
 	}
 }
 
@@ -95,7 +93,7 @@ func (h *MessageHandler) Handle(s *discordgo.Session, m *discordgo.MessageCreate
 
 	// Strip the mention and parse the command
 	text := command.StripMention(m.Content, s.State.User.ID)
-	cmd, err := command.Parse(text, h.defaultModel)
+	cmd, err := command.Parse(text)
 	if err != nil {
 		h.handleParseError(s, m, err)
 		return
@@ -268,8 +266,6 @@ func (h *MessageHandler) handleParseError(s *discordgo.Session, m *discordgo.Mes
 		msg = "❌ Task is too long (max 10,000 characters)"
 	case isErrorType(err, command.ErrTaskHasControl):
 		msg = "❌ Task contains invalid characters"
-	case isErrorType(err, command.ErrUnknownModel):
-		msg = "❌ Unknown model. Allowed: `anthropic/*` or `openai/*`"
 	default:
 		msg = "❌ Failed to parse command: " + err.Error()
 	}

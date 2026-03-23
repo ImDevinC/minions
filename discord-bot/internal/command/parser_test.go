@@ -7,8 +7,6 @@ import (
 )
 
 func TestParse(t *testing.T) {
-	const testDefaultModel = "anthropic/claude-sonnet-4-5"
-
 	tests := []struct {
 		name    string
 		input   string
@@ -16,11 +14,11 @@ func TestParse(t *testing.T) {
 		wantErr error
 	}{
 		{
-			name:  "valid command with defaults",
+			name:  "valid command without model (uses default)",
 			input: "--repo owner/repo Fix the bug in main.go",
 			want: &Command{
 				Repo:  "owner/repo",
-				Model: testDefaultModel,
+				Model: "", // empty - orchestrator will apply default
 				Task:  "Fix the bug in main.go",
 			},
 		},
@@ -47,7 +45,7 @@ func TestParse(t *testing.T) {
 			input: "--repo org/team/project Do the thing",
 			want: &Command{
 				Repo:  "org/team/project",
-				Model: testDefaultModel,
+				Model: "",
 				Task:  "Do the thing",
 			},
 		},
@@ -56,7 +54,7 @@ func TestParse(t *testing.T) {
 			input: "--repo my_org.name/my-repo_v2 Add tests",
 			want: &Command{
 				Repo:  "my_org.name/my-repo_v2",
-				Model: testDefaultModel,
+				Model: "",
 				Task:  "Add tests",
 			},
 		},
@@ -65,7 +63,7 @@ func TestParse(t *testing.T) {
 			input: `--repo="owner/repo" Fix it`,
 			want: &Command{
 				Repo:  "owner/repo",
-				Model: testDefaultModel,
+				Model: "",
 				Task:  "Fix it",
 			},
 		},
@@ -83,7 +81,7 @@ func TestParse(t *testing.T) {
 			input: "--repo owner/repo Fix the following:\n1. Bug A\n2. Bug B",
 			want: &Command{
 				Repo:  "owner/repo",
-				Model: testDefaultModel,
+				Model: "",
 				Task:  "Fix the following:\n1. Bug A\n2. Bug B",
 			},
 		},
@@ -117,21 +115,11 @@ func TestParse(t *testing.T) {
 			input:   "--repo owner/repo Fix the \x00 bug",
 			wantErr: ErrTaskHasControl,
 		},
-		{
-			name:    "unknown model provider",
-			input:   "--repo owner/repo --model google/gemini Do it",
-			wantErr: ErrUnknownModel,
-		},
-		{
-			name:    "invalid model format",
-			input:   "--repo owner/repo --model claude Do it",
-			wantErr: ErrUnknownModel,
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := Parse(tt.input, testDefaultModel)
+			got, err := Parse(tt.input)
 
 			if tt.wantErr != nil {
 				if err == nil {
@@ -270,30 +258,6 @@ func TestHasControlChars(t *testing.T) {
 			got := hasControlChars(tt.text)
 			if got != tt.want {
 				t.Errorf("hasControlChars() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestIsAllowedModel(t *testing.T) {
-	tests := []struct {
-		model string
-		want  bool
-	}{
-		{"anthropic/claude-3-opus", true},
-		{"anthropic/claude-sonnet-4-5", true},
-		{"openai/gpt-4", true},
-		{"openai/gpt-4-turbo", true},
-		{"google/gemini", false},
-		{"claude", false},
-		{"", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.model, func(t *testing.T) {
-			got := isAllowedModel(tt.model)
-			if got != tt.want {
-				t.Errorf("isAllowedModel(%q) = %v, want %v", tt.model, got, tt.want)
 			}
 		})
 	}
