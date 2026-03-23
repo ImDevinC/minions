@@ -145,28 +145,32 @@ type mockSSEConnector struct {
 	connectCalls []struct {
 		minionID uuid.UUID
 		podName  string
+		password string
 	}
 	mu sync.Mutex
 }
 
-func (m *mockSSEConnector) Connect(ctx context.Context, minionID uuid.UUID, podName string) {
+func (m *mockSSEConnector) Connect(ctx context.Context, minionID uuid.UUID, podName string, password string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.connectCalls = append(m.connectCalls, struct {
 		minionID uuid.UUID
 		podName  string
-	}{minionID, podName})
+		password string
+	}{minionID, podName, password})
 }
 
 func (m *mockSSEConnector) getConnectCalls() []struct {
 	minionID uuid.UUID
 	podName  string
+	password string
 } {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return append([]struct {
 		minionID uuid.UUID
 		podName  string
+		password string
 	}{}, m.connectCalls...)
 }
 

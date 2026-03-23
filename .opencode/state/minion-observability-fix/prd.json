@@ -41,7 +41,7 @@
         "Update processMinion() in spawner.go to pass empty string to Connect() initially (password added later in spawner-1)",
         "Verify interface contract satisfied by SSEClient implementation"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "orchestrator-core-1",

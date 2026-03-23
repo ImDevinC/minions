@@ -39,3 +39,17 @@ Started: 2026-03-22
   - Will need to add ClearPassword() after line 432 (after Terminate succeeds)
 - **Learnings**: Three terminal state entry points - callback (completed/failed), watchdog (MarkFailed), and delete (terminated). MarkFailed is called from two watchdog paths.
 
+## Task - orchestrator-interfaces-1
+- Updated SSEConnector interface in orchestrator/internal/spawner/spawner.go:56
+  - Changed Connect signature to accept password parameter: Connect(ctx, minionID, podName, password string)
+- Updated SSEClient implementation in orchestrator/internal/streaming/sse.go:
+  - Connect method (line 107): accepts password parameter
+  - connectWithRetry method (line 133): accepts and threads password parameter
+  - streamEvents method (line 183): accepts password parameter (not yet used for auth - deferred to orchestrator-core-1)
+- Updated spawner.go processMinion call site (line 275): passes empty string for now (TODO comment added for spawner-1)
+- Updated test mocks:
+  - mockSSEConnector in spawner_test.go: updated Connect signature and struct fields
+  - SSE test call sites updated to pass empty string
+- All orchestrator tests pass
+- **Learnings**: Interface changes must be applied atomically across interface definition, implementation, mock, and call sites to maintain type safety
+

@@ -37,6 +37,15 @@ Key rules:
 2. **Use conventional commits** - `feat:`, `fix:`, `chore:`, etc.
 3. **Include disclosure** - All PRs must include the AI disclosure statement
 
+## Deployment Policy
+
+**CRITICAL**: Never deploy directly to Kubernetes. All Kubernetes deployments are handled by a human.
+
+- Do not run `kubectl apply`, `kubectl create`, `kubectl patch`, or any other commands that modify cluster state
+- You may read cluster state with `kubectl get`, `kubectl describe`, etc. for debugging purposes
+- You may modify Kubernetes manifests in `infra/` but never apply them
+- If deployment is needed, inform the user and let them handle it
+
 ## CI/CD
 
 - **Commitlint**: Validates conventional commits on PRs

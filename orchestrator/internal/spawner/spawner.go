@@ -53,7 +53,7 @@ type PodSpawner interface {
 type SSEConnector interface {
 	// Connect starts streaming events from a pod. Runs in a goroutine and
 	// reconnects automatically on disconnection. Non-blocking.
-	Connect(ctx context.Context, minionID uuid.UUID, podName string)
+	Connect(ctx context.Context, minionID uuid.UUID, podName string, password string)
 }
 
 // Config holds configuration for the spawner.
@@ -272,7 +272,8 @@ func (s *Spawner) processMinion(ctx context.Context, m *db.Minion) {
 
 	// spawner-5: Initiate SSE streaming
 	// Connection failures are non-fatal; SSEClient retries automatically.
-	s.sse.Connect(ctx, m.ID, podName)
+	// TODO(spawner-1): Pass actual password instead of empty string
+	s.sse.Connect(ctx, m.ID, podName, "")
 	s.logger.Info("SSE streaming initiated",
 		"minion_id", m.ID,
 		"pod_name", podName,

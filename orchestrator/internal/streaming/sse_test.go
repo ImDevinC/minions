@@ -288,7 +288,7 @@ func TestSSEClient_ConnectDisconnect(t *testing.T) {
 
 	// Connect should start a goroutine that will fail to connect
 	ctx, cancel := context.WithCancel(context.Background())
-	client.Connect(ctx, minionID, "test-pod")
+	client.Connect(ctx, minionID, "test-pod", "")
 
 	// Disconnect should cancel the context
 	client.Disconnect(minionID)
@@ -316,8 +316,8 @@ func TestSSEClient_ReplacesExistingConnection(t *testing.T) {
 	ctx := context.Background()
 
 	// Connect twice with same minion ID
-	client.Connect(ctx, minionID, "pod-1")
-	client.Connect(ctx, minionID, "pod-2") // Should replace
+	client.Connect(ctx, minionID, "pod-1", "")
+	client.Connect(ctx, minionID, "pod-2", "") // Should replace
 
 	// Should only have one connection
 	client.mu.Lock()

@@ -104,7 +104,7 @@ func NewSSEClient(podIPProvider PodIPProvider, handler EventHandler, config SSEC
 // Connect starts streaming events from a pod.
 // This runs in a goroutine and reconnects automatically on disconnection.
 // Call Disconnect to stop streaming.
-func (c *SSEClient) Connect(ctx context.Context, minionID uuid.UUID, podName string) {
+func (c *SSEClient) Connect(ctx context.Context, minionID uuid.UUID, podName string, password string) {
 	// Create a cancellable context for this connection
 	connCtx, cancel := context.WithCancel(ctx)
 
@@ -116,7 +116,7 @@ func (c *SSEClient) Connect(ctx context.Context, minionID uuid.UUID, podName str
 	c.connections[minionID] = cancel
 	c.mu.Unlock()
 
-	go c.connectWithRetry(connCtx, minionID, podName)
+	go c.connectWithRetry(connCtx, minionID, podName, password)
 }
 
 // Disconnect stops streaming events for a minion.
@@ -130,7 +130,7 @@ func (c *SSEClient) Disconnect(minionID uuid.UUID) {
 }
 
 // connectWithRetry handles the reconnection loop with exponential backoff.
-func (c *SSEClient) connectWithRetry(ctx context.Context, minionID uuid.UUID, podName string) {
+func (c *SSEClient) connectWithRetry(ctx context.Context, minionID uuid.UUID, podName string, password string) {
 	backoff := InitialReconnectDelay
 
 	for {
@@ -144,7 +144,7 @@ func (c *SSEClient) connectWithRetry(ctx context.Context, minionID uuid.UUID, po
 		default:
 		}
 
-		err := c.streamEvents(ctx, minionID, podName)
+		err := c.streamEvents(ctx, minionID, podName, password)
 		if err == nil {
 			// Normal termination (context cancelled or pod completed)
 			return
@@ -180,7 +180,7 @@ func (c *SSEClient) connectWithRetry(ctx context.Context, minionID uuid.UUID, po
 }
 
 // streamEvents connects to the pod and streams events until disconnection or error.
-func (c *SSEClient) streamEvents(ctx context.Context, minionID uuid.UUID, podName string) error {
+func (c *SSEClient) streamEvents(ctx context.Context, minionID uuid.UUID, podName string, password string) error {
 	// Get pod IP
 	podIP, err := c.podIPProvider.GetPodIP(ctx, podName)
 	if err != nil {
