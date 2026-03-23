@@ -68,3 +68,22 @@ Started: 2026-03-22
 - All orchestrator tests pass (streaming, spawner, api, db, k8s, reconciler, watchdog, webhook)
 - **Learnings**: HTTP Basic Auth format is "Basic " + base64("username:password"). The auth header must be set before Do() call. The connection struct pattern allows storing metadata alongside cancel functions for proper cleanup.
 
+## Task - spawner-1
+- Added StorePassword method to MinionUpdater interface in orchestrator/internal/spawner/spawner.go:37
+- Added OpencodePassword field to SpawnParams struct in orchestrator/internal/k8s/pods.go:99
+- Updated processMinion in orchestrator/internal/spawner/spawner.go (lines 188-214):
+  - Generate UUID password if m.OpencodePassword is empty (idempotent crash recovery)
+  - Call StorePassword BEFORE spawning pod
+  - On StorePassword failure, mark minion as failed and abort spawn
+  - Pass password to SpawnParams (line 222)
+  - Pass password to SSE Connect call (line 305)
+- Updated buildEnvVars in orchestrator/internal/k8s/pods.go:428 to pass OPENCODE_SERVER_PASSWORD env var
+- Updated mockMinionUpdater in spawner_test.go to implement StorePassword method
+- Added 3 new unit tests in spawner_test.go:
+  - TestSpawner_StoresPasswordBeforeSpawningPod: verifies UUID generation, storage, and threading through pod spawn and SSE
+  - TestSpawner_ReusesExistingPasswordOnRetry: verifies idempotent password reuse on crash recovery
+  - TestSpawner_HandlesStorePasswordFailure: verifies failure handling and spawn abort
+- All orchestrator tests pass (9 packages)
+- Go build successful
+- **Learnings**: Password lifecycle is: generate (idempotent) → store → pass to pod env → pass to SSE auth. StorePassword must succeed before pod spawn to prevent unauthenticated pods. The password flows through three layers: spawner → k8s params → pod env vars.
+

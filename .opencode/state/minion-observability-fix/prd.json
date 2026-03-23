@@ -79,7 +79,7 @@
         "Update sseClient.Connect() call to pass password: Connect(ctx, m.ID, podName, password)",
         "Verify orchestrator crash between generate and spawn reuses existing password from DB"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "orchestrator-reconnect-1",

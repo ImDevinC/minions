@@ -32,8 +32,10 @@ func (m *mockMinionQuerier) ListPending(ctx context.Context) ([]*db.Minion, erro
 type mockMinionUpdater struct {
 	failedCalls       map[uuid.UUID]string
 	runningCalls      map[uuid.UUID]string
+	passwordCalls     map[uuid.UUID]string
 	markFailedErr     error
 	markRunningErr    error
+	storePasswordErr  error
 	mu                sync.Mutex
 	markRunningCalled bool
 }
@@ -57,6 +59,16 @@ func (m *mockMinionUpdater) MarkRunning(ctx context.Context, id uuid.UUID, podNa
 	}
 	m.runningCalls[id] = podName
 	return m.markRunningErr
+}
+
+func (m *mockMinionUpdater) StorePassword(ctx context.Context, id uuid.UUID, password string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.passwordCalls == nil {
+		m.passwordCalls = make(map[uuid.UUID]string)
+	}
+	m.passwordCalls[id] = password
+	return m.storePasswordErr
 }
 
 func (m *mockMinionUpdater) getFailedCalls() map[uuid.UUID]string {
@@ -620,6 +632,153 @@ func TestSpawner_HandlesListPendingError(t *testing.T) {
 	spawnCalls := pods.getSpawnCalls()
 	if len(spawnCalls) != 0 {
 		t.Errorf("expected 0 spawn calls after ListPending error, got %d", len(spawnCalls))
+	}
+}
+
+func TestSpawner_StoresPasswordBeforeSpawningPod(t *testing.T) {
+	minionID := uuid.New()
+	minion := &db.Minion{
+		ID:     minionID,
+		Status: db.StatusPending,
+		Repo:   "owner/repo",
+		Task:   "test task",
+		Model:  "test-model",
+	}
+
+	querier := &mockMinionQuerier{minions: []*db.Minion{minion}}
+	updater := &mockMinionUpdater{}
+	tokens := &mockTokenManager{tokens: map[string]string{"owner/repo": "test-token"}}
+	pods := &mockPodSpawner{}
+	sse := &mockSSEConnector{}
+
+	s := New(querier, updater, tokens, pods, sse, testConfig(), testLogger())
+
+	ctx := context.Background()
+	s.poll(ctx)
+
+	// Verify password was stored
+	if updater.passwordCalls == nil || len(updater.passwordCalls) != 1 {
+		t.Fatalf("expected 1 StorePassword call, got %d", len(updater.passwordCalls))
+	}
+
+	storedPassword := updater.passwordCalls[minionID]
+	if storedPassword == "" {
+		t.Error("expected non-empty password")
+	}
+
+	// Verify password is a valid UUID format
+	_, err := uuid.Parse(storedPassword)
+	if err != nil {
+		t.Errorf("expected password to be valid UUID, got %q", storedPassword)
+	}
+
+	// Verify pod was spawned with the password
+	spawnCalls := pods.getSpawnCalls()
+	if len(spawnCalls) != 1 {
+		t.Fatalf("expected 1 spawn call, got %d", len(spawnCalls))
+	}
+
+	if spawnCalls[0].OpencodePassword != storedPassword {
+		t.Errorf("expected pod to be spawned with password %q, got %q", storedPassword, spawnCalls[0].OpencodePassword)
+	}
+
+	// Verify SSE was initiated with the password
+	sseConnections := sse.getConnectCalls()
+	if len(sseConnections) != 1 {
+		t.Fatalf("expected 1 SSE connection, got %d", len(sseConnections))
+	}
+
+	if sseConnections[0].password != storedPassword {
+		t.Errorf("expected SSE connection with password %q, got %q", storedPassword, sseConnections[0].password)
+	}
+}
+
+func TestSpawner_ReusesExistingPasswordOnRetry(t *testing.T) {
+	minionID := uuid.New()
+	existingPassword := uuid.New().String()
+	minion := &db.Minion{
+		ID:               minionID,
+		Status:           db.StatusPending,
+		Repo:             "owner/repo",
+		Task:             "test task",
+		Model:            "test-model",
+		OpencodePassword: existingPassword, // Already has a password (crash recovery scenario)
+	}
+
+	querier := &mockMinionQuerier{minions: []*db.Minion{minion}}
+	updater := &mockMinionUpdater{}
+	tokens := &mockTokenManager{tokens: map[string]string{"owner/repo": "test-token"}}
+	pods := &mockPodSpawner{}
+	sse := &mockSSEConnector{}
+
+	s := New(querier, updater, tokens, pods, sse, testConfig(), testLogger())
+
+	ctx := context.Background()
+	s.poll(ctx)
+
+	// Verify existing password was reused (idempotent)
+	if len(updater.passwordCalls) != 1 {
+		t.Fatalf("expected 1 StorePassword call, got %d", len(updater.passwordCalls))
+	}
+
+	storedPassword := updater.passwordCalls[minionID]
+	if storedPassword != existingPassword {
+		t.Errorf("expected to reuse existing password %q, got %q", existingPassword, storedPassword)
+	}
+
+	// Verify pod was spawned with existing password
+	spawnCalls := pods.getSpawnCalls()
+	if len(spawnCalls) != 1 {
+		t.Fatalf("expected 1 spawn call, got %d", len(spawnCalls))
+	}
+
+	if spawnCalls[0].OpencodePassword != existingPassword {
+		t.Errorf("expected pod to be spawned with existing password %q, got %q", existingPassword, spawnCalls[0].OpencodePassword)
+	}
+}
+
+func TestSpawner_HandlesStorePasswordFailure(t *testing.T) {
+	minionID := uuid.New()
+	minion := &db.Minion{
+		ID:     minionID,
+		Status: db.StatusPending,
+		Repo:   "owner/repo",
+		Task:   "test task",
+		Model:  "test-model",
+	}
+
+	querier := &mockMinionQuerier{minions: []*db.Minion{minion}}
+	updater := &mockMinionUpdater{storePasswordErr: errors.New("database connection lost")}
+	tokens := &mockTokenManager{tokens: map[string]string{"owner/repo": "test-token"}}
+	pods := &mockPodSpawner{}
+	sse := &mockSSEConnector{}
+
+	s := New(querier, updater, tokens, pods, sse, testConfig(), testLogger())
+
+	ctx := context.Background()
+	s.poll(ctx)
+
+	// Verify minion was marked as failed
+	failedCalls := updater.getFailedCalls()
+	if len(failedCalls) != 1 {
+		t.Fatalf("expected 1 MarkFailed call, got %d", len(failedCalls))
+	}
+
+	errorMsg := failedCalls[minionID]
+	if !contains(errorMsg, "failed to store opencode password") {
+		t.Errorf("expected error message to contain 'failed to store opencode password', got %q", errorMsg)
+	}
+
+	// Verify pod was NOT spawned
+	spawnCalls := pods.getSpawnCalls()
+	if len(spawnCalls) != 0 {
+		t.Errorf("expected 0 spawn calls after password storage failure, got %d", len(spawnCalls))
+	}
+
+	// Verify SSE was NOT initiated
+	sseConnections := sse.getConnectCalls()
+	if len(sseConnections) != 0 {
+		t.Errorf("expected 0 SSE connections after password storage failure, got %d", len(sseConnections))
 	}
 }
 
