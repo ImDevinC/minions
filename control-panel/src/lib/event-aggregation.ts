@@ -368,6 +368,33 @@ function extractToolCall(
 }
 
 /**
+ * Extract content from a message.part.delta event.
+ * Delta events have a flat structure (NOT nested in properties.part):
+ *   content.partID - the part identifier
+ *   content.delta - the actual text chunk
+ *   content.field - which field is being updated (e.g., "text")
+ *
+ * Note: Delta events do NOT have a type field. The part type must be
+ * looked up from state.partTypeByID (populated from message.part.updated events).
+ */
+function extractDeltaContent(
+  event: MinionEvent
+): { partID: string; delta: string; field: string } | undefined {
+  // Only handle message.part.delta events
+  if (event.event_type !== "message.part.delta") return undefined;
+
+  const content = event.content;
+  const partID = content.partID as string | undefined;
+  const delta = content.delta as string | undefined;
+  const field = (content.field as string) || "text";
+
+  // partID and delta are required
+  if (!partID || typeof delta !== "string") return undefined;
+
+  return { partID, delta, field };
+}
+
+/**
  * Extract text content from a text or reasoning part.
  * Returns the partID along with the content for delta tracking.
  */

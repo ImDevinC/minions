@@ -9,7 +9,7 @@
         "DeltaState interface at lines 33-38 includes partTypeByID: Map<string, 'text' | 'reasoning'>",
         "createDeltaState() at line 693 initializes partTypeByID as new Map()"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "functional-2",
@@ -22,7 +22,7 @@
         "Function returns undefined for non-delta events",
         "Function handles content.delta, content.partID, content.field"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "functional-3",

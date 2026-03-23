@@ -3,7 +3,24 @@ PRD: sse-event-aggregation-fix
 Started: 2026-03-23
 
 ## Codebase Patterns
-<!-- Consolidate reusable patterns here -->
+- DeltaState interface at `control-panel/src/lib/event-aggregation.ts:33-40` holds all cross-event state
+- createDeltaState() at line 695 is factory function for DeltaState
+- extractTextContent() handles nested `properties.part` structure for part.updated events
+- extractDeltaContent() handles flat `content.partID/delta/field` structure for part.delta events
 
 ---
 <!-- Task logs below - APPEND ONLY -->
+
+## Task - functional-1
+- Added `partTypeByID: Map<string, "text" | "reasoning">` to DeltaState interface
+- Initialized partTypeByID as new Map() in createDeltaState()
+- Files changed: control-panel/src/lib/event-aggregation.ts
+- **Learnings:** DeltaState is the persistent state container passed across aggregation calls
+
+## Task - functional-2
+- Added `extractDeltaContent()` function at lines 370-393
+- Function extracts `{partID, delta, field}` from flat delta event structure
+- Only processes events where event_type === "message.part.delta"
+- Returns undefined for non-delta events or missing required fields
+- Files changed: control-panel/src/lib/event-aggregation.ts
+- **Learnings:** Delta events have completely different structure than part.updated events - flat vs nested
