@@ -4,6 +4,8 @@ Started: 2026-03-23
 
 ## Codebase Patterns
 <!-- Consolidate reusable patterns here -->
+- Event content structure: messageID/part info can be at root, in `properties.part`, or in `part` directly - check all locations
+- Use `Array.from(map.values())` instead of iterating `map.values()` directly to avoid TS downlevelIteration issues
 
 ---
 <!-- Task logs below - APPEND ONLY -->
@@ -17,3 +19,12 @@ Started: 2026-03-23
 - Defined ChatMessage, ToolCall, ToolCallStatus, and SystemMessage types
 - Files changed: control-panel/src/types/minion.ts (lines 58-106)
 - **Learnings:** None - straightforward type definitions following PRD spec
+
+## Task - aggregation-1
+- Implemented event aggregation logic in control-panel/src/lib/event-aggregation.ts
+- Groups events by messageID into ChatMessages
+- System events (no messageID, agent/retry parts, session.error) become SystemMessages
+- Deduplicates by event ID, sorts by timestamp, filters heartbeats
+- Handles message.updated events for metadata updates
+- Files changed: control-panel/src/lib/event-aggregation.ts (new)
+- **Learnings:** Event content structure varies - messageID can be at root, in properties.part, or part directly

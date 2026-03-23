@@ -36,7 +36,7 @@
         "Heartbeat events are filtered out",
         "Handle message.updated events by updating ChatMessage metadata (title, status) without re-rendering parts"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "aggregation-2",

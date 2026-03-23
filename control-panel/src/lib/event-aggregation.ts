@@ -1,0 +1,408 @@
+/**
+ * Event aggregation logic for transforming raw MinionEvents into ChatMessages.
+ *
+ * Groups events by messageID, sorts by timestamp, deduplicates, filters heartbeats,
+ * and produces a list of ChatMessages and SystemMessages ready for rendering.
+ */
+
+import type {
+  MinionEvent,
+  ChatMessage,
+  SystemMessage,
+  ToolCall,
+  ToolCallStatus,
+} from "@/types/minion";
+
+/**
+ * Result of aggregating events.
+ */
+export interface AggregationResult {
+  messages: ChatMessage[];
+  systemMessages: SystemMessage[];
+}
+
+/**
+ * Part types that should be skipped (internal events).
+ */
+const SKIP_PART_TYPES = new Set([
+  "step-start",
+  "step-finish",
+  "snapshot",
+  "patch",
+  "compaction",
+]);
+
+/**
+ * Part types that should be rendered as system messages rather than chat messages.
+ */
+const SYSTEM_PART_TYPES = new Set(["agent", "retry"]);
+
+/**
+ * Event types that are heartbeats (should be filtered out).
+ */
+function isHeartbeatEvent(event: MinionEvent): boolean {
+  return (
+    event.event_type === "heartbeat" ||
+    event.event_type === "ping" ||
+    event.event_type === "keepalive"
+  );
+}
+
+/**
+ * Extract messageID from event content if present.
+ */
+function getMessageID(event: MinionEvent): string | undefined {
+  const content = event.content;
+  // Check various locations where messageID might be
+  if (typeof content.messageID === "string") return content.messageID;
+  if (typeof content.message_id === "string") return content.message_id;
+  // Check nested in properties
+  const properties = content.properties as Record<string, unknown> | undefined;
+  if (properties) {
+    const part = properties.part as Record<string, unknown> | undefined;
+    if (part && typeof part.messageID === "string") return part.messageID;
+    if (typeof properties.messageID === "string") return properties.messageID;
+  }
+  // Check nested in part directly
+  const part = content.part as Record<string, unknown> | undefined;
+  if (part && typeof part.messageID === "string") return part.messageID;
+  return undefined;
+}
+
+/**
+ * Extract part type from event content.
+ */
+function getPartType(event: MinionEvent): string | undefined {
+  const content = event.content;
+  if (typeof content.type === "string") return content.type;
+  const properties = content.properties as Record<string, unknown> | undefined;
+  if (properties) {
+    const part = properties.part as Record<string, unknown> | undefined;
+    if (part && typeof part.type === "string") return part.type;
+  }
+  const part = content.part as Record<string, unknown> | undefined;
+  if (part && typeof part.type === "string") return part.type;
+  return undefined;
+}
+
+/**
+ * Extract part ID from event content.
+ */
+function getPartID(event: MinionEvent): string | undefined {
+  const content = event.content;
+  if (typeof content.id === "string") return content.id;
+  const properties = content.properties as Record<string, unknown> | undefined;
+  if (properties) {
+    const part = properties.part as Record<string, unknown> | undefined;
+    if (part && typeof part.id === "string") return part.id;
+    if (typeof properties.id === "string") return properties.id;
+  }
+  const part = content.part as Record<string, unknown> | undefined;
+  if (part && typeof part.id === "string") return part.id;
+  return undefined;
+}
+
+/**
+ * Determines if an event is a system-level event (no messageID or system part type).
+ */
+function isSystemEvent(event: MinionEvent): boolean {
+  // Session-level events are always system events
+  if (
+    event.event_type === "session.error" ||
+    event.event_type === "session.status" ||
+    event.event_type === "error"
+  ) {
+    return true;
+  }
+
+  // Check part type for agent/retry which are system messages
+  const partType = getPartType(event);
+  if (partType && SYSTEM_PART_TYPES.has(partType)) {
+    return true;
+  }
+
+  // Events without messageID are system events
+  return !getMessageID(event);
+}
+
+/**
+ * Should this event be skipped entirely (not rendered)?
+ */
+function shouldSkipEvent(event: MinionEvent): boolean {
+  if (isHeartbeatEvent(event)) return true;
+
+  const partType = getPartType(event);
+  if (partType && SKIP_PART_TYPES.has(partType)) return true;
+
+  return false;
+}
+
+/**
+ * Convert event to SystemMessage.
+ */
+function eventToSystemMessage(event: MinionEvent): SystemMessage {
+  const partType = getPartType(event);
+  let type = event.event_type;
+  let content: string | Record<string, unknown> = event.content;
+
+  // Determine type and content based on event
+  if (partType === "agent") {
+    type = "agent";
+    const properties = event.content.properties as
+      | Record<string, unknown>
+      | undefined;
+    const part = (properties?.part || event.content.part) as
+      | Record<string, unknown>
+      | undefined;
+    if (part && typeof part.agent === "string") {
+      content = part.agent;
+    }
+  } else if (partType === "retry") {
+    type = "retry";
+    const properties = event.content.properties as
+      | Record<string, unknown>
+      | undefined;
+    const part = (properties?.part || event.content.part) as
+      | Record<string, unknown>
+      | undefined;
+    if (part) {
+      content = part;
+    }
+  } else if (event.event_type === "session.error" || event.event_type === "error") {
+    type = "session.error";
+    content =
+      (event.content.error as string) ||
+      (event.content.message as string) ||
+      event.content;
+  }
+
+  return {
+    id: event.id,
+    timestamp: event.timestamp,
+    type,
+    content,
+  };
+}
+
+/**
+ * Extract ToolCall from a tool part.
+ */
+function extractToolCall(
+  event: MinionEvent,
+  partID: string
+): ToolCall | undefined {
+  const content = event.content;
+  const properties = content.properties as Record<string, unknown> | undefined;
+  const part = (properties?.part || content.part || content) as Record<
+    string,
+    unknown
+  >;
+
+  if (part.type !== "tool") return undefined;
+
+  const tool = (part.tool as string) || "unknown";
+  const state = (part.state || part) as Record<string, unknown>;
+  const status = (state.status as ToolCallStatus) || "pending";
+  const input = (state.input as Record<string, unknown>) || {};
+  const output = state.output as string | undefined;
+  const error = state.error as string | undefined;
+  const title = state.title as string | undefined;
+
+  return {
+    id: partID,
+    tool,
+    status,
+    title,
+    summary: "", // Will be set by getToolSummary later
+    input,
+    output,
+    error,
+  };
+}
+
+/**
+ * Extract text content from a text or reasoning part.
+ */
+function extractTextContent(
+  event: MinionEvent
+): { type: "text" | "reasoning"; content: string } | undefined {
+  const content = event.content;
+  const properties = content.properties as Record<string, unknown> | undefined;
+  const part = (properties?.part || content.part || content) as Record<
+    string,
+    unknown
+  >;
+
+  const partType = part.type as string | undefined;
+  if (partType !== "text" && partType !== "reasoning") return undefined;
+
+  const text = (part.text as string) || "";
+  return { type: partType, content: text };
+}
+
+/**
+ * Aggregate raw MinionEvents into structured ChatMessages and SystemMessages.
+ *
+ * This function:
+ * 1. Deduplicates events by ID
+ * 2. Filters out heartbeat and internal events
+ * 3. Sorts events by timestamp
+ * 4. Groups events by messageID into ChatMessages
+ * 5. Extracts system events (no messageID) as SystemMessages
+ * 6. Handles message.updated events by updating metadata
+ */
+export function aggregateEvents(events: MinionEvent[]): AggregationResult {
+  // Deduplicate events by ID
+  const eventMap = new Map<string, MinionEvent>();
+  for (const event of events) {
+    // Later events with same ID replace earlier ones (for updates)
+    eventMap.set(event.id, event);
+  }
+
+  // Sort by timestamp
+  const sortedEvents = Array.from(eventMap.values()).sort(
+    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+  );
+
+  // Separate into chat events and system events
+  const systemMessages: SystemMessage[] = [];
+  const chatEventsByMessage = new Map<
+    string,
+    { events: MinionEvent[]; earliestTimestamp: string }
+  >();
+
+  for (const event of sortedEvents) {
+    // Skip heartbeats and internal events
+    if (shouldSkipEvent(event)) continue;
+
+    // Handle system events
+    if (isSystemEvent(event)) {
+      systemMessages.push(eventToSystemMessage(event));
+      continue;
+    }
+
+    // Group by messageID for chat messages
+    const messageID = getMessageID(event);
+    if (!messageID) continue; // Shouldn't happen after isSystemEvent check
+
+    const existing = chatEventsByMessage.get(messageID);
+    if (existing) {
+      existing.events.push(event);
+      // Track earliest timestamp
+      if (new Date(event.timestamp) < new Date(existing.earliestTimestamp)) {
+        existing.earliestTimestamp = event.timestamp;
+      }
+    } else {
+      chatEventsByMessage.set(messageID, {
+        events: [event],
+        earliestTimestamp: event.timestamp,
+      });
+    }
+  }
+
+  // Build ChatMessages from grouped events
+  const messages: ChatMessage[] = [];
+  const messageEntries = Array.from(chatEventsByMessage.entries());
+
+  // Sort message groups by earliest timestamp
+  messageEntries.sort(
+    (a, b) =>
+      new Date(a[1].earliestTimestamp).getTime() -
+      new Date(b[1].earliestTimestamp).getTime()
+  );
+
+  for (const [messageID, { events: messageEvents, earliestTimestamp }] of messageEntries) {
+    let thinking = "";
+    let text = "";
+    const tools: ToolCall[] = [];
+    const toolMap = new Map<string, ToolCall>();
+    let isStreaming = false;
+
+    // Sort events within message by timestamp
+    const sortedMessageEvents = [...messageEvents].sort(
+      (a, b) =>
+        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+
+    for (const event of sortedMessageEvents) {
+      const partID = getPartID(event);
+      const partType = getPartType(event);
+
+      // Handle message.updated events (metadata updates)
+      if (event.event_type === "message.updated") {
+        // These update message metadata but don't change content
+        // We primarily use them to check if message is still streaming
+        const status = event.content.status as string | undefined;
+        if (status === "streaming" || status === "pending") {
+          isStreaming = true;
+        }
+        continue;
+      }
+
+      // Extract text/reasoning content
+      const textContent = extractTextContent(event);
+      if (textContent) {
+        if (textContent.type === "reasoning") {
+          // Accumulate reasoning text (separate with newlines if multiple)
+          if (thinking) {
+            thinking += "\n\n" + textContent.content;
+          } else {
+            thinking = textContent.content;
+          }
+        } else {
+          // Accumulate text (separate with newlines if multiple parts)
+          if (text) {
+            text += "\n\n" + textContent.content;
+          } else {
+            text = textContent.content;
+          }
+        }
+        continue;
+      }
+
+      // Extract tool calls
+      if (partType === "tool" && partID) {
+        const toolCall = extractToolCall(event, partID);
+        if (toolCall) {
+          // Update existing or add new
+          const existing = toolMap.get(partID);
+          if (existing) {
+            // Update with newer status/output
+            existing.status = toolCall.status;
+            existing.output = toolCall.output ?? existing.output;
+            existing.error = toolCall.error ?? existing.error;
+            existing.title = toolCall.title ?? existing.title;
+          } else {
+            toolMap.set(partID, toolCall);
+          }
+        }
+      }
+    }
+
+    // Convert tool map to array (preserving insertion order)
+    tools.push(...Array.from(toolMap.values()));
+
+    // Determine if still streaming based on latest events
+    // If we got recent updates without "completed" status, assume streaming
+    if (messageEvents.length > 0) {
+      const latestEvent = messageEvents[messageEvents.length - 1];
+      const timeSinceLatest =
+        Date.now() - new Date(latestEvent.timestamp).getTime();
+      // If last event was recent (within 30 seconds), assume streaming
+      if (timeSinceLatest < 30000) {
+        isStreaming = true;
+      }
+    }
+
+    messages.push({
+      id: messageID,
+      timestamp: earliestTimestamp,
+      thinking: thinking || undefined,
+      text,
+      tools,
+      isStreaming,
+    });
+  }
+
+  return { messages, systemMessages };
+}
