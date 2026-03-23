@@ -92,7 +92,7 @@
         "Status bar shows 'Failed' with red dot for failed minions (bg-red-900/30)",
         "Status bar shows 'Terminated' with orange dot for terminated minions (bg-orange-900/30)"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "ui-3",

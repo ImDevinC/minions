@@ -12,10 +12,10 @@ import { ChatMessageRow } from "./chat-message-row";
 import { SystemMessageRow } from "./system-message-row";
 
 /**
- * Session state derived from SSE events.
+ * Session state derived from SSE events or minion status.
  * Used to show status bar with agent activity.
  */
-type SessionState = "busy" | "idle" | "retry";
+type SessionState = "busy" | "idle" | "retry" | "completed" | "failed" | "terminated";
 
 /**
  * Derive the current session state from events.
@@ -98,6 +98,27 @@ function SessionStatusBar({ state }: { state: SessionState }) {
       pingBg: "bg-yellow-400",
       text: "Retrying...",
       showPing: true,
+    },
+    completed: {
+      bg: "bg-green-900/30",
+      dotBg: "bg-green-500",
+      pingBg: "",
+      text: "Completed",
+      showPing: false,
+    },
+    failed: {
+      bg: "bg-red-900/30",
+      dotBg: "bg-red-500",
+      pingBg: "",
+      text: "Failed",
+      showPing: false,
+    },
+    terminated: {
+      bg: "bg-orange-900/30",
+      dotBg: "bg-orange-500",
+      pingBg: "",
+      text: "Terminated",
+      showPing: false,
     },
   }[state];
 
@@ -237,9 +258,16 @@ export function ChatView({
   // Helper: check if minion is in a terminal state
   const isTerminalStatus = status === "completed" || status === "failed" || status === "terminated";
 
-  // Derive session state from events for status bar
-  // Only show status bar for running minions with events
+  // Derive session state from events or minion status for status bar
+  // Shows terminal states (completed/failed/terminated) based on status prop
+  // Shows activity states (busy/retry/idle) for running minions based on events
   const sessionState = useMemo(() => {
+    // Terminal states from minion status
+    if (status === "completed") return "completed";
+    if (status === "failed") return "failed";
+    if (status === "terminated") return "terminated";
+
+    // Activity states from events (only for running minions)
     if (status !== "running") return null;
     return deriveSessionState(events);
   }, [events, status]);

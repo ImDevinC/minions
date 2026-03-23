@@ -62,3 +62,13 @@ Started: 2026-03-23
 - Restructured render to wrap status bar + scrollable content inside bordered container
 - Files changed: control-panel/src/components/chat-view.tsx
 - **Learnings:** Derive session state from recent events (last 10); check event_type and content.status/content.type for indicators
+
+## Task - ui-2
+- Extended `SessionState` type to include `completed`, `failed`, `terminated`
+- Added terminal states to `SessionStatusBar` config:
+  - completed: green dot, "Completed", bg-green-900/30
+  - failed: red dot, "Failed", bg-red-900/30
+  - terminated: orange dot, "Terminated", bg-orange-900/30
+- Updated `sessionState` derivation to check `status` prop for terminal states before deriving from events
+- Files changed: control-panel/src/components/chat-view.tsx
+- **Learnings:** Terminal states come from minion status prop, not from event stream; check status first, then fall through to event-based derivation for running minions
