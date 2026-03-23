@@ -188,7 +188,7 @@
         "Orchestrator Restart Behavior section updated to remove password filtering logic",
         "Deployment Notes section updated to remove migration 005 reference"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "build-1",

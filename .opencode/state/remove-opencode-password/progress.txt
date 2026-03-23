@@ -132,3 +132,14 @@ All tests pass after these changes.
 - Files changed: orchestrator/internal/watchdog/watchdog_test.go
 - **Learnings:** Mock methods can linger as no-ops even after interface changes - always verify mocks match updated interfaces
 
+## Task - docs-1
+- Updated AGENTS.md line 93: changed "with per-pod UUID password authentication" to "over unsecured HTTP (trusted pod network)"
+- Removed entire Password Lifecycle section (lines 95-128): UUID generation flow diagram, key points list
+- Updated Orchestrator Restart Behavior: removed password filter from reconnection query (step 2), removed password parameter from Connect call (step 3)
+- Updated Control Panel SSE Proxy diagram: changed HTTP+Auth to HTTP
+- Updated SSE Connection Troubleshooting table: removed 401 Unauthorized and password mismatch rows
+- Removed password-related debug commands: DB password check, pod env var check
+- Removed Database Migration subsection: entire section about migration 005 adding password column
+- Files changed: AGENTS.md (154 lines, down from 197 lines - removed 43 lines of password documentation)
+- **Learnings:** Documentation archaeology - when removing a feature, search for all conceptual references (lifecycle diagrams, troubleshooting steps, debug commands) not just direct API mentions
+
