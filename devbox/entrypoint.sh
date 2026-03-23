@@ -40,6 +40,14 @@ die() {
     exit 1
 }
 
+# Copy OpenCode config from image to writable home directory
+# Required because /home/minion is mounted as emptyDir for writable home
+setup_config() {
+    log "Setting up OpenCode configuration"
+    mkdir -p ~/.config/opencode
+    cp -r /etc/opencode/* ~/.config/opencode/
+}
+
 # Validate required environment variables
 validate_env() {
     local missing=()
@@ -434,6 +442,7 @@ handle_completion() {
 # Main execution
 main() {
     validate_env
+    setup_config
     clone_repo
     start_opencode
     wait_for_health
