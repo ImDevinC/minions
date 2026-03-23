@@ -221,7 +221,7 @@
         "Health check responds within 5 seconds",
         "Container doesn't timeout (exit code 0)"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "integration-1",
