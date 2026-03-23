@@ -129,14 +129,23 @@ create_session() {
 send_task() {
     log "Sending task to session ${SESSION_ID}"
 
+    # Parse model string "provider/model-id" into providerID and modelID
+    # OpenCode API expects model as object: { providerID: string, modelID: string }
+    local provider_id="${MINION_MODEL%%/*}"
+    local model_id="${MINION_MODEL#*/}"
+
     # Build the message parts using jq for safe JSON construction
     # This prevents shell injection attacks from task content
     local request_body
     request_body=$(jq -n \
-        --arg model "$MINION_MODEL" \
+        --arg provider "$provider_id" \
+        --arg model "$model_id" \
         --arg task "$MINION_TASK" \
         '{
-            model: $model,
+            model: {
+                providerID: $provider,
+                modelID: $model
+            },
             parts: [
                 {
                     type: "text",
