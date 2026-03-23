@@ -88,6 +88,9 @@ spec:
             # Orchestrator URL for pod callbacks
             - name: ORCHESTRATOR_URL
               value: "http://orchestrator.minions.svc.cluster.local:8080"
+            # Default model for minion creation (when client doesn't specify)
+            - name: DEFAULT_MODEL
+              value: "anthropic/claude-sonnet-4.5"
           envFrom:
             # DATABASE_URL
             - secretRef:

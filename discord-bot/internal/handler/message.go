@@ -266,8 +266,6 @@ func (h *MessageHandler) handleParseError(s *discordgo.Session, m *discordgo.Mes
 		msg = "❌ Task is too long (max 10,000 characters)"
 	case isErrorType(err, command.ErrTaskHasControl):
 		msg = "❌ Task contains invalid characters"
-	case isErrorType(err, command.ErrUnknownModel):
-		msg = "❌ Unknown model. Allowed: `anthropic/*` or `openai/*`"
 	default:
 		msg = "❌ Failed to parse command: " + err.Error()
 	}

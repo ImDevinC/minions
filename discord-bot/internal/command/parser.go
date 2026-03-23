@@ -3,7 +3,6 @@ package command
 
 import (
 	"errors"
-	"fmt"
 	"regexp"
 	"strings"
 	"unicode"
@@ -14,12 +13,6 @@ const (
 	MaxTaskLength = 10000
 )
 
-// Allowed model prefixes
-var allowedModelPrefixes = []string{"anthropic/", "openai/"}
-
-// DefaultModel is used when no --model flag is provided
-const DefaultModel = "anthropic/claude-sonnet-4-5"
-
 // Sentinel errors for validation failures
 var (
 	ErrMissingRepo       = errors.New("missing required --repo flag")
@@ -27,7 +20,6 @@ var (
 	ErrMissingTask       = errors.New("missing task description")
 	ErrTaskTooLong       = errors.New("task exceeds maximum length of 10000 characters")
 	ErrTaskHasControl    = errors.New("task contains invalid control characters")
-	ErrUnknownModel      = errors.New("unknown model: must be anthropic/* or openai/*")
 )
 
 // Command represents a parsed minion command
@@ -42,6 +34,7 @@ var repoRegex = regexp.MustCompile(`^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+(/[a-zA-Z0-9
 
 // Parse extracts a Command from a message mentioning the bot.
 // The message should have the mention already stripped.
+// Model is optional - orchestrator will apply default if empty.
 func Parse(text string) (*Command, error) {
 	// Extract --repo flag
 	repo, text, err := extractFlag(text, "--repo")
@@ -55,18 +48,12 @@ func Parse(text string) (*Command, error) {
 		return nil, ErrInvalidRepoFormat
 	}
 
-	// Extract --model flag (optional)
+	// Extract --model flag (optional, can be empty string)
 	model, text, err := extractFlag(text, "--model")
 	if err != nil {
 		return nil, err
 	}
-	if model == "" {
-		model = DefaultModel
-	} else {
-		if !isAllowedModel(model) {
-			return nil, fmt.Errorf("%w: %s", ErrUnknownModel, model)
-		}
-	}
+	// Model validation is delegated to orchestrator
 
 	// Remaining text is the task
 	task := strings.TrimSpace(text)
@@ -115,16 +102,6 @@ func extractFlag(text, flag string) (string, string, error) {
 
 	// Flag not present
 	return "", text, nil
-}
-
-// isAllowedModel checks if a model matches the allowed prefixes
-func isAllowedModel(model string) bool {
-	for _, prefix := range allowedModelPrefixes {
-		if strings.HasPrefix(model, prefix) {
-			return true
-		}
-	}
-	return false
 }
 
 // hasControlChars checks if text contains control characters (except newline, tab, carriage return)

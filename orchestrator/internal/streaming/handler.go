@@ -71,9 +71,19 @@ func (h *DBEventHandler) HandleEvent(ctx context.Context, minionID uuid.UUID, ev
 		"event_id", dbEvent.ID,
 	)
 
-	// Broadcast to WebSocket clients
+	// Broadcast to WebSocket clients with enriched metadata
+	// Frontend expects {id, timestamp, event_type, content} structure
 	if h.hub != nil {
-		h.hub.Broadcast(minionID, event)
+		enrichedEvent := &PodEvent{
+			Type: event.Type,
+			Content: map[string]any{
+				"id":         dbEvent.ID.String(),
+				"timestamp":  dbEvent.Timestamp.Format("2006-01-02T15:04:05.999999999Z07:00"),
+				"event_type": event.Type,
+				"content":    event.Content,
+			},
+		}
+		h.hub.Broadcast(minionID, enrichedEvent)
 	}
 
 	return nil

@@ -90,6 +90,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// DEFAULT_MODEL is required for minion creation when no model specified
+	defaultModel := os.Getenv("DEFAULT_MODEL")
+	if defaultModel == "" {
+		logger.Error("DEFAULT_MODEL environment variable is required")
+		os.Exit(1)
+	}
+
 	// Connect to database
 	ctx := context.Background()
 	pool, err := db.Connect(ctx, db.Config{
@@ -227,6 +234,7 @@ func main() {
 	router := api.NewRouter(api.RouterConfig{
 		Logger:        logger,
 		APIToken:      apiToken,
+		DefaultModel:  defaultModel,
 		Pool:          pool,
 		PodTerminator: podManager,
 		Notifier:      notifier,
