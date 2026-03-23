@@ -82,3 +82,12 @@ Started: 2026-03-23
 - Implementation was already correct from ui-1/ui-2, but now has explicit test coverage
 - Files changed: control-panel/src/components/chat-view.tsx, control-panel/src/components/chat-view.test.ts
 - **Learnings:** Status bar visibility relies on: (1) terminal states from minion status, (2) status !== "running" returns null, (3) events.length === 0 returns null, (4) events with activity indicators return busy/retry, (5) fallback to idle
+
+## Task - debug-1, debug-2, debug-3
+- Added NEXT_PUBLIC_DEBUG_SSE environment variable for SSE debug logging
+- When set to "true", logs raw SSE event data before parsing: `[SSE] Raw event: <JSON>`
+- When set to "true", logs parsed/normalized event after construction: `[SSE] Parsed event: <JSON>`
+- Debug logging is conditional and does not affect event processing flow
+- All existing tests pass (52 tests), typecheck and lint clean
+- Files changed: control-panel/src/hooks/use-minion-events.ts
+- **Learnings:** Use process.env.NEXT_PUBLIC_* for client-side env vars in Next.js; conditional logging with `=== "true"` check is idiomatic

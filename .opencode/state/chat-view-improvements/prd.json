@@ -114,7 +114,7 @@
         "When 'true', log '[SSE] Raw event: <JSON>' for each SSE message received",
         "Logging occurs in onmessage handler before parsing"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "debug-2",
@@ -125,7 +125,7 @@
         "Log occurs after event is parsed but before processing",
         "When unset or 'false', no debug logging occurs"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "debug-3",
@@ -136,7 +136,7 @@
         "Verify chat view still renders all legitimate events",
         "Verify SSE connection remains stable with logging enabled"
       ],
-      "passes": false
+      "passes": true
     }
   ],
   "context": {
