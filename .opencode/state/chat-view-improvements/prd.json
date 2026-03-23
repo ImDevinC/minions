@@ -43,7 +43,7 @@
         "Verify events like {\"sessionID\":\"...\",\"status\":{...}} are skipped",
         "Verify events with messageID are NOT skipped"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "filtering-5",

@@ -250,6 +250,18 @@ function shouldSkipEvent(event: MinionEvent): boolean {
     return true;
   }
 
+  // Skip bare status events: {sessionID: "...", status: {...}} without messageID
+  // These are session-level status updates, not displayable chat content
+  if (
+    typeof content.sessionID === "string" &&
+    content.status !== null &&
+    typeof content.status === "object" &&
+    !Array.isArray(content.status) &&
+    typeof content.messageID !== "string"
+  ) {
+    return true;
+  }
+
   return false;
 }
 

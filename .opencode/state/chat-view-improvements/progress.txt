@@ -26,3 +26,10 @@ Started: 2026-03-23
 - Skips internal diff payloads like `{diff: [...], sessionID: "..."}`
 - Files changed: control-panel/src/lib/event-aggregation.ts
 - **Learnings:** Array.isArray() is sufficient for array detection
+
+## Task - filtering-4
+- Added detection for bare status events in `shouldSkipEvent()`
+- Skips session-level status updates like `{sessionID: "...", status: {...}}` without messageID
+- Events with messageID are NOT skipped (they belong to chat messages)
+- Files changed: control-panel/src/lib/event-aggregation.ts
+- **Learnings:** Negative check (`typeof content.messageID !== "string"`) distinguishes bare status from message-scoped status
