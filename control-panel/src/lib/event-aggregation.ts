@@ -697,11 +697,15 @@ export function aggregateEvents(
           // Update existing or add new
           const existing = toolMap.get(partID);
           if (existing) {
-            // Update with newer status/output
+            // Update with newer status/output/input
             existing.status = toolCall.status;
             existing.output = toolCall.output ?? existing.output;
             existing.error = toolCall.error ?? existing.error;
             existing.title = toolCall.title ?? existing.title;
+            // Merge input only when non-empty (empty {} should not overwrite existing populated input)
+            if (toolCall.input && Object.keys(toolCall.input).length > 0) {
+              existing.input = toolCall.input;
+            }
           } else {
             toolMap.set(partID, toolCall);
           }

@@ -81,7 +81,7 @@
         "Note: toolCall is NEW event state, existing is ACCUMULATED state from previous events",
         "Empty input {} does not overwrite existing populated input"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "verification-1",
