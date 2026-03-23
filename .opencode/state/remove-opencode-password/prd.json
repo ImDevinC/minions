@@ -33,7 +33,7 @@
         "All 8 database query methods no longer SELECT or Scan opencode_password column",
         "No compilation errors in minions.go"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "code-2",

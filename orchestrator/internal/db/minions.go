@@ -53,7 +53,6 @@ type Minion struct {
 	Error                  *string
 	SessionID              *string
 	PodName                *string
-	OpencodePassword       *string
 	DiscordMessageID       *string
 	DiscordChannelID       *string
 	CreatedAt              time.Time
@@ -159,7 +158,7 @@ func (s *MinionStore) FindRecentDuplicate(ctx context.Context, tx pgx.Tx, repo, 
 		`SELECT id, user_id, repo, task, model, status,
 		        clarification_question, clarification_answer, clarification_message_id,
 		        input_tokens, output_tokens, cost_usd,
-		        pr_url, error, session_id, pod_name, opencode_password,
+		        pr_url, error, session_id, pod_name,
 		        discord_message_id, discord_channel_id,
 		        created_at, started_at, completed_at, last_activity_at
 		 FROM minions 
@@ -171,7 +170,7 @@ func (s *MinionStore) FindRecentDuplicate(ctx context.Context, tx pgx.Tx, repo, 
 		&minion.ID, &minion.UserID, &minion.Repo, &minion.Task, &minion.Model, &minion.Status,
 		&minion.ClarificationQuestion, &minion.ClarificationAnswer, &minion.ClarificationMessageID,
 		&minion.InputTokens, &minion.OutputTokens, &minion.CostUSD,
-		&minion.PRURL, &minion.Error, &minion.SessionID, &minion.PodName, &minion.OpencodePassword,
+		&minion.PRURL, &minion.Error, &minion.SessionID, &minion.PodName,
 		&minion.DiscordMessageID, &minion.DiscordChannelID,
 		&minion.CreatedAt, &minion.StartedAt, &minion.CompletedAt, &minion.LastActivityAt,
 	)
@@ -266,7 +265,7 @@ func (s *MinionStore) GetByID(ctx context.Context, id uuid.UUID) (*Minion, error
 		`SELECT id, user_id, repo, task, model, status,
 		        clarification_question, clarification_answer, clarification_message_id,
 		        input_tokens, output_tokens, cost_usd,
-		        pr_url, error, session_id, pod_name, opencode_password,
+		        pr_url, error, session_id, pod_name,
 		        discord_message_id, discord_channel_id,
 		        created_at, started_at, completed_at, last_activity_at
 		 FROM minions WHERE id = $1`,
@@ -275,7 +274,7 @@ func (s *MinionStore) GetByID(ctx context.Context, id uuid.UUID) (*Minion, error
 		&minion.ID, &minion.UserID, &minion.Repo, &minion.Task, &minion.Model, &minion.Status,
 		&minion.ClarificationQuestion, &minion.ClarificationAnswer, &minion.ClarificationMessageID,
 		&minion.InputTokens, &minion.OutputTokens, &minion.CostUSD,
-		&minion.PRURL, &minion.Error, &minion.SessionID, &minion.PodName, &minion.OpencodePassword,
+		&minion.PRURL, &minion.Error, &minion.SessionID, &minion.PodName,
 		&minion.DiscordMessageID, &minion.DiscordChannelID,
 		&minion.CreatedAt, &minion.StartedAt, &minion.CompletedAt, &minion.LastActivityAt,
 	)
@@ -366,7 +365,7 @@ func (s *MinionStore) List(ctx context.Context, params ListMinionsParams) ([]*Mi
 	query := `SELECT id, user_id, repo, task, model, status,
 		        clarification_question, clarification_answer, clarification_message_id,
 		        input_tokens, output_tokens, cost_usd,
-		        pr_url, error, session_id, pod_name, opencode_password,
+		        pr_url, error, session_id, pod_name,
 		        discord_message_id, discord_channel_id,
 		        created_at, started_at, completed_at, last_activity_at
 		 FROM minions`
@@ -396,7 +395,7 @@ func (s *MinionStore) List(ctx context.Context, params ListMinionsParams) ([]*Mi
 			&m.ID, &m.UserID, &m.Repo, &m.Task, &m.Model, &m.Status,
 			&m.ClarificationQuestion, &m.ClarificationAnswer, &m.ClarificationMessageID,
 			&m.InputTokens, &m.OutputTokens, &m.CostUSD,
-			&m.PRURL, &m.Error, &m.SessionID, &m.PodName, &m.OpencodePassword,
+			&m.PRURL, &m.Error, &m.SessionID, &m.PodName,
 			&m.DiscordMessageID, &m.DiscordChannelID,
 			&m.CreatedAt, &m.StartedAt, &m.CompletedAt, &m.LastActivityAt,
 		)
@@ -670,7 +669,7 @@ func (s *MinionStore) ListByStatuses(ctx context.Context, statuses []MinionStatu
 	query := `SELECT id, user_id, repo, task, model, status,
 		        clarification_question, clarification_answer, clarification_message_id,
 		        input_tokens, output_tokens, cost_usd,
-		        pr_url, error, session_id, pod_name, opencode_password,
+		        pr_url, error, session_id, pod_name,
 		        discord_message_id, discord_channel_id,
 		        created_at, started_at, completed_at, last_activity_at
 		 FROM minions WHERE status = ANY($1)`
@@ -694,7 +693,7 @@ func (s *MinionStore) ListByStatuses(ctx context.Context, statuses []MinionStatu
 			&m.ID, &m.UserID, &m.Repo, &m.Task, &m.Model, &m.Status,
 			&m.ClarificationQuestion, &m.ClarificationAnswer, &m.ClarificationMessageID,
 			&m.InputTokens, &m.OutputTokens, &m.CostUSD,
-			&m.PRURL, &m.Error, &m.SessionID, &m.PodName, &m.OpencodePassword,
+			&m.PRURL, &m.Error, &m.SessionID, &m.PodName,
 			&m.DiscordMessageID, &m.DiscordChannelID,
 			&m.CreatedAt, &m.StartedAt, &m.CompletedAt, &m.LastActivityAt,
 		)
@@ -717,7 +716,7 @@ func (s *MinionStore) ListPending(ctx context.Context) ([]*Minion, error) {
 	query := `SELECT id, user_id, repo, task, model, status,
 		        clarification_question, clarification_answer, clarification_message_id,
 		        input_tokens, output_tokens, cost_usd,
-		        pr_url, error, session_id, pod_name, opencode_password,
+		        pr_url, error, session_id, pod_name,
 		        discord_message_id, discord_channel_id,
 		        created_at, started_at, completed_at, last_activity_at
 		 FROM minions 
@@ -737,7 +736,7 @@ func (s *MinionStore) ListPending(ctx context.Context) ([]*Minion, error) {
 			&m.ID, &m.UserID, &m.Repo, &m.Task, &m.Model, &m.Status,
 			&m.ClarificationQuestion, &m.ClarificationAnswer, &m.ClarificationMessageID,
 			&m.InputTokens, &m.OutputTokens, &m.CostUSD,
-			&m.PRURL, &m.Error, &m.SessionID, &m.PodName, &m.OpencodePassword,
+			&m.PRURL, &m.Error, &m.SessionID, &m.PodName,
 			&m.DiscordMessageID, &m.DiscordChannelID,
 			&m.CreatedAt, &m.StartedAt, &m.CompletedAt, &m.LastActivityAt,
 		)
@@ -796,7 +795,7 @@ func (s *MinionStore) ListIdleRunning(ctx context.Context, idleThreshold time.Du
 	query := `SELECT id, user_id, repo, task, model, status,
 		        clarification_question, clarification_answer, clarification_message_id,
 		        input_tokens, output_tokens, cost_usd,
-		        pr_url, error, session_id, pod_name, opencode_password,
+		        pr_url, error, session_id, pod_name,
 		        discord_message_id, discord_channel_id,
 		        created_at, started_at, completed_at, last_activity_at
 		 FROM minions 
@@ -816,7 +815,7 @@ func (s *MinionStore) ListIdleRunning(ctx context.Context, idleThreshold time.Du
 			&m.ID, &m.UserID, &m.Repo, &m.Task, &m.Model, &m.Status,
 			&m.ClarificationQuestion, &m.ClarificationAnswer, &m.ClarificationMessageID,
 			&m.InputTokens, &m.OutputTokens, &m.CostUSD,
-			&m.PRURL, &m.Error, &m.SessionID, &m.PodName, &m.OpencodePassword,
+			&m.PRURL, &m.Error, &m.SessionID, &m.PodName,
 			&m.DiscordMessageID, &m.DiscordChannelID,
 			&m.CreatedAt, &m.StartedAt, &m.CompletedAt, &m.LastActivityAt,
 		)
@@ -839,7 +838,7 @@ func (s *MinionStore) ListClarificationTimeouts(ctx context.Context, timeout tim
 	query := `SELECT id, user_id, repo, task, model, status,
 		        clarification_question, clarification_answer, clarification_message_id,
 		        input_tokens, output_tokens, cost_usd,
-		        pr_url, error, session_id, pod_name, opencode_password,
+		        pr_url, error, session_id, pod_name,
 		        discord_message_id, discord_channel_id,
 		        created_at, started_at, completed_at, last_activity_at
 		 FROM minions 
@@ -859,7 +858,7 @@ func (s *MinionStore) ListClarificationTimeouts(ctx context.Context, timeout tim
 			&m.ID, &m.UserID, &m.Repo, &m.Task, &m.Model, &m.Status,
 			&m.ClarificationQuestion, &m.ClarificationAnswer, &m.ClarificationMessageID,
 			&m.InputTokens, &m.OutputTokens, &m.CostUSD,
-			&m.PRURL, &m.Error, &m.SessionID, &m.PodName, &m.OpencodePassword,
+			&m.PRURL, &m.Error, &m.SessionID, &m.PodName,
 			&m.DiscordMessageID, &m.DiscordChannelID,
 			&m.CreatedAt, &m.StartedAt, &m.CompletedAt, &m.LastActivityAt,
 		)
@@ -884,7 +883,7 @@ func (s *MinionStore) GetByClarificationMessageID(ctx context.Context, messageID
 		`SELECT id, user_id, repo, task, model, status,
 		        clarification_question, clarification_answer, clarification_message_id,
 		        input_tokens, output_tokens, cost_usd,
-		        pr_url, error, session_id, pod_name, opencode_password,
+		        pr_url, error, session_id, pod_name,
 		        discord_message_id, discord_channel_id,
 		        created_at, started_at, completed_at, last_activity_at
 		 FROM minions WHERE clarification_message_id = $1`,
@@ -893,7 +892,7 @@ func (s *MinionStore) GetByClarificationMessageID(ctx context.Context, messageID
 		&m.ID, &m.UserID, &m.Repo, &m.Task, &m.Model, &m.Status,
 		&m.ClarificationQuestion, &m.ClarificationAnswer, &m.ClarificationMessageID,
 		&m.InputTokens, &m.OutputTokens, &m.CostUSD,
-		&m.PRURL, &m.Error, &m.SessionID, &m.PodName, &m.OpencodePassword,
+		&m.PRURL, &m.Error, &m.SessionID, &m.PodName,
 		&m.DiscordMessageID, &m.DiscordChannelID,
 		&m.CreatedAt, &m.StartedAt, &m.CompletedAt, &m.LastActivityAt,
 	)
@@ -1046,24 +1045,4 @@ func (s *MinionStore) GetStats(ctx context.Context) (*Stats, error) {
 	}
 
 	return stats, nil
-}
-
-// StorePassword stores a per-minion OpenCode password for SSE authentication.
-// Idempotent - safe to call multiple times with same password.
-func (s *MinionStore) StorePassword(ctx context.Context, id uuid.UUID, password string) error {
-	_, err := s.pool.Exec(ctx,
-		`UPDATE minions SET opencode_password = $1 WHERE id = $2`,
-		password, id,
-	)
-	return err
-}
-
-// ClearPassword removes the opencode_password when minion reaches terminal state.
-// Idempotent - safe to call multiple times (NULL remains NULL).
-func (s *MinionStore) ClearPassword(ctx context.Context, id uuid.UUID) error {
-	_, err := s.pool.Exec(ctx,
-		`UPDATE minions SET opencode_password = NULL WHERE id = $1`,
-		id,
-	)
-	return err
 }

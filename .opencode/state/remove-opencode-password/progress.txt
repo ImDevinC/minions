@@ -21,3 +21,18 @@ Started: 2026-03-22
 - Inserted after 005_add_opencode_password.sql (both migrations coexist in ConfigMap)
 - Files changed: infra/configmap.yaml (added 4 lines after line 112)
 - **Learnings:** ConfigMap migrations use `NNN_description.sql: |` key format with literal block scalar
+
+## Task - code-1
+- Removed OpencodePassword field from Minion struct (orchestrator/internal/db/minions.go:56)
+- Removed opencode_password column from all 8 database query methods:
+  - FindRecentDuplicate: SELECT and Scan
+  - GetByID: SELECT and Scan
+  - List: SELECT and Scan
+  - ListByStatuses: SELECT and Scan
+  - ListPending: SELECT and Scan
+  - ListIdleRunning: SELECT and Scan
+  - ListClarificationTimeouts: SELECT and Scan
+  - GetByClarificationMessageID: SELECT and Scan
+- Removed StorePassword() and ClearPassword() methods (lines 1051-1069)
+- Files changed: orchestrator/internal/db/minions.go
+- **Learnings:** When removing a struct field, must update ALL query SELECT lists and Scan calls to match column count. Go will panic at runtime if SELECT/Scan column counts mismatch.
