@@ -17,9 +17,6 @@ const (
 // Allowed model prefixes
 var allowedModelPrefixes = []string{"anthropic/", "openai/"}
 
-// DefaultModel is used when no --model flag is provided
-const DefaultModel = "anthropic/claude-sonnet-4-5"
-
 // Sentinel errors for validation failures
 var (
 	ErrMissingRepo       = errors.New("missing required --repo flag")
@@ -42,7 +39,8 @@ var repoRegex = regexp.MustCompile(`^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+(/[a-zA-Z0-9
 
 // Parse extracts a Command from a message mentioning the bot.
 // The message should have the mention already stripped.
-func Parse(text string) (*Command, error) {
+// defaultModel is used when no --model flag is provided.
+func Parse(text string, defaultModel string) (*Command, error) {
 	// Extract --repo flag
 	repo, text, err := extractFlag(text, "--repo")
 	if err != nil {
@@ -61,7 +59,7 @@ func Parse(text string) (*Command, error) {
 		return nil, err
 	}
 	if model == "" {
-		model = DefaultModel
+		model = defaultModel
 	} else {
 		if !isAllowedModel(model) {
 			return nil, fmt.Errorf("%w: %s", ErrUnknownModel, model)

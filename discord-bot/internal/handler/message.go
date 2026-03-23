@@ -51,14 +51,16 @@ type MessageHandler struct {
 	logger        *slog.Logger
 	orchestrator  Orchestrator
 	clarification ClarificationEvaluator
+	defaultModel  string
 }
 
 // NewMessageHandler creates a new message handler
-func NewMessageHandler(logger *slog.Logger, orch Orchestrator, clarification ClarificationEvaluator) *MessageHandler {
+func NewMessageHandler(logger *slog.Logger, orch Orchestrator, clarification ClarificationEvaluator, defaultModel string) *MessageHandler {
 	return &MessageHandler{
 		logger:        logger,
 		orchestrator:  orch,
 		clarification: clarification,
+		defaultModel:  defaultModel,
 	}
 }
 
@@ -93,7 +95,7 @@ func (h *MessageHandler) Handle(s *discordgo.Session, m *discordgo.MessageCreate
 
 	// Strip the mention and parse the command
 	text := command.StripMention(m.Content, s.State.User.ID)
-	cmd, err := command.Parse(text)
+	cmd, err := command.Parse(text, h.defaultModel)
 	if err != nil {
 		h.handleParseError(s, m, err)
 		return

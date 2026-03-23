@@ -7,6 +7,8 @@ import (
 )
 
 func TestParse(t *testing.T) {
+	const testDefaultModel = "anthropic/claude-sonnet-4-5"
+
 	tests := []struct {
 		name    string
 		input   string
@@ -18,7 +20,7 @@ func TestParse(t *testing.T) {
 			input: "--repo owner/repo Fix the bug in main.go",
 			want: &Command{
 				Repo:  "owner/repo",
-				Model: DefaultModel,
+				Model: testDefaultModel,
 				Task:  "Fix the bug in main.go",
 			},
 		},
@@ -45,7 +47,7 @@ func TestParse(t *testing.T) {
 			input: "--repo org/team/project Do the thing",
 			want: &Command{
 				Repo:  "org/team/project",
-				Model: DefaultModel,
+				Model: testDefaultModel,
 				Task:  "Do the thing",
 			},
 		},
@@ -54,7 +56,7 @@ func TestParse(t *testing.T) {
 			input: "--repo my_org.name/my-repo_v2 Add tests",
 			want: &Command{
 				Repo:  "my_org.name/my-repo_v2",
-				Model: DefaultModel,
+				Model: testDefaultModel,
 				Task:  "Add tests",
 			},
 		},
@@ -63,7 +65,7 @@ func TestParse(t *testing.T) {
 			input: `--repo="owner/repo" Fix it`,
 			want: &Command{
 				Repo:  "owner/repo",
-				Model: DefaultModel,
+				Model: testDefaultModel,
 				Task:  "Fix it",
 			},
 		},
@@ -81,7 +83,7 @@ func TestParse(t *testing.T) {
 			input: "--repo owner/repo Fix the following:\n1. Bug A\n2. Bug B",
 			want: &Command{
 				Repo:  "owner/repo",
-				Model: DefaultModel,
+				Model: testDefaultModel,
 				Task:  "Fix the following:\n1. Bug A\n2. Bug B",
 			},
 		},
@@ -129,7 +131,7 @@ func TestParse(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := Parse(tt.input)
+			got, err := Parse(tt.input, testDefaultModel)
 
 			if tt.wantErr != nil {
 				if err == nil {

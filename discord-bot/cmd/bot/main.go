@@ -60,6 +60,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// DEFAULT_MODEL is required for command parsing
+	defaultModel := os.Getenv("DEFAULT_MODEL")
+	if defaultModel == "" {
+		logger.Error("DEFAULT_MODEL environment variable is required")
+		os.Exit(1)
+	}
+
 	// Create orchestrator client for minion creation + rate limiting
 	orchClient := orchestrator.NewClient(orchestratorURL, apiToken)
 
@@ -89,7 +96,7 @@ func main() {
 	})
 
 	// Add message handler for @minion mentions
-	msgHandler := handler.NewMessageHandler(logger, orchClient, clarifyHandler)
+	msgHandler := handler.NewMessageHandler(logger, orchClient, clarifyHandler, defaultModel)
 	discord.AddHandler(msgHandler.Handle)
 	// Also handle replies to clarification questions
 	discord.AddHandler(msgHandler.HandleReply)

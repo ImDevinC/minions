@@ -201,6 +201,9 @@ spec:
             # Orchestrator API endpoint
             - name: ORCHESTRATOR_URL
               value: "http://orchestrator.minions.svc.cluster.local:8080"
+            # Default model for command parsing (when --model not specified)
+            - name: DEFAULT_MODEL
+              value: "anthropic/claude-sonnet-4.5"
           envFrom:
             # DISCORD_BOT_TOKEN
             - secretRef:

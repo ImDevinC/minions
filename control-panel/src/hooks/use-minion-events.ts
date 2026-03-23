@@ -148,12 +148,14 @@ export function useMinionEvents({
 
         try {
           const data = JSON.parse(event.data);
-          // SSE proxy sends individual events
+          
+          // Defensive: handle both enriched format (id/timestamp at root)
+          // and legacy format (nested in content)
           const newEvent: MinionEvent = {
-            id: data.id,
-            timestamp: data.timestamp,
-            event_type: data.event_type,
-            content: data.content,
+            id: data.id || data.content?.id || crypto.randomUUID(),
+            timestamp: data.timestamp || data.content?.timestamp || new Date().toISOString(),
+            event_type: data.event_type || data.content?.event_type || data.type || "unknown",
+            content: data.content?.content || data.content || {},
           };
           setEvents((prev) => mergeEvents(prev, [newEvent]));
         } catch (err) {
