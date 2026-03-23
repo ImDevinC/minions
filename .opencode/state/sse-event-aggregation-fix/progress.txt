@@ -39,3 +39,11 @@ Started: 2026-03-23
 - Adds event.id to state.processedEventIds to prevent duplicate processing
 - Files changed: control-panel/src/lib/event-aggregation.ts
 - **Learnings:** Delta events need separate handling from part.updated events since they use extractDeltaContent() not extractTextContent()
+
+## Task - functional-5
+- Added delta type routing in the delta event handler (lines 673-682)
+- Look up deltaPartID in state.partTypeByID to get the part type
+- If type is "reasoning", add to reasoningPartIDs; else add to textPartIDs
+- Default to text when type is unknown (sets up functional-5b handling)
+- Files changed: control-panel/src/lib/event-aggregation.ts
+- **Learnings:** The routing uses the type tracked in functional-3 to correctly categorize delta content

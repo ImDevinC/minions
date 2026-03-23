@@ -57,7 +57,7 @@
         "If type is 'reasoning', partID is added to reasoningPartIDs",
         "If type is 'text', partID is added to textPartIDs"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "functional-5b",

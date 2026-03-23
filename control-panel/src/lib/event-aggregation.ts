@@ -669,7 +669,18 @@ export function aggregateEvents(
           state.processedEventIds.add(event.id);
         }
 
-        // Route to appropriate part list based on tracked type (tasks 5/5b will implement routing)
+        // Route to appropriate part list based on tracked type
+        const deltaType = state.partTypeByID.get(deltaPartID);
+        if (deltaType === "reasoning") {
+          if (!reasoningPartIDs.includes(deltaPartID)) {
+            reasoningPartIDs.push(deltaPartID);
+          }
+        } else {
+          // Default to text for unknown types (functional-5b handles this case)
+          if (!textPartIDs.includes(deltaPartID)) {
+            textPartIDs.push(deltaPartID);
+          }
+        }
         continue;
       }
 
