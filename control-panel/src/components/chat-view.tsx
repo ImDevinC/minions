@@ -131,7 +131,7 @@ export function ChatView({
   // Loading state: show skeleton loaders during initial page load
   if (isLoading) {
     return (
-      <div className="h-[500px] bg-gray-900 rounded-lg border border-gray-700 p-4 space-y-4">
+      <div className="h-[400px] md:h-[500px] bg-gray-900 rounded-lg border border-gray-700 p-3 md:p-4 space-y-3 md:space-y-4">
         {/* Skeleton message rows */}
         {[1, 2, 3].map((i) => (
           <div key={i} className="animate-pulse space-y-2">
@@ -212,7 +212,7 @@ export function ChatView({
       <div
         ref={parentRef}
         onScroll={handleScroll}
-        className="h-[500px] overflow-auto bg-gray-900 rounded-lg border border-gray-700"
+        className="h-[400px] md:h-[500px] overflow-auto bg-gray-900 rounded-lg border border-gray-700"
       >
         <div
           style={{

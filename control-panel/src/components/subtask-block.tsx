@@ -40,7 +40,7 @@ export function SubtaskBlock({
         type="button"
         onClick={() => setIsExpanded(!isExpanded)}
         className={`
-          flex items-center gap-1.5 w-full text-left px-3 py-2
+          flex items-center gap-1.5 w-full text-left px-2 md:px-3 py-1.5 md:py-2
           transition-colors duration-150
           ${isExpanded ? "text-cyan-300" : "text-cyan-500 hover:text-cyan-400"}
         `}
@@ -53,15 +53,15 @@ export function SubtaskBlock({
         >
           ▶
         </span>
-        <span className="text-sm font-medium truncate">{headerText}</span>
-        <span className="ml-auto text-xs text-gray-500">
-          {subtask.messages.length} message{subtask.messages.length !== 1 ? "s" : ""}
+        <span className="text-xs md:text-sm font-medium truncate min-w-0 flex-1">{headerText}</span>
+        <span className="text-[10px] md:text-xs text-gray-500 flex-shrink-0">
+          {subtask.messages.length} msg{subtask.messages.length !== 1 ? "s" : ""}
         </span>
       </button>
 
       {isExpanded && (
         <div className="border-t border-gray-700/50">
-          <div className="pl-4 border-l-2 border-cyan-600/50 ml-3 my-2">
+          <div className="pl-3 md:pl-4 border-l-2 border-cyan-600/50 ml-2 md:ml-3 my-2">
             {subtask.messages.length === 0 ? (
               <p className="text-xs text-gray-500 italic py-2 px-2">
                 No messages yet

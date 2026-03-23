@@ -266,27 +266,27 @@ export function ToolCallCard({ tool, isExpanded, onToggle }: ToolCallCardProps) 
       <button
         type="button"
         onClick={onToggle}
-        className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-gray-800/50 transition-colors"
+        className="w-full flex items-center gap-1.5 md:gap-2 px-2 md:px-3 py-1.5 md:py-2 text-left hover:bg-gray-800/50 transition-colors"
       >
         {/* Icon */}
-        <span className="text-base flex-shrink-0" role="img" aria-label={tool.tool}>
+        <span className="text-sm md:text-base flex-shrink-0" role="img" aria-label={tool.tool}>
           {icon}
         </span>
 
-        {/* Tool name */}
-        <span className="text-sm font-medium text-gray-200 flex-shrink-0">
+        {/* Tool name - hidden on mobile to save space, summary provides context */}
+        <span className="hidden sm:inline text-sm font-medium text-gray-200 flex-shrink-0">
           {tool.tool}
         </span>
 
         {/* Status badge */}
         <span
-          className={`px-1.5 py-0.5 rounded text-xs font-medium flex-shrink-0 ${statusClasses}`}
+          className={`px-1 md:px-1.5 py-0.5 rounded text-[10px] md:text-xs font-medium flex-shrink-0 ${statusClasses}`}
         >
           {tool.status}
         </span>
 
-        {/* Summary - truncated */}
-        <span className="text-sm text-gray-400 truncate flex-1">
+        {/* Summary - truncated, smaller on mobile */}
+        <span className="text-xs md:text-sm text-gray-400 truncate flex-1 min-w-0">
           {summary}
         </span>
 
@@ -309,14 +309,14 @@ export function ToolCallCard({ tool, isExpanded, onToggle }: ToolCallCardProps) 
         <div className="overflow-hidden">
           <div className={`border-t border-gray-700 ${isExpanded ? "opacity-100" : "opacity-0"} transition-opacity duration-200`}>
             {/* Tool input as syntax-highlighted JSON */}
-            <div className="px-3 py-2 border-b border-gray-700">
+            <div className="px-2 md:px-3 py-2 border-b border-gray-700">
               <div className="text-xs text-gray-500 mb-1">Input</div>
               <TruncatedSyntaxHighlighter content={inputJson} label="input" />
             </div>
 
             {/* Tool output (if present) */}
             {tool.output && (
-              <div className="px-3 py-2 border-b border-gray-700">
+              <div className="px-2 md:px-3 py-2 border-b border-gray-700">
                 <div className="text-xs text-gray-500 mb-1">Output</div>
                 <TruncatedContent
                   content={tool.output}
@@ -328,7 +328,7 @@ export function ToolCallCard({ tool, isExpanded, onToggle }: ToolCallCardProps) 
 
             {/* Error (if present) */}
             {tool.error && (
-              <div className="px-3 py-2">
+              <div className="px-2 md:px-3 py-2">
                 <div className="text-xs text-red-400 mb-1">Error</div>
                 <pre className="text-xs text-red-300 bg-red-900/20 rounded p-2 overflow-x-auto whitespace-pre-wrap break-words">
                   {tool.error}

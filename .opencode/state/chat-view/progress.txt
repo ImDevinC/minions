@@ -200,3 +200,15 @@ Started: 2026-03-23
 - Added unit test verifying textParts population
 - Files changed: control-panel/src/types/minion.ts, control-panel/src/lib/event-aggregation.ts, control-panel/src/lib/event-aggregation.test.ts, control-panel/src/components/chat-message-row.tsx
 - **Learnings:** Per-part memoization + virtualization = smooth streaming; during rapid deltas only the active part re-renders while completed parts stay cached
+
+## Task - responsive-1
+- Added responsive layout for tablet screens (768px+)
+- ChatView: responsive height (h-[400px] md:h-[500px]), responsive padding in skeleton loader
+- ChatMessageRow: responsive padding (py-2 md:py-3, px-3 md:px-4), responsive prose sizing (prose-sm md:prose)
+- ToolCallCard: responsive gaps/padding, smaller fonts on mobile (text-xs md:text-sm), tool name hidden on <sm to save space
+- SubtaskBlock: responsive padding, smaller badge text on mobile (text-[10px] md:text-xs)
+- SystemMessageRow: responsive padding (px-3 md:px-4), smaller error text on mobile (text-xs md:text-sm)
+- ThinkingBlock: responsive padding/font sizes
+- Code blocks already scroll horizontally via whiteSpace: "pre" (verified)
+- Files changed: chat-view.tsx, chat-message-row.tsx, tool-call-card.tsx, subtask-block.tsx, system-message-row.tsx, thinking-block.tsx
+- **Learnings:** Tailwind's md: breakpoint (768px) aligns perfectly with tablet targets; hiding non-essential elements (tool name) on mobile keeps cards compact while summary provides context

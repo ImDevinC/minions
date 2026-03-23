@@ -266,7 +266,7 @@
         "Tool cards remain readable on narrower screens",
         "Code blocks scroll horizontally (no forced line wrap)"
       ],
-      "passes": false
+      "passes": true
     }
   ],
   "context": {

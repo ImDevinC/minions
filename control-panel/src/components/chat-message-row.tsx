@@ -37,7 +37,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({ message, expandedTo
   }
 
   return (
-    <div className="py-3 px-4 border-b border-gray-800">
+    <div className="py-2 md:py-3 px-3 md:px-4 border-b border-gray-800">
       {/* Timestamp and streaming indicator */}
       <div className="text-xs text-gray-500 mb-2">
         {new Date(message.timestamp).toLocaleTimeString()}
@@ -56,7 +56,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({ message, expandedTo
 
       {/* Markdown text content - rendered per-part for memoization */}
       {message.textParts.length > 0 && (
-        <div className="prose prose-invert max-w-none">
+        <div className="prose prose-sm md:prose prose-invert max-w-none overflow-x-auto">
           {message.textParts.map((part, idx) => (
             <MemoizedMarkdownPart
               key={part.id}

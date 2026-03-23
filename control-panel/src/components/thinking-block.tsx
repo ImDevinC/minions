@@ -50,8 +50,8 @@ export function ThinkingBlock({ content }: ThinkingBlockProps) {
       </button>
 
       {isExpanded && (
-        <div className="mt-2 pl-4 border-l-2 border-gray-700">
-          <p className="text-sm text-gray-400 leading-relaxed whitespace-pre-wrap">
+        <div className="mt-2 pl-3 md:pl-4 border-l-2 border-gray-700">
+          <p className="text-xs md:text-sm text-gray-400 leading-relaxed whitespace-pre-wrap break-words">
             {content}
           </p>
         </div>
