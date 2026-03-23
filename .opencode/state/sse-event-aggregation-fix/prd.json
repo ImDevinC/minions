@@ -46,7 +46,7 @@
         "Delta text is accumulated in state.textByPart by partID",
         "Event is added to state.processedEventIds to prevent duplicates"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "functional-5",

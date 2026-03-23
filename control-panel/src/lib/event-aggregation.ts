@@ -657,6 +657,22 @@ export function aggregateEvents(
         continue;
       }
 
+      // Handle message.part.delta events (streaming text chunks)
+      const deltaContent = extractDeltaContent(event);
+      if (deltaContent) {
+        const { partID: deltaPartID, delta } = deltaContent;
+
+        // Only accumulate if we haven't processed this event before
+        if (!state.processedEventIds.has(event.id)) {
+          const existing = state.textByPart.get(deltaPartID) || "";
+          state.textByPart.set(deltaPartID, existing + delta);
+          state.processedEventIds.add(event.id);
+        }
+
+        // Route to appropriate part list based on tracked type (tasks 5/5b will implement routing)
+        continue;
+      }
+
       // Extract tool calls
       if (partType === "tool" && partID) {
         const toolCall = extractToolCall(event, partID);

@@ -31,3 +31,11 @@ Started: 2026-03-23
 - Placement is intentional: runs BEFORE delta processing so delta events can look up their type
 - Files changed: control-panel/src/lib/event-aggregation.ts
 - **Learnings:** The extractTextContent() function already parses the type, just needed to store it in partTypeByID for later delta lookups
+
+## Task - functional-4
+- Added message.part.delta event handling in aggregation loop after extractTextContent block (line ~658)
+- Calls extractDeltaContent() to get partID and delta text from flat event structure
+- Accumulates delta text in state.textByPart using partID as key
+- Adds event.id to state.processedEventIds to prevent duplicate processing
+- Files changed: control-panel/src/lib/event-aggregation.ts
+- **Learnings:** Delta events need separate handling from part.updated events since they use extractDeltaContent() not extractTextContent()
