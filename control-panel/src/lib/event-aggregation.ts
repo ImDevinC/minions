@@ -262,6 +262,17 @@ function shouldSkipEvent(event: MinionEvent): boolean {
     return true;
   }
 
+  // Skip summary events: {sessionID: "...", summary: {...}}
+  // These are session-level summary metadata, not displayable chat content
+  if (
+    typeof content.sessionID === "string" &&
+    content.summary !== null &&
+    typeof content.summary === "object" &&
+    !Array.isArray(content.summary)
+  ) {
+    return true;
+  }
+
   return false;
 }
 

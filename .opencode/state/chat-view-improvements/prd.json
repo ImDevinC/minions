@@ -53,7 +53,7 @@
         "Add detection for content.sessionID + content.summary in shouldSkipEvent()",
         "Verify events like {\"sessionID\":\"...\",\"summary\":{...}} are skipped"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "filtering-6",

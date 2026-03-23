@@ -33,3 +33,9 @@ Started: 2026-03-23
 - Events with messageID are NOT skipped (they belong to chat messages)
 - Files changed: control-panel/src/lib/event-aggregation.ts
 - **Learnings:** Negative check (`typeof content.messageID !== "string"`) distinguishes bare status from message-scoped status
+
+## Task - filtering-5
+- Added detection for `content.summary` being an object with `content.sessionID` in `shouldSkipEvent()`
+- Skips session-level summary metadata like `{sessionID: "...", summary: {...}}`
+- Files changed: control-panel/src/lib/event-aggregation.ts
+- **Learnings:** Summary events don't need messageID check since they never have one (unlike status which can be message-scoped)
