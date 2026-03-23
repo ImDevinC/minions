@@ -105,3 +105,8 @@ data:
     COMMENT ON INDEX idx_minions_status IS 'Speeds up status filtering on list endpoints';
     COMMENT ON INDEX idx_minions_status_last_activity_at IS 'Watchdog query: running minions with stale last_activity_at';
     COMMENT ON INDEX idx_minions_clarification_message_id IS 'Partial index for clarification reply lookup';
+
+  005_add_opencode_password.sql: |
+    -- Add opencode_password column for per-minion SSE authentication
+    -- Nullable: passwords only exist during active execution
+    ALTER TABLE minions ADD COLUMN opencode_password TEXT NULL;
