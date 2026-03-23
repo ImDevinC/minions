@@ -146,3 +146,12 @@ Started: 2026-03-23
 - isStreaming detection already worked in aggregateEvents (sets true if latest event within 30s)
 - Files changed: control-panel/src/hooks/use-minion-events.ts
 - **Learnings:** Debounce buffer with refs (pendingEventsRef, debounceTimerRef) avoids stale closures; ~16ms matches 60fps for smooth UI
+
+## Task - streaming-2
+- Auto-scroll behavior for streaming view was mostly pre-implemented
+- autoScroll state defaults to true, scrolls to bottom on new items via useEffect
+- Scroll handler detects when user scrolls up (>100px from bottom) and disables auto-scroll
+- "Jump to latest" button appears when auto-scroll disabled, re-enables on click
+- Added responsive positioning: smaller padding/sizing on mobile (bottom-3 right-2, px-2.5 py-1), larger on md+ (bottom-4 right-4, px-3 py-1.5)
+- Files changed: control-panel/src/components/chat-view.tsx (lines 124-136)
+- **Learnings:** Most streaming UX was already implemented; task was mainly verifying and adding responsive button positioning

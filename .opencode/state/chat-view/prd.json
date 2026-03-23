@@ -205,7 +205,7 @@
         "Clicking 'Jump to latest' re-enables auto-scroll and scrolls to bottom",
         "Button repositions appropriately on smaller screens"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "error-1",

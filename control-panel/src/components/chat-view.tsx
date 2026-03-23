@@ -121,14 +121,14 @@ export function ChatView({ events }: ChatViewProps) {
 
   return (
     <div className="relative">
-      {/* Jump to latest button */}
+      {/* Jump to latest button - repositions on smaller screens */}
       {!autoScroll && (
         <button
           onClick={() => {
             setAutoScroll(true);
             virtualizer.scrollToIndex(renderItems.length - 1, { align: "end" });
           }}
-          className="absolute bottom-4 right-4 z-10 bg-blue-600 hover:bg-blue-500 text-white text-xs px-3 py-1.5 rounded-full shadow-lg transition-colors"
+          className="absolute bottom-3 right-2 md:bottom-4 md:right-4 z-10 bg-blue-600 hover:bg-blue-500 text-white text-xs px-2.5 py-1 md:px-3 md:py-1.5 rounded-full shadow-lg transition-colors"
         >
           ↓ Jump to latest
         </button>
