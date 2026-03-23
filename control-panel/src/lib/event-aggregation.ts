@@ -262,6 +262,12 @@ function eventToSystemMessage(event: MinionEvent): SystemMessage {
       (event.content.error as string) ||
       (event.content.message as string) ||
       event.content;
+  } else {
+    // Unknown event type - log warning for debugging
+    console.warn(
+      `[event-aggregation] Unknown event type: ${event.event_type}`,
+      { eventId: event.id, partType }
+    );
   }
 
   return {

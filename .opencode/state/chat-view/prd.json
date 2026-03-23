@@ -218,7 +218,7 @@
         "SSE connection loss shows existing 'Reconnecting...' indicator",
         "Unknown event types log warning and render as subtle system message"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "loading-1",

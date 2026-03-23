@@ -155,3 +155,13 @@ Started: 2026-03-23
 - Added responsive positioning: smaller padding/sizing on mobile (bottom-3 right-2, px-2.5 py-1), larger on md+ (bottom-4 right-4, px-3 py-1.5)
 - Files changed: control-panel/src/components/chat-view.tsx (lines 124-136)
 - **Learnings:** Most streaming UX was already implemented; task was mainly verifying and adding responsive button positioning
+
+## Task - error-1
+- Error state handling was mostly pre-implemented, added warning logs for unknown events
+- session.error events: SystemMessageRow already renders as red error banner (lines 89-98)
+- Malformed JSON: useMinionEvents has try/catch around JSON.parse with console.error (lines 179-194)
+- Missing messageID: isSystemEvent() returns true, eventToSystemMessage() converts to SystemMessage
+- SSE connection loss: minion-detail-client shows "Connecting..." with yellow pulse (lines 585-596)
+- Unknown events: Added console.warn in eventToSystemMessage() before fallback rendering
+- Files changed: control-panel/src/lib/event-aggregation.ts (lines 265-270)
+- **Learnings:** Most error handling already in place; unknown event logging is helpful for debugging malformed backend events
