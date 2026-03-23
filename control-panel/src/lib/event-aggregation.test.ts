@@ -95,6 +95,60 @@ function makeTaskToolEvent(
   };
 }
 
+/**
+ * Helper to create a message.part.updated event (announces part type).
+ */
+function makePartUpdatedEvent(
+  id: string,
+  messageID: string,
+  partID: string,
+  partType: "text" | "reasoning",
+  text: string,
+  opts: { timestamp?: string; sessionID?: string } = {}
+): MinionEvent {
+  return {
+    id,
+    timestamp: opts.timestamp || new Date().toISOString(),
+    event_type: "message.part.updated",
+    content: {
+      messageID,
+      sessionID: opts.sessionID,
+      properties: {
+        part: {
+          id: partID,
+          type: partType,
+          text,
+        },
+      },
+    },
+  };
+}
+
+/**
+ * Helper to create a message.part.delta event (streaming chunk).
+ * These have flat structure: content.partID, content.delta, content.field
+ */
+function makePartDeltaEvent(
+  id: string,
+  messageID: string,
+  partID: string,
+  delta: string,
+  opts: { timestamp?: string; sessionID?: string; field?: string } = {}
+): MinionEvent {
+  return {
+    id,
+    timestamp: opts.timestamp || new Date().toISOString(),
+    event_type: "message.part.delta",
+    content: {
+      messageID,
+      sessionID: opts.sessionID,
+      partID,
+      delta,
+      field: opts.field || "text",
+    },
+  };
+}
+
 describe("event-aggregation", () => {
   describe("delta accumulation", () => {
     it("appends delta events to existing text buffer", () => {
@@ -253,6 +307,152 @@ describe("event-aggregation", () => {
       const result2 = aggregateEvents([event1, event2]);
       // Each call gets fresh state, so deltas accumulate within that call
       expect(result2.messages[0].text).toBe("Hello world");
+    });
+  });
+
+  describe("message.part.delta event handling", () => {
+    it("accumulates text delta events from flat event structure", () => {
+      const deltaState = createDeltaState();
+
+      // First, a part.updated event announces the part type
+      const partUpdated = makePartUpdatedEvent(
+        "e1",
+        "msg1",
+        "part1",
+        "text",
+        "",
+        { timestamp: "2024-01-01T00:00:00Z" }
+      );
+
+      // Then delta events stream in with flat structure
+      const delta1 = makePartDeltaEvent("e2", "msg1", "part1", "Hello", {
+        timestamp: "2024-01-01T00:00:01Z",
+      });
+      const delta2 = makePartDeltaEvent("e3", "msg1", "part1", " world", {
+        timestamp: "2024-01-01T00:00:02Z",
+      });
+
+      const result = aggregateEvents(
+        [partUpdated, delta1, delta2],
+        deltaState
+      );
+
+      expect(result.messages).toHaveLength(1);
+      expect(result.messages[0].text).toBe("Hello world");
+    });
+
+    it("routes reasoning delta events to thinking field", () => {
+      const deltaState = createDeltaState();
+
+      // Part.updated event announces this is a reasoning part
+      const partUpdated = makePartUpdatedEvent(
+        "e1",
+        "msg1",
+        "think1",
+        "reasoning",
+        "",
+        { timestamp: "2024-01-01T00:00:00Z" }
+      );
+
+      // Delta events stream reasoning content
+      const delta1 = makePartDeltaEvent("e2", "msg1", "think1", "Let me ", {
+        timestamp: "2024-01-01T00:00:01Z",
+      });
+      const delta2 = makePartDeltaEvent("e3", "msg1", "think1", "think...", {
+        timestamp: "2024-01-01T00:00:02Z",
+      });
+
+      const result = aggregateEvents(
+        [partUpdated, delta1, delta2],
+        deltaState
+      );
+
+      expect(result.messages).toHaveLength(1);
+      expect(result.messages[0].thinking).toBe("Let me think...");
+      expect(result.messages[0].text).toBe(""); // No text content
+    });
+
+    it("defaults to text when delta arrives before part.updated (race condition)", () => {
+      const deltaState = createDeltaState();
+
+      // Delta arrives before we know the part type
+      const delta = makePartDeltaEvent("e1", "msg1", "part1", "Early delta", {
+        timestamp: "2024-01-01T00:00:00Z",
+      });
+
+      const result = aggregateEvents([delta], deltaState);
+
+      expect(result.messages).toHaveLength(1);
+      // Defaults to text when type is unknown
+      expect(result.messages[0].text).toBe("Early delta");
+      expect(result.messages[0].thinking).toBeUndefined();
+    });
+
+    it("handles mixed text and reasoning delta streams", () => {
+      const deltaState = createDeltaState();
+
+      // Announce both part types
+      const textPart = makePartUpdatedEvent(
+        "e1",
+        "msg1",
+        "text1",
+        "text",
+        "",
+        { timestamp: "2024-01-01T00:00:00Z" }
+      );
+      const reasoningPart = makePartUpdatedEvent(
+        "e2",
+        "msg1",
+        "think1",
+        "reasoning",
+        "",
+        { timestamp: "2024-01-01T00:00:01Z" }
+      );
+
+      // Interleaved deltas for both
+      const textDelta = makePartDeltaEvent("e3", "msg1", "text1", "Answer", {
+        timestamp: "2024-01-01T00:00:02Z",
+      });
+      const thinkDelta = makePartDeltaEvent(
+        "e4",
+        "msg1",
+        "think1",
+        "Reasoning",
+        { timestamp: "2024-01-01T00:00:03Z" }
+      );
+
+      const result = aggregateEvents(
+        [textPart, reasoningPart, textDelta, thinkDelta],
+        deltaState
+      );
+
+      expect(result.messages).toHaveLength(1);
+      expect(result.messages[0].text).toBe("Answer");
+      expect(result.messages[0].thinking).toBe("Reasoning");
+    });
+
+    it("deduplicates delta events by event ID", () => {
+      const deltaState = createDeltaState();
+
+      const partUpdated = makePartUpdatedEvent(
+        "e1",
+        "msg1",
+        "part1",
+        "text",
+        "",
+        { timestamp: "2024-01-01T00:00:00Z" }
+      );
+
+      const delta = makePartDeltaEvent("e2", "msg1", "part1", "Hello", {
+        timestamp: "2024-01-01T00:00:01Z",
+      });
+
+      // Same event passed twice (simulating re-aggregation)
+      aggregateEvents([partUpdated, delta], deltaState);
+      const result = aggregateEvents([partUpdated, delta, delta], deltaState);
+
+      // Should only count once
+      expect(result.messages[0].text).toBe("Hello");
     });
   });
 
@@ -788,6 +988,96 @@ describe("event-aggregation", () => {
       expect(result.messages[0].tools[0].status).toBe("completed");
       expect(result.messages[0].tools[0].input).toEqual({ command: "ls -la" });
       expect(result.messages[0].tools[0].output).toBe("file1.txt\nfile2.txt");
+    });
+
+    it("preserves tool input when subsequent events have empty input", () => {
+      // First event has populated input
+      const event1: MinionEvent = {
+        id: "e1",
+        timestamp: "2024-01-01T00:00:00Z",
+        event_type: "part.updated",
+        content: {
+          messageID: "msg1",
+          id: "tool1",
+          type: "tool",
+          tool: "read",
+          state: {
+            status: "pending",
+            input: { filePath: "/home/user/file.ts" },
+          },
+        },
+      };
+
+      // Second event has empty input (shouldn't overwrite)
+      const event2: MinionEvent = {
+        id: "e2",
+        timestamp: "2024-01-01T00:00:01Z",
+        event_type: "part.updated",
+        content: {
+          messageID: "msg1",
+          id: "tool1",
+          type: "tool",
+          tool: "read",
+          state: {
+            status: "completed",
+            input: {},
+            output: "file contents here",
+          },
+        },
+      };
+
+      const result = aggregateEvents([event1, event2]);
+
+      expect(result.messages).toHaveLength(1);
+      expect(result.messages[0].tools).toHaveLength(1);
+      // Input should be preserved from first event
+      expect(result.messages[0].tools[0].input).toEqual({ filePath: "/home/user/file.ts" });
+      expect(result.messages[0].tools[0].status).toBe("completed");
+      expect(result.messages[0].tools[0].output).toBe("file contents here");
+    });
+
+    it("updates tool input when new non-empty input arrives", () => {
+      // First event with partial input
+      const event1: MinionEvent = {
+        id: "e1",
+        timestamp: "2024-01-01T00:00:00Z",
+        event_type: "part.updated",
+        content: {
+          messageID: "msg1",
+          id: "tool1",
+          type: "tool",
+          tool: "bash",
+          state: {
+            status: "pending",
+            input: { command: "echo hello" },
+          },
+        },
+      };
+
+      // Second event with different input (should update)
+      const event2: MinionEvent = {
+        id: "e2",
+        timestamp: "2024-01-01T00:00:01Z",
+        event_type: "part.updated",
+        content: {
+          messageID: "msg1",
+          id: "tool1",
+          type: "tool",
+          tool: "bash",
+          state: {
+            status: "completed",
+            input: { command: "echo world", workdir: "/tmp" },
+            output: "world",
+          },
+        },
+      };
+
+      const result = aggregateEvents([event1, event2]);
+
+      expect(result.messages).toHaveLength(1);
+      expect(result.messages[0].tools).toHaveLength(1);
+      // Input should be updated to new non-empty input
+      expect(result.messages[0].tools[0].input).toEqual({ command: "echo world", workdir: "/tmp" });
     });
 
     it("renders reasoning/thinking events", () => {

@@ -1,0 +1,85 @@
+# Progress Log
+PRD: sse-event-aggregation-fix
+Started: 2026-03-23
+
+## Codebase Patterns
+- DeltaState interface at `control-panel/src/lib/event-aggregation.ts:33-40` holds all cross-event state
+- createDeltaState() at line 695 is factory function for DeltaState
+- extractTextContent() handles nested `properties.part` structure for part.updated events
+- extractDeltaContent() handles flat `content.partID/delta/field` structure for part.delta events
+
+---
+<!-- Task logs below - APPEND ONLY -->
+
+## Task - functional-1
+- Added `partTypeByID: Map<string, "text" | "reasoning">` to DeltaState interface
+- Initialized partTypeByID as new Map() in createDeltaState()
+- Files changed: control-panel/src/lib/event-aggregation.ts
+- **Learnings:** DeltaState is the persistent state container passed across aggregation calls
+
+## Task - functional-2
+- Added `extractDeltaContent()` function at lines 370-393
+- Function extracts `{partID, delta, field}` from flat delta event structure
+- Only processes events where event_type === "message.part.delta"
+- Returns undefined for non-delta events or missing required fields
+- Files changed: control-panel/src/lib/event-aggregation.ts
+- **Learnings:** Delta events have completely different structure than part.updated events - flat vs nested
+
+## Task - functional-3
+- Added part type tracking in aggregation loop at line 631
+- When event_type === "message.part.updated" AND extractTextContent() returns result, store type in state.partTypeByID
+- Placement is intentional: runs BEFORE delta processing so delta events can look up their type
+- Files changed: control-panel/src/lib/event-aggregation.ts
+- **Learnings:** The extractTextContent() function already parses the type, just needed to store it in partTypeByID for later delta lookups
+
+## Task - functional-4
+- Added message.part.delta event handling in aggregation loop after extractTextContent block (line ~658)
+- Calls extractDeltaContent() to get partID and delta text from flat event structure
+- Accumulates delta text in state.textByPart using partID as key
+- Adds event.id to state.processedEventIds to prevent duplicate processing
+- Files changed: control-panel/src/lib/event-aggregation.ts
+- **Learnings:** Delta events need separate handling from part.updated events since they use extractDeltaContent() not extractTextContent()
+
+## Task - functional-5
+- Added delta type routing in the delta event handler (lines 673-682)
+- Look up deltaPartID in state.partTypeByID to get the part type
+- If type is "reasoning", add to reasoningPartIDs; else add to textPartIDs
+- Default to text when type is unknown (sets up functional-5b handling)
+- Files changed: control-panel/src/lib/event-aggregation.ts
+- **Learnings:** The routing uses the type tracked in functional-3 to correctly categorize delta content
+
+## Task - functional-5b
+- Added console.warn when deltaType is undefined (race condition handling)
+- Warning logs partID for debugging when delta arrives before part.updated event
+- Text default behavior already existed, just added the warning
+- Files changed: control-panel/src/lib/event-aggregation.ts
+- **Learnings:** Race condition is real but harmless - deltas default to text which is safe fallback
+
+## Task - functional-6
+- Added input merge condition to tool update logic at line 704
+- Condition: only merge input when `Object.keys(toolCall.input).length > 0`
+- Uses direct replacement (not deep merge) since tool input is atomic
+- Files changed: control-panel/src/lib/event-aggregation.ts
+- **Learnings:** Tool events arrive in multiple stages: first with empty input {}, then with populated input. Naive merge would overwrite populated input with empty.
+
+## Task - verification-1
+- Verified thinking/reasoning content aggregation through unit tests
+- Added 5 new tests for message.part.delta event handling:
+  - accumulates text delta events from flat event structure
+  - routes reasoning delta events to thinking field
+  - defaults to text when delta arrives before part.updated (race condition)
+  - handles mixed text and reasoning delta streams
+  - deduplicates delta events by event ID
+- Fixed bug: empty text from message.part.updated was overwriting accumulated deltas
+- All 57 tests pass, typecheck passes, build succeeds
+- Files changed: control-panel/src/lib/event-aggregation.ts, control-panel/src/lib/event-aggregation.test.ts
+- **Learnings:** Non-delta events with empty content should not overwrite existing accumulated content
+
+## Task - verification-2
+- Verified tool input preservation through unit tests
+- Added 2 new tests:
+  - preserves tool input when subsequent events have empty input
+  - updates tool input when new non-empty input arrives
+- All 59 tests pass, typecheck passes, lint passes
+- Files changed: control-panel/src/lib/event-aggregation.test.ts
+- **Learnings:** Tool events arrive incrementally - pending first with input, then completed with empty input. Merge logic must preserve existing input.

@@ -35,6 +35,8 @@ export interface DeltaState {
   textByPart: Map<string, string>;
   /** Set of event IDs that have already been processed (for delta deduplication) */
   processedEventIds: Set<string>;
+  /** Maps partID -> part type ('text' or 'reasoning') for routing deltas */
+  partTypeByID: Map<string, "text" | "reasoning">;
 }
 
 /**
@@ -366,6 +368,33 @@ function extractToolCall(
 }
 
 /**
+ * Extract content from a message.part.delta event.
+ * Delta events have a flat structure (NOT nested in properties.part):
+ *   content.partID - the part identifier
+ *   content.delta - the actual text chunk
+ *   content.field - which field is being updated (e.g., "text")
+ *
+ * Note: Delta events do NOT have a type field. The part type must be
+ * looked up from state.partTypeByID (populated from message.part.updated events).
+ */
+function extractDeltaContent(
+  event: MinionEvent
+): { partID: string; delta: string; field: string } | undefined {
+  // Only handle message.part.delta events
+  if (event.event_type !== "message.part.delta") return undefined;
+
+  const content = event.content;
+  const partID = content.partID as string | undefined;
+  const delta = content.delta as string | undefined;
+  const field = (content.field as string) || "text";
+
+  // partID and delta are required
+  if (!partID || typeof delta !== "string") return undefined;
+
+  return { partID, delta, field };
+}
+
+/**
  * Extract text content from a text or reasoning part.
  * Returns the partID along with the content for delta tracking.
  */
@@ -597,6 +626,12 @@ export function aggregateEvents(
       if (textContent) {
         const { type, content, partID: textPartID, isDelta } = textContent;
 
+        // Track part type for message.part.updated events BEFORE delta processing.
+        // This populates partTypeByID so delta events can look up their type.
+        if (event.event_type === "message.part.updated") {
+          state.partTypeByID.set(textPartID, type);
+        }
+
         if (isDelta) {
           // Delta event: only append if we haven't processed this event before
           if (!state.processedEventIds.has(event.id)) {
@@ -605,8 +640,12 @@ export function aggregateEvents(
             state.processedEventIds.add(event.id);
           }
         } else {
-          // Full replacement: set content directly (always process)
-          state.textByPart.set(textPartID, content);
+          // Full replacement: set content directly
+          // But only if content is non-empty or no existing content
+          // (empty content from part.updated shouldn't overwrite accumulated deltas)
+          if (content || !state.textByPart.has(textPartID)) {
+            state.textByPart.set(textPartID, content);
+          }
         }
 
         // Track which parts belong to text vs reasoning
@@ -622,6 +661,39 @@ export function aggregateEvents(
         continue;
       }
 
+      // Handle message.part.delta events (streaming text chunks)
+      const deltaContent = extractDeltaContent(event);
+      if (deltaContent) {
+        const { partID: deltaPartID, delta } = deltaContent;
+
+        // Only accumulate if we haven't processed this event before
+        if (!state.processedEventIds.has(event.id)) {
+          const existing = state.textByPart.get(deltaPartID) || "";
+          state.textByPart.set(deltaPartID, existing + delta);
+          state.processedEventIds.add(event.id);
+        }
+
+        // Route to appropriate part list based on tracked type
+        const deltaType = state.partTypeByID.get(deltaPartID);
+        if (deltaType === "reasoning") {
+          if (!reasoningPartIDs.includes(deltaPartID)) {
+            reasoningPartIDs.push(deltaPartID);
+          }
+        } else {
+          // Default to text for unknown types (race condition: delta arrived before part.updated)
+          if (deltaType === undefined) {
+            console.warn(
+              "Delta for unknown part type, defaulting to text",
+              deltaPartID
+            );
+          }
+          if (!textPartIDs.includes(deltaPartID)) {
+            textPartIDs.push(deltaPartID);
+          }
+        }
+        continue;
+      }
+
       // Extract tool calls
       if (partType === "tool" && partID) {
         const toolCall = extractToolCall(event, partID);
@@ -629,11 +701,15 @@ export function aggregateEvents(
           // Update existing or add new
           const existing = toolMap.get(partID);
           if (existing) {
-            // Update with newer status/output
+            // Update with newer status/output/input
             existing.status = toolCall.status;
             existing.output = toolCall.output ?? existing.output;
             existing.error = toolCall.error ?? existing.error;
             existing.title = toolCall.title ?? existing.title;
+            // Merge input only when non-empty (empty {} should not overwrite existing populated input)
+            if (toolCall.input && Object.keys(toolCall.input).length > 0) {
+              existing.input = toolCall.input;
+            }
           } else {
             toolMap.set(partID, toolCall);
           }
@@ -694,5 +770,6 @@ export function createDeltaState(): DeltaState {
   return {
     textByPart: new Map(),
     processedEventIds: new Set(),
+    partTypeByID: new Map(),
   };
 }
