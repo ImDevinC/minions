@@ -175,3 +175,18 @@ data: {...}
 data: <json>
 
 ` with double newline. Heartbeat comments prevent proxy/load balancer timeouts. ReadableStream.cancel() is called when browser closes EventSource, allowing cleanup of upstream WebSocket. The proxy pattern avoids CORS and keeps orchestrator internal_api_token server-side only.
+
+## Task - control-panel-2
+- Replaced WebSocket with EventSource API in control-panel/src/hooks/use-minion-events.ts
+- Removed fetchWSConfig() function and WSConfig interface (lines 23-41 in old version)
+- Removed WebSocket reconnection constants: INITIAL_BACKOFF_MS, MAX_BACKOFF_MS, BACKOFF_MULTIPLIER
+- Changed from WebSocket to EventSource with same-origin URL: `/api/minions/${minionId}/events/stream`
+- Simplified refs: removed wsConfigRef, backoffRef, reconnectTimeoutRef (kept eventSourceRef, lastTimestampRef, mountedRef, currentStatusRef)
+- Implemented eventSource.onopen handler: sets isConnected=true, clears error, fetches missed events
+- Implemented eventSource.onmessage handler: parses JSON data, creates MinionEvent, merges into state
+- Implemented eventSource.onerror handler: logs error, sets isConnected=false - no manual retry (EventSource auto-retries)
+- Cleanup via eventSource.close() in unmount and terminal status transitions
+- Deleted control-panel/src/app/api/ws-config directory (route.ts no longer needed)
+- Control panel npm run build succeeds - TypeScript compilation passes
+- Build output confirms /api/ws-config removed, /api/minions/[id]/events/stream present
+- **Learnings**: EventSource provides built-in reconnection logic with exponential backoff - no need for manual retry logic. EventSource.onerror is called on connection failures but auto-retries, so manual backoff is redundant. The browser closes EventSource via .close() which triggers the proxy's ReadableStream cleanup. EventSource is simpler than WebSocket for one-way streaming: no need for config fetching, no manual reconnection state machine.

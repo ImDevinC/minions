@@ -3,11 +3,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { MinionEvent, MinionStatus } from "@/types/minion";
 
-// WebSocket reconnection constants
-const INITIAL_BACKOFF_MS = 1000;
-const MAX_BACKOFF_MS = 60000;
-const BACKOFF_MULTIPLIER = 2;
-
 interface UseMinionEventsOptions {
   minionId: string;
   initialEvents: MinionEvent[];
@@ -18,26 +13,6 @@ interface UseMinionEventsResult {
   events: MinionEvent[];
   isConnected: boolean;
   connectionError: string | null;
-}
-
-interface WSConfig {
-  wsUrl: string;
-  token: string;
-}
-
-// Fetch WebSocket configuration from the server
-async function fetchWSConfig(): Promise<WSConfig | null> {
-  try {
-    const response = await fetch("/api/ws-config");
-    if (!response.ok) {
-      console.error("Failed to fetch WS config:", response.status);
-      return null;
-    }
-    return response.json();
-  } catch (err) {
-    console.error("Error fetching WS config:", err);
-    return null;
-  }
 }
 
 // Fetch events since a timestamp (for reconnection catch-up)
@@ -107,11 +82,8 @@ export function useMinionEvents({
   const [isConnected, setIsConnected] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
 
-  // Refs for WebSocket reconnection logic
-  const wsRef = useRef<WebSocket | null>(null);
-  const wsConfigRef = useRef<WSConfig | null>(null);
-  const backoffRef = useRef(INITIAL_BACKOFF_MS);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // Refs for EventSource lifecycle
+  const eventSourceRef = useRef<EventSource | null>(null);
   const lastTimestampRef = useRef<string | null>(
     getLatestTimestamp(initialEvents)
   );
@@ -139,43 +111,21 @@ export function useMinionEvents({
       return;
     }
 
-    // Fetch WS config if we don't have it
-    if (!wsConfigRef.current) {
-      const config = await fetchWSConfig();
-      if (!config) {
-        setConnectionError("Failed to get WebSocket configuration");
-        // Retry after backoff
-        const backoff = backoffRef.current;
-        backoffRef.current = Math.min(
-          backoff * BACKOFF_MULTIPLIER,
-          MAX_BACKOFF_MS
-        );
-        reconnectTimeoutRef.current = setTimeout(() => {
-          if (mountedRef.current) {
-            connect();
-          }
-        }, backoff);
-        return;
-      }
-      wsConfigRef.current = config;
-    }
-
-    const config = wsConfigRef.current;
-    const wsUrl = `${config.wsUrl}/api/minions/${minionId}/stream?token=${encodeURIComponent(config.token)}`;
+    // Construct SSE endpoint URL (same-origin, proxy to orchestrator)
+    const sseUrl = `/api/minions/${minionId}/events/stream`;
 
     try {
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
+      const eventSource = new EventSource(sseUrl);
+      eventSourceRef.current = eventSource;
 
-      ws.onopen = () => {
+      eventSource.onopen = () => {
         if (!mountedRef.current) {
-          ws.close();
+          eventSource.close();
           return;
         }
 
         setIsConnected(true);
         setConnectionError(null);
-        backoffRef.current = INITIAL_BACKOFF_MS;
 
         // On reconnect, fetch missed events
         const lastTs = lastTimestampRef.current;
@@ -193,12 +143,12 @@ export function useMinionEvents({
         }
       };
 
-      ws.onmessage = (event) => {
+      eventSource.onmessage = (event) => {
         if (!mountedRef.current) return;
 
         try {
           const data = JSON.parse(event.data);
-          // WebSocket sends individual events
+          // SSE proxy sends individual events
           const newEvent: MinionEvent = {
             id: data.id,
             timestamp: data.timestamp,
@@ -207,56 +157,27 @@ export function useMinionEvents({
           };
           setEvents((prev) => mergeEvents(prev, [newEvent]));
         } catch (err) {
-          console.error("Failed to parse WebSocket message:", err);
+          console.error("Failed to parse SSE message:", err);
         }
       };
 
-      ws.onerror = () => {
-        setConnectionError("WebSocket connection error");
-      };
-
-      ws.onclose = (event) => {
+      eventSource.onerror = (err) => {
         if (!mountedRef.current) return;
 
+        console.error("EventSource connection error:", err);
         setIsConnected(false);
-        wsRef.current = null;
+        setConnectionError("SSE connection error");
 
-        // Don't reconnect if terminal status or normal close
-        if (
-          isTerminalStatus(currentStatusRef.current) ||
-          event.code === 1000
-        ) {
-          return;
+        // Don't manually retry - EventSource auto-retries
+        // If terminal status, close connection
+        if (isTerminalStatus(currentStatusRef.current)) {
+          eventSource.close();
+          eventSourceRef.current = null;
         }
-
-        // Schedule reconnect with exponential backoff
-        const backoff = backoffRef.current;
-        backoffRef.current = Math.min(
-          backoff * BACKOFF_MULTIPLIER,
-          MAX_BACKOFF_MS
-        );
-
-        reconnectTimeoutRef.current = setTimeout(() => {
-          if (mountedRef.current) {
-            connect();
-          }
-        }, backoff);
       };
     } catch (err) {
-      console.error("Failed to create WebSocket:", err);
-      setConnectionError("Failed to create WebSocket connection");
-
-      // Schedule retry
-      const backoff = backoffRef.current;
-      backoffRef.current = Math.min(
-        backoff * BACKOFF_MULTIPLIER,
-        MAX_BACKOFF_MS
-      );
-      reconnectTimeoutRef.current = setTimeout(() => {
-        if (mountedRef.current) {
-          connect();
-        }
-      }, backoff);
+      console.error("Failed to create EventSource:", err);
+      setConnectionError("Failed to create SSE connection");
     }
   }, [minionId]);
 
@@ -272,25 +193,19 @@ export function useMinionEvents({
     return () => {
       mountedRef.current = false;
 
-      // Cleanup WebSocket
-      if (wsRef.current) {
-        wsRef.current.close(1000, "Component unmounting");
-        wsRef.current = null;
-      }
-
-      // Cancel any pending reconnect
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-        reconnectTimeoutRef.current = null;
+      // Cleanup EventSource
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
       }
     };
   }, [connect, status]);
 
   // If status transitions to terminal, close connection
   useEffect(() => {
-    if (isTerminalStatus(status) && wsRef.current) {
-      wsRef.current.close(1000, "Minion completed");
-      wsRef.current = null;
+    if (isTerminalStatus(status) && eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
     }
   }, [status]);
 

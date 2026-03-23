@@ -170,7 +170,7 @@
         "Verify browser console shows no WebSocket-related errors",
         "Verify control panel handles malformed SSE messages gracefully"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "testing-1",
