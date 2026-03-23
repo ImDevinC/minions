@@ -99,7 +99,7 @@
         "Clicking expands to show full reasoning text",
         "Collapsed state has muted, smaller styling"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "component-4a",

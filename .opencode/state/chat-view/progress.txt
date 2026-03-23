@@ -69,3 +69,13 @@ Started: 2026-03-23
 - Empty/null content returns null (no blank bubbles)
 - Files changed: control-panel/src/components/chat-message-row.tsx (new), control-panel/src/components/chat-view.tsx (import new component)
 - **Learnings:** react-syntax-highlighter needs wrapLines={false} and wrapLongLines={false} plus whiteSpace: "pre" for horizontal scroll
+
+## Task - component-3
+- Implemented ThinkingBlock component for collapsible reasoning content
+- Default state collapsed showing "▶ Thinking..." with muted gray-500 text
+- Click toggles expansion, expanded state shows full reasoning with gray-400 text
+- Collapsed uses smaller text (text-xs), expanded uses text-sm
+- Smooth rotation transition on arrow indicator
+- Replaced placeholder in ChatMessageRow with ThinkingBlock component
+- Files changed: control-panel/src/components/thinking-block.tsx (new), control-panel/src/components/chat-message-row.tsx (import + use ThinkingBlock)
+- **Learnings:** useState(false) for default collapsed; rotate-90 class for arrow animation

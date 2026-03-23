@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import type { ChatMessage } from "@/types/minion";
+import { ThinkingBlock } from "./thinking-block";
 
 interface ChatMessageRowProps {
   message: ChatMessage;
@@ -41,11 +42,9 @@ export function ChatMessageRow({ message }: ChatMessageRowProps) {
         )}
       </div>
 
-      {/* Thinking block placeholder - will be replaced in component-3 */}
+      {/* Collapsible thinking/reasoning block */}
       {message.thinking && (
-        <div className="text-sm text-gray-500 italic mb-2 border-l-2 border-gray-700 pl-3">
-          [Thinking: {message.thinking.slice(0, 100)}...]
-        </div>
+        <ThinkingBlock content={message.thinking} />
       )}
 
       {/* Markdown text content */}
