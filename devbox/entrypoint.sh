@@ -153,6 +153,7 @@ send_task() {
                 }
             ]
         }')
+    log "Sending to ${SESSION_ENDPOINT}/${SESSION_ID}/prompt_async request body: $request_body"
 
     local http_code
     http_code=$(curl -sf -X POST "${SESSION_ENDPOINT}/${SESSION_ID}/prompt_async" \
