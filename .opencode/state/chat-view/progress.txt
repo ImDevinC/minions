@@ -97,3 +97,12 @@ Started: 2026-03-23
 - Integrated into ChatMessageRow with expandedToolId state managed by ChatView
 - Files changed: control-panel/src/components/tool-call-card.tsx (new), control-panel/src/components/chat-message-row.tsx, control-panel/src/components/chat-view.tsx
 - **Learnings:** Accordion state across messages uses "messageId:toolId" format in parent ChatView; basic expansion works but accordion auto-collapse behavior is task 4b
+
+## Task - component-4c
+- Implemented truncation for large inputs/outputs (>10KB)
+- Added `TruncatedContent` component for plain text with expand/collapse button
+- Added `TruncatedSyntaxHighlighter` component for syntax-highlighted JSON with expand/collapse
+- Shows first ~500 chars with "..." indicator when truncated
+- "Show full input/output" button toggles full content display
+- Files changed: control-panel/src/components/tool-call-card.tsx
+- **Learnings:** Separate components for plain text vs syntax-highlighted truncation keeps concerns clean; useState per-component handles individual expand state

@@ -136,7 +136,7 @@
         "Truncated preview shows first ~500 chars with '...' indicator",
         "Large inputs >10KB are also truncated with same pattern"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "component-5",

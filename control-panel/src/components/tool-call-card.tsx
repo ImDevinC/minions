@@ -1,9 +1,17 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import type { ToolCall, ToolCallStatus } from "@/types/minion";
+
+/**
+ * Truncation constants:
+ * - SIZE_THRESHOLD: 10KB - content larger than this gets truncated
+ * - PREVIEW_LENGTH: ~500 chars shown in truncated preview
+ */
+const SIZE_THRESHOLD = 10 * 1024; // 10KB
+const PREVIEW_LENGTH = 500;
 
 /**
  * Tool icon mapping based on tool type.
@@ -50,6 +58,95 @@ interface ToolCallCardProps {
   tool: ToolCall;
   isExpanded: boolean;
   onToggle: () => void;
+}
+
+/**
+ * TruncatedContent handles display of potentially large text content.
+ * If content exceeds SIZE_THRESHOLD, shows truncated preview with expand button.
+ */
+function TruncatedContent({
+  content,
+  label,
+  className,
+}: {
+  content: string;
+  label: string;
+  className?: string;
+}) {
+  const [showFull, setShowFull] = useState(false);
+  const isLarge = content.length > SIZE_THRESHOLD;
+  const displayContent = isLarge && !showFull
+    ? content.slice(0, PREVIEW_LENGTH) + "..."
+    : content;
+
+  return (
+    <div>
+      <pre className={className}>
+        {displayContent}
+      </pre>
+      {isLarge && (
+        <button
+          type="button"
+          onClick={() => setShowFull(!showFull)}
+          className="mt-2 text-xs text-blue-400 hover:text-blue-300 transition-colors"
+        >
+          {showFull ? `Hide full ${label}` : `Show full ${label}`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * TruncatedSyntaxHighlighter handles large JSON inputs with syntax highlighting.
+ * If content exceeds SIZE_THRESHOLD, shows truncated preview with expand button.
+ */
+function TruncatedSyntaxHighlighter({
+  content,
+  label,
+}: {
+  content: string;
+  label: string;
+}) {
+  const [showFull, setShowFull] = useState(false);
+  const isLarge = content.length > SIZE_THRESHOLD;
+  const displayContent = isLarge && !showFull
+    ? content.slice(0, PREVIEW_LENGTH) + "..."
+    : content;
+
+  return (
+    <div>
+      <div className="rounded overflow-hidden border border-gray-700">
+        <div className="overflow-x-auto">
+          <SyntaxHighlighter
+            language="json"
+            style={oneDark}
+            customStyle={{
+              margin: 0,
+              padding: "0.75rem",
+              background: "#1a1a2e",
+              fontSize: "0.75rem",
+              whiteSpace: "pre",
+              overflowX: "auto",
+            }}
+            wrapLines={false}
+            wrapLongLines={false}
+          >
+            {displayContent}
+          </SyntaxHighlighter>
+        </div>
+      </div>
+      {isLarge && (
+        <button
+          type="button"
+          onClick={() => setShowFull(!showFull)}
+          className="mt-2 text-xs text-blue-400 hover:text-blue-300 transition-colors"
+        >
+          {showFull ? `Hide full ${label}` : `Show full ${label}`}
+        </button>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -124,35 +221,18 @@ export function ToolCallCard({ tool, isExpanded, onToggle }: ToolCallCardProps) 
             {/* Tool input as syntax-highlighted JSON */}
             <div className="px-3 py-2 border-b border-gray-700">
               <div className="text-xs text-gray-500 mb-1">Input</div>
-              <div className="rounded overflow-hidden border border-gray-700">
-                <div className="overflow-x-auto">
-                  <SyntaxHighlighter
-                    language="json"
-                    style={oneDark}
-                    customStyle={{
-                      margin: 0,
-                      padding: "0.75rem",
-                      background: "#1a1a2e",
-                      fontSize: "0.75rem",
-                      whiteSpace: "pre",
-                      overflowX: "auto",
-                    }}
-                    wrapLines={false}
-                    wrapLongLines={false}
-                  >
-                    {inputJson}
-                  </SyntaxHighlighter>
-                </div>
-              </div>
+              <TruncatedSyntaxHighlighter content={inputJson} label="input" />
             </div>
 
             {/* Tool output (if present) */}
             {tool.output && (
               <div className="px-3 py-2 border-b border-gray-700">
                 <div className="text-xs text-gray-500 mb-1">Output</div>
-                <pre className="text-xs text-gray-300 bg-gray-800/50 rounded p-2 overflow-x-auto whitespace-pre-wrap break-words max-h-64 overflow-y-auto">
-                  {tool.output}
-                </pre>
+                <TruncatedContent
+                  content={tool.output}
+                  label="output"
+                  className="text-xs text-gray-300 bg-gray-800/50 rounded p-2 overflow-x-auto whitespace-pre-wrap break-words max-h-64 overflow-y-auto"
+                />
               </div>
             )}
 
