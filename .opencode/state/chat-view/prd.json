@@ -74,7 +74,7 @@
         "Uses @tanstack/react-virtual for virtualization",
         "Virtualization window renders ~20 items above/below viewport"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "component-2",

@@ -1,0 +1,231 @@
+"use client";
+
+import { useRef, useState, useCallback, useMemo, useEffect } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import type { MinionEvent, ChatMessage, SystemMessage } from "@/types/minion";
+import {
+  aggregateEvents,
+  createDeltaState,
+  type DeltaState,
+} from "@/lib/event-aggregation";
+
+/**
+ * Placeholder for ChatMessageRow - will be implemented in component-2.
+ * Renders a single aggregated ChatMessage (text, tools, subtasks).
+ */
+function ChatMessageRow({ message }: { message: ChatMessage }) {
+  return (
+    <div className="py-3 px-4 border-b border-gray-800">
+      <div className="text-xs text-gray-500 mb-1">
+        {new Date(message.timestamp).toLocaleTimeString()}
+        {message.isStreaming && (
+          <span className="ml-2 text-blue-400">● streaming</span>
+        )}
+      </div>
+      {message.thinking && (
+        <div className="text-sm text-gray-500 italic mb-2">
+          [Thinking: {message.thinking.slice(0, 100)}...]
+        </div>
+      )}
+      {message.text && (
+        <div className="text-gray-200 whitespace-pre-wrap">{message.text}</div>
+      )}
+      {message.tools.length > 0 && (
+        <div className="mt-2 text-xs text-purple-400">
+          {message.tools.length} tool call(s)
+        </div>
+      )}
+      {message.subtasks.length > 0 && (
+        <div className="mt-2 text-xs text-cyan-400">
+          {message.subtasks.length} subtask(s)
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Placeholder for SystemMessageRow - will be implemented in component-7.
+ * Renders a system message (agent switch, errors, retries).
+ */
+function SystemMessageRow({ message }: { message: SystemMessage }) {
+  const isError = message.type === "session.error" || message.type === "error";
+  return (
+    <div
+      className={`py-2 px-4 text-xs ${
+        isError
+          ? "bg-red-500/10 text-red-400 border-l-2 border-red-500"
+          : "bg-gray-800/50 text-gray-500"
+      }`}
+    >
+      <span className="mr-2">
+        {new Date(message.timestamp).toLocaleTimeString()}
+      </span>
+      <span>
+        {typeof message.content === "string"
+          ? message.content
+          : JSON.stringify(message.content)}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Union type for virtualized list items.
+ * We need to render both ChatMessages and SystemMessages in the same list.
+ */
+type RenderItem =
+  | { type: "chat"; message: ChatMessage }
+  | { type: "system"; message: SystemMessage };
+
+interface ChatViewProps {
+  /** Raw events from the SSE stream */
+  events: MinionEvent[];
+}
+
+/**
+ * ChatView renders a virtualized list of aggregated chat messages and system events.
+ *
+ * Features:
+ * - Takes raw MinionEvent[] and aggregates into ChatMessage/SystemMessage
+ * - Uses @tanstack/react-virtual for efficient rendering of large message lists
+ * - Maintains persistent delta state for streaming text accumulation
+ * - ~20 items overscan above/below viewport for smooth scrolling
+ */
+export function ChatView({ events }: ChatViewProps) {
+  const parentRef = useRef<HTMLDivElement>(null);
+  const [autoScroll, setAutoScroll] = useState(true);
+
+  // Persistent delta state for streaming text accumulation
+  // This ref persists across renders so delta events properly accumulate
+  const deltaStateRef = useRef<DeltaState>(createDeltaState());
+
+  // Aggregate events into chat messages and system messages
+  const { messages, systemMessages } = useMemo(() => {
+    return aggregateEvents(events, deltaStateRef.current);
+  }, [events]);
+
+  // Combine and sort all items for rendering in chronological order
+  const renderItems: RenderItem[] = useMemo(() => {
+    const items: RenderItem[] = [];
+
+    // Add all chat messages
+    for (const msg of messages) {
+      items.push({ type: "chat", message: msg });
+    }
+
+    // Add all system messages
+    for (const msg of systemMessages) {
+      items.push({ type: "system", message: msg });
+    }
+
+    // Sort by timestamp
+    items.sort((a, b) => {
+      const timeA = new Date(a.message.timestamp).getTime();
+      const timeB = new Date(b.message.timestamp).getTime();
+      return timeA - timeB;
+    });
+
+    return items;
+  }, [messages, systemMessages]);
+
+  // Virtual list setup with ~20 items overscan
+  const virtualizer = useVirtualizer({
+    count: renderItems.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: (index) => {
+      // Estimate row height based on type
+      const item = renderItems[index];
+      if (item.type === "system") {
+        return 32; // System messages are compact
+      }
+      // Chat messages vary; estimate based on content length
+      const msg = item.message;
+      const textLength = msg.text.length;
+      const hasTools = msg.tools.length > 0;
+      const hasSubtasks = msg.subtasks.length > 0;
+      // Base height + extra for longer text + tools/subtasks
+      return 80 + Math.min(textLength / 10, 200) + (hasTools ? 24 : 0) + (hasSubtasks ? 24 : 0);
+    },
+    overscan: 20, // Render ~20 extra items above/below viewport
+  });
+
+  // Auto-scroll to bottom when new items arrive
+  useEffect(() => {
+    if (autoScroll && renderItems.length > 0) {
+      virtualizer.scrollToIndex(renderItems.length - 1, { align: "end" });
+    }
+  }, [renderItems.length, autoScroll, virtualizer]);
+
+  // Detect manual scroll to disable auto-scroll
+  const handleScroll = useCallback(() => {
+    if (!parentRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = parentRef.current;
+    const isAtBottom = scrollHeight - scrollTop - clientHeight < 100;
+    setAutoScroll(isAtBottom);
+  }, []);
+
+  // Empty state
+  if (renderItems.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-64 text-gray-500">
+        No events yet
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative">
+      {/* Jump to latest button */}
+      {!autoScroll && (
+        <button
+          onClick={() => {
+            setAutoScroll(true);
+            virtualizer.scrollToIndex(renderItems.length - 1, { align: "end" });
+          }}
+          className="absolute bottom-4 right-4 z-10 bg-blue-600 hover:bg-blue-500 text-white text-xs px-3 py-1.5 rounded-full shadow-lg transition-colors"
+        >
+          ↓ Jump to latest
+        </button>
+      )}
+
+      <div
+        ref={parentRef}
+        onScroll={handleScroll}
+        className="h-[500px] overflow-auto bg-gray-900 rounded-lg border border-gray-700"
+      >
+        <div
+          style={{
+            height: `${virtualizer.getTotalSize()}px`,
+            width: "100%",
+            position: "relative",
+          }}
+        >
+          {virtualizer.getVirtualItems().map((virtualRow) => {
+            const item = renderItems[virtualRow.index];
+            return (
+              <div
+                key={virtualRow.key}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  transform: `translateY(${virtualRow.start}px)`,
+                }}
+                data-index={virtualRow.index}
+                ref={virtualizer.measureElement}
+              >
+                {item.type === "chat" ? (
+                  <ChatMessageRow message={item.message} />
+                ) : (
+                  <SystemMessageRow message={item.message} />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}

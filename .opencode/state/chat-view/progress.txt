@@ -50,3 +50,13 @@ Started: 2026-03-23
 - Added 5 unit tests covering session ID extraction, subtask grouping, recursive aggregation, and multi-subtask separation
 - Files changed: control-panel/src/types/minion.ts (lines 78-93), control-panel/src/lib/event-aggregation.ts, control-panel/src/lib/event-aggregation.test.ts
 - **Learnings:** Task tool `callID` becomes subtask session ID; events filtered by matching sessionID; use separate deltaState per subtask to avoid pollution
+
+## Task - component-1
+- Implemented ChatView container component with virtualized list
+- Takes MinionEvent[] prop, aggregates via aggregateEvents() into ChatMessage/SystemMessage
+- Uses @tanstack/react-virtual with overscan: 20 for smooth scrolling
+- Maintains persistent DeltaState ref across renders for streaming accumulation
+- Combines chat messages and system messages into chronological RenderItem[] union
+- Includes placeholder ChatMessageRow and SystemMessageRow (to be replaced in future tasks)
+- Files changed: control-panel/src/components/chat-view.tsx (new)
+- **Learnings:** Use useRef for DeltaState to persist across renders without triggering re-computation; estimateSize can vary by item type for better virtualization hints
