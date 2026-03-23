@@ -1,0 +1,231 @@
+# Progress Log
+PRD: minion-observability-fix
+Started: 2026-03-22
+
+## Codebase Patterns
+- **Database column additions**: Add field to Minion struct, update all query SELECT/Scan statements (8 methods in this case), add accessor methods
+- **Idempotent operations**: StorePassword and ClearPassword are both idempotent - safe to call multiple times
+- **Reconnection on restart**: Query active minions from DB, filter by password + pod name presence, call Connect() for each (fire-and-forget)
+
+---
+<!-- Task logs below - APPEND ONLY -->
+
+## Task - db-1
+- Created migration schema/migrations/005_add_opencode_password.sql
+- Added OpencodePassword string field to Minion struct in orchestrator/internal/db/minions.go:57
+- Implemented StorePassword() and ClearPassword() methods in orchestrator/internal/db/minions.go:1044-1060
+- Updated all 8 query methods to SELECT and Scan opencode_password:
+  - GetByID (line 264)
+  - FindRecentDuplicate (line 156)
+  - List (line 364)
+  - ListByStatuses (line 668)
+  - ListPending (line 715)
+  - ListIdleRunning (line 794)
+  - ListClarificationTimeouts (line 837)
+  - GetByClarificationMessageID (line 881)
+- Added unit test TestPasswordMethods in orchestrator/internal/db/minions_test.go
+- All orchestrator tests pass
+- **Learnings**: Column is TEXT NULL to allow cleanup on completion; OpencodePassword field is non-pointer string (empty string when NULL)
+
+## Task - research-1
+- Located callback handler: HandleCallback in orchestrator/internal/api/minions.go:490-579
+  - Handles completed and failed statuses via h.minions.Complete()
+  - Already idempotent (returns early if minion already terminal)
+  - Will need to add ClearPassword() after line 533 (after Complete succeeds)
+- Located watchdog failure paths:
+  - checkFailedPods (line 206): calls w.minions.MarkFailed() for pod failures (OOMKilled, Evicted)
+  - checkClarificationTimeouts (line 238): calls w.minions.MarkFailed() for timeout
+- Located termination handler: HandleDelete in orchestrator/internal/api/minions.go:414-473
+  - Handles user-initiated deletion via h.minions.Terminate()
+  - Will need to add ClearPassword() after line 432 (after Terminate succeeds)
+- **Learnings**: Three terminal state entry points - callback (completed/failed), watchdog (MarkFailed), and delete (terminated). MarkFailed is called from two watchdog paths.
+
+## Task - orchestrator-interfaces-1
+- Updated SSEConnector interface in orchestrator/internal/spawner/spawner.go:56
+  - Changed Connect signature to accept password parameter: Connect(ctx, minionID, podName, password string)
+- Updated SSEClient implementation in orchestrator/internal/streaming/sse.go:
+  - Connect method (line 107): accepts password parameter
+  - connectWithRetry method (line 133): accepts and threads password parameter
+  - streamEvents method (line 183): accepts password parameter (not yet used for auth - deferred to orchestrator-core-1)
+- Updated spawner.go processMinion call site (line 275): passes empty string for now (TODO comment added for spawner-1)
+- Updated test mocks:
+  - mockSSEConnector in spawner_test.go: updated Connect signature and struct fields
+  - SSE test call sites updated to pass empty string
+- All orchestrator tests pass
+- **Learnings**: Interface changes must be applied atomically across interface definition, implementation, mock, and call sites to maintain type safety
+
+## Task - orchestrator-core-1
+- Fixed SSE endpoint path from /events to /event (singular) in orchestrator/internal/streaming/sse.go:207
+- Added connection struct (lines 72-76) to hold cancel, password, and podName
+- Changed SSEClient.connections from map[uuid.UUID]context.CancelFunc to map[uuid.UUID]*connection (line 88)
+- Updated Connect() method (lines 116-132) to store connection struct with password
+- Updated Disconnect() method (lines 137-143) to work with connection struct
+- Updated NewSSEClient() (lines 93-115) with improved HTTP transport settings (MaxIdleConns: 100, MaxConnsPerHost: 50, MaxIdleConnsPerHost: 50)
+- Added encoding/base64 import (line 7)
+- Added HTTP Basic Auth header in streamEvents() (lines 221-224): "Basic " + base64(opencode:password)
+- Added unit test TestSSEClient_HTTPBasicAuthHeader in orchestrator/internal/streaming/sse_test.go (lines 335-429)
+  - Tests simple password, special characters, UUID format, and empty password
+  - Validates Authorization header format and endpoint path (/event not /events)
+- All orchestrator tests pass (streaming, spawner, api, db, k8s, reconciler, watchdog, webhook)
+- **Learnings**: HTTP Basic Auth format is "Basic " + base64("username:password"). The auth header must be set before Do() call. The connection struct pattern allows storing metadata alongside cancel functions for proper cleanup.
+
+## Task - spawner-1
+- Added StorePassword method to MinionUpdater interface in orchestrator/internal/spawner/spawner.go:37
+- Added OpencodePassword field to SpawnParams struct in orchestrator/internal/k8s/pods.go:99
+- Updated processMinion in orchestrator/internal/spawner/spawner.go (lines 188-214):
+  - Generate UUID password if m.OpencodePassword is empty (idempotent crash recovery)
+  - Call StorePassword BEFORE spawning pod
+  - On StorePassword failure, mark minion as failed and abort spawn
+  - Pass password to SpawnParams (line 222)
+  - Pass password to SSE Connect call (line 305)
+- Updated buildEnvVars in orchestrator/internal/k8s/pods.go:428 to pass OPENCODE_SERVER_PASSWORD env var
+- Updated mockMinionUpdater in spawner_test.go to implement StorePassword method
+- Added 3 new unit tests in spawner_test.go:
+  - TestSpawner_StoresPasswordBeforeSpawningPod: verifies UUID generation, storage, and threading through pod spawn and SSE
+  - TestSpawner_ReusesExistingPasswordOnRetry: verifies idempotent password reuse on crash recovery
+  - TestSpawner_HandlesStorePasswordFailure: verifies failure handling and spawn abort
+- All orchestrator tests pass (9 packages)
+- Go build successful
+- **Learnings**: Password lifecycle is: generate (idempotent) → store → pass to pod env → pass to SSE auth. StorePassword must succeed before pod spawn to prevent unauthenticated pods. The password flows through three layers: spawner → k8s params → pod env vars.
+
+## Task - orchestrator-reconnect-1
+- Added reconnection logic in orchestrator/cmd/orchestrator/main.go (lines 181-204) after SSE client initialization
+- Query active minions using ListByStatuses with StatusRunning and StatusPending
+- Filter minions with nil-safe checks: OpencodePassword != "" AND PodName != nil AND *PodName != ""
+- For each eligible minion:
+  - Log reconnection attempt with minion_id and pod_name
+  - Call sseClient.Connect(ctx, m.ID, *m.PodName, m.OpencodePassword) with password from DB
+  - Connect is fire-and-forget (no error return) - spawns goroutine with internal retry logic
+  - Count successful reconnection attempts
+- Log final reconnection summary: total_active and reconnected counts
+- On ListByStatuses error, log error and continue startup (non-fatal)
+- All orchestrator tests pass
+- Go build successful
+- **Learnings**: Connect() is fire-and-forget with internal retry - no error handling needed at call site. Reconnection reads password from DB (Minion.OpencodePassword field), not from in-memory connections map (map is empty after restart). PodName is *string so requires nil check before dereferencing.
+
+## Task - orchestrator-cleanup-1
+- Added Disconnect() method to SSEConnector interface in orchestrator/internal/spawner/spawner.go:61
+- Created SSEDisconnector interface in orchestrator/internal/api/minions.go:22-25
+- Added SSE field to MinionHandler struct and MinionHandlerConfig (minions.go:30, 44)
+- Added cleanup to HandleCallback (minions.go:544-551):
+  - Call h.sse.Disconnect(id) before ClearPassword
+  - Call h.minions.ClearPassword(ctx, id) after Complete succeeds
+  - Log "cleared opencode password" on success
+  - Cleanup is best-effort (logs errors but doesn't fail request)
+- Added cleanup to HandleDelete (minions.go:445-452):
+  - Call h.sse.Disconnect(id) before ClearPassword
+  - Call h.minions.ClearPassword(ctx, id) after Terminate succeeds
+  - Same best-effort error handling pattern
+- Added SSEDisconnector to Watchdog struct and constructor (watchdog.go:57, 68)
+- Added ClearPassword to MinionQuerier interface (watchdog.go:42)
+- Added cleanup to checkFailedPods (watchdog.go:215-221):
+  - Call w.sse.Disconnect(minionID) after MarkFailed succeeds
+  - Call w.minions.ClearPassword(ctx, minionID)
+  - Log cleanup success/failure
+- Added cleanup to checkClarificationTimeouts (watchdog.go:248-254):
+  - Same pattern as checkFailedPods
+- Updated RouterConfig to include SSE field (router.go:27)
+- Updated NewRouter to pass SSE to MinionHandler (router.go:52)
+- Updated main.go to pass sseClient to both watchdog.New (line 221) and router config (line 232)
+- Updated test mocks:
+  - Added ClearPassword method to mockMinionQuerier in watchdog_test.go:51
+  - Added mockSSEDisconnector struct with Disconnect method in watchdog_test.go:76-91
+  - Updated all 16 watchdog test New() calls to pass &mockSSEDisconnector{}
+  - Fixed bug in TestWatchdog_MultipleIdleMinions (line 202): changed idleMinion to minion1, minion2
+  - Added Disconnect method to mockSSEConnector in spawner_test.go:175
+- All orchestrator tests pass (9 packages)
+- Go build successful
+- **Learnings**: SSE disconnect must be called before password cleanup to ensure connections are closed before credentials are removed. Cleanup is idempotent and best-effort (non-fatal errors). The pattern is: Disconnect(id) → ClearPassword(ctx, id) → log result. Three terminal state entry points all follow same cleanup pattern: callback handler (completed/failed), delete handler (terminated), watchdog (pod failures and clarification timeouts).
+
+## Task - devbox-1
+- Changed OpenCode serve hostname from 127.0.0.1 to 0.0.0.0 in devbox/entrypoint.sh:80
+- Added OPENCODE_SERVER_PASSWORD to validate_env() required vars (entrypoint.sh:50)
+- Updated header comment to document OPENCODE_SERVER_PASSWORD as required env var (entrypoint.sh:8)
+- Verified orchestrator already passes OPENCODE_SERVER_PASSWORD env var (orchestrator/internal/k8s/pods.go:428)
+  - buildEnvVars reads params.OpencodePassword and creates env var
+  - Spawner passes password via SpawnParams.OpencodePassword (spawner.go:226)
+- Built devbox Docker image successfully: ghcr.io/imdevinc/minions/devbox:test
+- Validated entrypoint with docker run tests:
+  - Missing OPENCODE_SERVER_PASSWORD: exits with "Missing required environment variables" ✓
+  - All required vars present: proceeds to clone step ✓
+- All orchestrator tests pass (9 packages)
+- Go build successful
+- **Learnings**: OpenCode server binds to 0.0.0.0:4096 to accept connections from orchestrator pod (different pod, same namespace). Password validation happens at entrypoint startup (fail-fast). The full flow is: spawner generates password → stores in DB → passes to pod env → devbox validates env → opencode serve starts listening on all interfaces → orchestrator connects with Basic Auth.
+
+## Task - control-panel-1
+- Verified Node v22.22.1 (native WebSocket support, no ws package needed)
+- Created control-panel/src/app/api/minions/[id]/events/stream/route.ts (SSE proxy route)
+- Route connects to orchestrator WebSocket server-side: `${wsUrl}/api/minions/${id}/stream?token=${INTERNAL_API_TOKEN}`
+- Transforms WebSocket JSON messages to SSE format: `event: message
+data: ${JSON.stringify(data)}
+
+`
+- Sends heartbeat every 30s: `: heartbeat
+
+` (keeps connection alive)
+- Cleanup handled via ReadableStream.cancel() callback - closes WebSocket on browser disconnect
+- Error handling: emits `event: error
+data: {...}
+
+` on WebSocket error or connection failure
+- Response headers: Content-Type: text/event-stream, Cache-Control: no-cache, Connection: keep-alive, X-Accel-Buffering: no
+- Control panel npm run build succeeds
+- Next.js route visible in build output: `/api/minions/[id]/events/stream`
+- **Learnings**: Next.js 14 has native WebSocket support in Node 20+. SSE format requires `event: <type>
+data: <json>
+
+` with double newline. Heartbeat comments prevent proxy/load balancer timeouts. ReadableStream.cancel() is called when browser closes EventSource, allowing cleanup of upstream WebSocket. The proxy pattern avoids CORS and keeps orchestrator internal_api_token server-side only.
+
+## Task - control-panel-2
+- Replaced WebSocket with EventSource API in control-panel/src/hooks/use-minion-events.ts
+- Removed fetchWSConfig() function and WSConfig interface (lines 23-41 in old version)
+- Removed WebSocket reconnection constants: INITIAL_BACKOFF_MS, MAX_BACKOFF_MS, BACKOFF_MULTIPLIER
+- Changed from WebSocket to EventSource with same-origin URL: `/api/minions/${minionId}/events/stream`
+- Simplified refs: removed wsConfigRef, backoffRef, reconnectTimeoutRef (kept eventSourceRef, lastTimestampRef, mountedRef, currentStatusRef)
+- Implemented eventSource.onopen handler: sets isConnected=true, clears error, fetches missed events
+- Implemented eventSource.onmessage handler: parses JSON data, creates MinionEvent, merges into state
+- Implemented eventSource.onerror handler: logs error, sets isConnected=false - no manual retry (EventSource auto-retries)
+- Cleanup via eventSource.close() in unmount and terminal status transitions
+- Deleted control-panel/src/app/api/ws-config directory (route.ts no longer needed)
+- Control panel npm run build succeeds - TypeScript compilation passes
+- Build output confirms /api/ws-config removed, /api/minions/[id]/events/stream present
+- **Learnings**: EventSource provides built-in reconnection logic with exponential backoff - no need for manual retry logic. EventSource.onerror is called on connection failures but auto-retries, so manual backoff is redundant. The browser closes EventSource via .close() which triggers the proxy's ReadableStream cleanup. EventSource is simpler than WebSocket for one-way streaming: no need for config fetching, no manual reconnection state machine.
+
+## Task - testing-1
+- Ran all orchestrator Go unit tests: 9 packages passed (api, db, github, k8s, reconciler, spawner, streaming, watchdog, webhook)
+- Verified unit tests include:
+  - TestPasswordMethods (db/minions_test.go): validates StorePassword/ClearPassword idempotency
+  - TestSSEClient_HTTPBasicAuthHeader (streaming/sse_test.go): validates HTTP Basic Auth with special characters, UUID passwords, empty password
+  - TestSpawner password tests (spawner/spawner_test.go): validates password generation, storage, reuse on retry, failure handling
+- Built orchestrator service successfully (go build ./... in orchestrator directory)
+- Built discord-bot service successfully (go build ./... in discord-bot directory)
+- Built control-panel successfully (npm run build):
+  - TypeScript compilation passed
+  - Next.js build produced 7 routes including /api/minions/[id]/events/stream
+  - Confirmed /api/ws-config removed from build output
+- Built Docker images successfully:
+  - ghcr.io/imdevinc/minions/orchestrator:test (multi-stage: golang:1.25-bookworm → distroless/static:nonroot)
+  - ghcr.io/imdevinc/minions/devbox:test (base: golang:1.22-bookworm with OpenCode CLI)
+  - ghcr.io/imdevinc/minions/control-panel:test (multi-stage: node:20-alpine build → node:20-alpine runtime)
+- Files changed: none (validation task only)
+- **Learnings**: All automated tests pass. The implementation is ready for manual E2E validation with live Kubernetes cluster (spawn minion, verify password lifecycle, test reconnection, verify SSE auth). Manual E2E steps in testing-1 require deployed orchestrator and access to DB, which must be performed by human. The automated validation covers: unit tests for all new methods, Go compilation, TypeScript compilation, Next.js build, and Docker image builds.
+
+## Task - docs-1
+- Added comprehensive password lifecycle documentation to AGENTS.md (after "Monorepo Versioning" section):
+  - Password state machine ASCII diagram showing lifecycle from NULL → generated → stored → passed to pod → cleared on terminal states
+  - Documented key points: generation in spawner, storage before pod spawn, idempotent crash recovery, env var passing, SSE auth mechanism
+  - Orchestrator restart behavior: query active minions, filter by password + pod name, reconnect fire-and-forget with internal retry
+  - Control panel SSE proxy architecture diagram: Browser EventSource → Next.js API route → WebSocket → Orchestrator → HTTP+Auth → Minion pod
+  - Why server-side proxy: keeps token secret, avoids CORS, WebSocket→SSE transformation, survives restarts
+  - SSE connection troubleshooting table: 401 Unauthorized, Connection refused, Connection timeout, SSE reconnection loop with causes and fixes
+  - Debug commands: check password in DB (psql), check pod env var (kubectl exec), check OpenCode listening (netstat), check orchestrator logs (kubectl logs)
+  - Deployment notes: observability loss during redeploy (30-60s), acceptable blast radius, automatic reconnection, no task interruption
+  - Database migration notes: migration 005 adds column, existing minions have NULL (cannot reconnect but complete normally), new minions get passwords
+- Verified code comments already exist at key locations:
+  - spawner.go:191-192: "Generate and store per-minion password for SSE authentication" with idempotency note
+  - minions.go:552: "Clean up SSE connection and password" before Disconnect and ClearPassword calls
+  - main.go:180-197: Detailed comments on reconnection logic (query active, filter by password+pod, fire-and-forget connect)
+  - entrypoint.sh:13: OPENCODE_SERVER_PASSWORD documented as required env var with purpose "Per-minion password for SSE authentication"
+  - sse.go:221-224: "Add HTTP Basic Auth header with opencode username and per-minion password" with encoding logic
+- Files changed: AGENTS.md (added 122 lines of documentation in Architecture section)
+- **Learnings**: Comprehensive documentation prevents future bugs and reduces onboarding time. The state machine diagram clarifies the password lifecycle. Troubleshooting tables with debug commands save debugging time. Deployment notes set expectations for acceptable blast radius. Code comments were already in place from implementation tasks - good practice to add them during implementation rather than retrofitting.

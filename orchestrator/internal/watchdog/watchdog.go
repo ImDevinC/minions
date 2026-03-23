@@ -40,6 +40,9 @@ type MinionQuerier interface {
 
 	// MarkFailed marks a minion as failed with the given error message.
 	MarkFailed(ctx context.Context, id uuid.UUID, errorMsg string) error
+
+	// ClearPassword clears the opencode_password field for a minion.
+	ClearPassword(ctx context.Context, id uuid.UUID) error
 }
 
 // PodStatusChecker checks pod health status.
@@ -48,10 +51,17 @@ type PodStatusChecker interface {
 	ListPods(ctx context.Context) ([]k8s.PodInfo, error)
 }
 
+// SSEDisconnector handles disconnecting SSE streams from minions.
+type SSEDisconnector interface {
+	// Disconnect stops streaming events for a minion.
+	Disconnect(minionID uuid.UUID)
+}
+
 // Watchdog monitors minion health and alerts on issues.
 type Watchdog struct {
 	minions              MinionQuerier
 	pods                 PodStatusChecker
+	sse                  SSEDisconnector
 	notifier             webhook.Notifier
 	logger               *slog.Logger
 	stopCh               chan struct{}
@@ -60,10 +70,11 @@ type Watchdog struct {
 }
 
 // New creates a new Watchdog instance.
-func New(minions MinionQuerier, pods PodStatusChecker, notifier webhook.Notifier, logger *slog.Logger) *Watchdog {
+func New(minions MinionQuerier, pods PodStatusChecker, sse SSEDisconnector, notifier webhook.Notifier, logger *slog.Logger) *Watchdog {
 	return &Watchdog{
 		minions:  minions,
 		pods:     pods,
+		sse:      sse,
 		notifier: notifier,
 		logger:   logger,
 		stopCh:   make(chan struct{}),
@@ -212,6 +223,14 @@ func (w *Watchdog) checkFailedPods(ctx context.Context) int {
 			continue
 		}
 
+		// Clean up SSE connection and password
+		w.sse.Disconnect(minionID)
+		if err := w.minions.ClearPassword(ctx, minionID); err != nil {
+			w.logger.Error("failed to clear password", "error", err, "minion_id", minionID)
+		} else {
+			w.logger.Info("cleared opencode password", "minion_id", minionID)
+		}
+
 		w.logger.Warn("marked minion as failed due to pod failure",
 			"minion_id", minionID,
 			"pod_name", pod.Name,
@@ -241,6 +260,14 @@ func (w *Watchdog) checkClarificationTimeouts(ctx context.Context) int {
 				"error", err,
 			)
 			continue
+		}
+
+		// Clean up SSE connection and password
+		w.sse.Disconnect(m.ID)
+		if err := w.minions.ClearPassword(ctx, m.ID); err != nil {
+			w.logger.Error("failed to clear password", "error", err, "minion_id", m.ID)
+		} else {
+			w.logger.Info("cleared opencode password", "minion_id", m.ID)
 		}
 
 		// Notify Discord

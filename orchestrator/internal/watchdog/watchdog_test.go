@@ -48,6 +48,11 @@ func (m *mockMinionQuerier) MarkFailed(_ context.Context, id uuid.UUID, _ string
 	return m.failErr
 }
 
+func (m *mockMinionQuerier) ClearPassword(_ context.Context, id uuid.UUID) error {
+	// No-op for tests
+	return nil
+}
+
 func (m *mockMinionQuerier) getFailedCalls() []uuid.UUID {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -65,6 +70,24 @@ func (m *mockPodStatusChecker) ListPods(_ context.Context) ([]k8s.PodInfo, error
 		return nil, m.err
 	}
 	return m.pods, nil
+}
+
+// mockSSEDisconnector is a test mock for SSEDisconnector.
+type mockSSEDisconnector struct {
+	disconnectedIDs []uuid.UUID
+	mu              sync.Mutex
+}
+
+func (m *mockSSEDisconnector) Disconnect(minionID uuid.UUID) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.disconnectedIDs = append(m.disconnectedIDs, minionID)
+}
+
+func (m *mockSSEDisconnector) getDisconnectedIDs() []uuid.UUID {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]uuid.UUID{}, m.disconnectedIDs...)
 }
 
 // mockNotifier is a test mock for webhook.Notifier.
@@ -111,7 +134,7 @@ func TestWatchdog_IdleMinionDetection(t *testing.T) {
 	notifier := &mockNotifier{}
 	logger := testLogger()
 
-	w := New(minions, pods, notifier, logger)
+	w := New(minions, pods, &mockSSEDisconnector{}, notifier, logger)
 
 	ctx := context.Background()
 	w.runChecks(ctx)
@@ -145,7 +168,7 @@ func TestWatchdog_FailedPodDetection(t *testing.T) {
 	notifier := &mockNotifier{}
 	logger := testLogger()
 
-	w := New(minions, pods, notifier, logger)
+	w := New(minions, pods, &mockSSEDisconnector{}, notifier, logger)
 
 	ctx := context.Background()
 	w.runChecks(ctx)
@@ -179,10 +202,11 @@ func TestWatchdog_MultipleIdleMinions(t *testing.T) {
 		idleMinions: []*db.Minion{minion1, minion2},
 	}
 	pods := &mockPodStatusChecker{pods: []k8s.PodInfo{}}
+	sse := &mockSSEDisconnector{}
 	notifier := &mockNotifier{}
 	logger := testLogger()
 
-	w := New(minions, pods, notifier, logger)
+	w := New(minions, pods, sse, notifier, logger)
 
 	ctx := context.Background()
 	w.runChecks(ctx)
@@ -199,7 +223,7 @@ func TestWatchdog_NoIdleMinions(t *testing.T) {
 	notifier := &mockNotifier{}
 	logger := testLogger()
 
-	w := New(minions, pods, notifier, logger)
+	w := New(minions, pods, &mockSSEDisconnector{}, notifier, logger)
 
 	ctx := context.Background()
 	w.runChecks(ctx)
@@ -218,7 +242,7 @@ func TestWatchdog_QueryError(t *testing.T) {
 	notifier := &mockNotifier{}
 	logger := testLogger()
 
-	w := New(minions, pods, notifier, logger)
+	w := New(minions, pods, &mockSSEDisconnector{}, notifier, logger)
 
 	// Should not panic, should log error
 	ctx := context.Background()
@@ -243,7 +267,7 @@ func TestWatchdog_NotifierError(t *testing.T) {
 	notifier := &mockNotifier{err: errors.New("webhook failed")}
 	logger := testLogger()
 
-	w := New(minions, pods, notifier, logger)
+	w := New(minions, pods, &mockSSEDisconnector{}, notifier, logger)
 
 	// Should not panic, should log error and continue
 	ctx := context.Background()
@@ -260,7 +284,7 @@ func TestWatchdog_FailedPodWithInvalidMinionID(t *testing.T) {
 	notifier := &mockNotifier{}
 	logger := testLogger()
 
-	w := New(minions, pods, notifier, logger)
+	w := New(minions, pods, &mockSSEDisconnector{}, notifier, logger)
 
 	// Should not panic, should log error and skip
 	ctx := context.Background()
@@ -282,7 +306,7 @@ func TestWatchdog_FailedPodWithoutLabel(t *testing.T) {
 	notifier := &mockNotifier{}
 	logger := testLogger()
 
-	w := New(minions, pods, notifier, logger)
+	w := New(minions, pods, &mockSSEDisconnector{}, notifier, logger)
 
 	// Should skip pods without minion-id label
 	ctx := context.Background()
@@ -300,7 +324,7 @@ func TestWatchdog_RunAndStop(t *testing.T) {
 	notifier := &mockNotifier{}
 	logger := testLogger()
 
-	w := New(minions, pods, notifier, logger)
+	w := New(minions, pods, &mockSSEDisconnector{}, notifier, logger)
 
 	ctx := context.Background()
 	go w.Run(ctx)
@@ -329,7 +353,7 @@ func TestWatchdog_ContextCancellation(t *testing.T) {
 	notifier := &mockNotifier{}
 	logger := testLogger()
 
-	w := New(minions, pods, notifier, logger)
+	w := New(minions, pods, &mockSSEDisconnector{}, notifier, logger)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go w.Run(ctx)
@@ -363,7 +387,7 @@ func TestWatchdog_MixedFailedAndRunningPods(t *testing.T) {
 	notifier := &mockNotifier{}
 	logger := testLogger()
 
-	w := New(minions, pods, notifier, logger)
+	w := New(minions, pods, &mockSSEDisconnector{}, notifier, logger)
 
 	ctx := context.Background()
 	w.runChecks(ctx)
@@ -392,7 +416,7 @@ func TestWatchdog_IdleMinionWithNilChannelID(t *testing.T) {
 	notifier := &mockNotifier{}
 	logger := testLogger()
 
-	w := New(minions, pods, notifier, logger)
+	w := New(minions, pods, &mockSSEDisconnector{}, notifier, logger)
 
 	ctx := context.Background()
 	w.runChecks(ctx)
@@ -423,7 +447,7 @@ func TestWatchdog_ClarificationTimeout(t *testing.T) {
 	notifier := &mockNotifier{}
 	logger := testLogger()
 
-	w := New(minions, pods, notifier, logger)
+	w := New(minions, pods, &mockSSEDisconnector{}, notifier, logger)
 	// Force the clarification check by setting lastClarificationChk to the past
 	w.lastClarificationChk = time.Time{}
 
@@ -469,7 +493,7 @@ func TestWatchdog_ClarificationTimeoutSkippedIfTooSoon(t *testing.T) {
 	notifier := &mockNotifier{}
 	logger := testLogger()
 
-	w := New(minions, pods, notifier, logger)
+	w := New(minions, pods, &mockSSEDisconnector{}, notifier, logger)
 	// Set recent check time so it should be skipped
 	w.lastClarificationChk = time.Now().Add(-5 * time.Minute) // Only 5 min ago, need 10 min
 
@@ -497,7 +521,7 @@ func TestWatchdog_ClarificationTimeoutQueryError(t *testing.T) {
 	notifier := &mockNotifier{}
 	logger := testLogger()
 
-	w := New(minions, pods, notifier, logger)
+	w := New(minions, pods, &mockSSEDisconnector{}, notifier, logger)
 	w.lastClarificationChk = time.Time{} // Force check
 
 	ctx := context.Background()
@@ -533,7 +557,7 @@ func TestWatchdog_MultipleClarificationTimeouts(t *testing.T) {
 	notifier := &mockNotifier{}
 	logger := testLogger()
 
-	w := New(minions, pods, notifier, logger)
+	w := New(minions, pods, &mockSSEDisconnector{}, notifier, logger)
 	w.lastClarificationChk = time.Time{}
 
 	ctx := context.Background()

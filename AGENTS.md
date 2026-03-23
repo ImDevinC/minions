@@ -37,6 +37,15 @@ Key rules:
 2. **Use conventional commits** - `feat:`, `fix:`, `chore:`, etc.
 3. **Include disclosure** - All PRs must include the AI disclosure statement
 
+## Deployment Policy
+
+**CRITICAL**: Never deploy directly to Kubernetes. All Kubernetes deployments are handled by a human.
+
+- Do not run `kubectl apply`, `kubectl create`, `kubectl patch`, or any other commands that modify cluster state
+- You may read cluster state with `kubectl get`, `kubectl describe`, etc. for debugging purposes
+- You may modify Kubernetes manifests in `infra/` but never apply them
+- If deployment is needed, inform the user and let them handle it
+
 ## CI/CD
 
 - **Commitlint**: Validates conventional commits on PRs
@@ -76,3 +85,113 @@ Each service is versioned independently:
 - Tags: `<service>-v<semver>` (e.g., `orchestrator-v1.2.0`)
 - Releases only trigger for services with changes
 - `release-configs/<service>.js` contains per-service semantic-release config
+
+## Architecture
+
+### Minion Observability & Security
+
+The orchestrator streams real-time events from minion pods to the control panel using Server-Sent Events (SSE) with per-pod UUID password authentication.
+
+#### Password Lifecycle
+
+Each minion gets a unique UUID password for SSE authentication. The lifecycle:
+
+```
+┌─────────────┐
+│   PENDING   │ password = NULL
+└──────┬──────┘
+       │ spawner generates UUID
+       ▼
+┌─────────────┐
+│   RUNNING   │ password stored in DB
+└──────┬──────┘ password passed to pod env
+       │        SSE connects with Basic Auth
+       │
+       ├──────▶ [completed] ──┐
+       ├──────▶ [failed]    ──┤ SSE disconnected
+       └──────▶ [terminated]──┤ password cleared from DB
+                              ▼
+                        ┌─────────────┐
+                        │  TERMINAL   │ password = NULL
+                        └─────────────┘
+```
+
+**Key Points:**
+- Password generated before pod spawn (orchestrator/internal/spawner/spawner.go)
+- Stored in DB before pod creation (idempotent - reused on crash recovery)
+- Passed to pod via `OPENCODE_SERVER_PASSWORD` env var
+- Devbox validates password on startup (devbox/entrypoint.sh)
+- OpenCode server listens on 0.0.0.0:4096 (accessible from orchestrator pod)
+- Orchestrator connects with HTTP Basic Auth: `opencode:<password>`
+- On terminal states (completed/failed/terminated), SSE disconnected then password cleared
+- Cleanup is idempotent and best-effort (non-fatal errors logged)
+
+#### Orchestrator Restart Behavior
+
+On restart, the orchestrator reconnects to active minions:
+1. Query DB for minions with status=running or status=pending
+2. Filter where `opencode_password != ""` AND `pod_name != NULL`
+3. For each eligible minion, call `SSEClient.Connect(ctx, id, podName, password)`
+4. Connect is fire-and-forget (spawns goroutine with internal retry logic)
+5. Reconnection failures are logged but don't fail startup
+
+**Implication:** Active minions survive orchestrator restarts without losing observability.
+
+#### Control Panel SSE Proxy
+
+The control panel cannot directly connect to minion pods (different namespaces, no ingress). Architecture:
+
+```
+Browser ──[EventSource]──> Next.js API Route ──[WebSocket]──> Orchestrator ──[HTTP+Auth]──> Minion Pod
+         /api/minions/[id]/events/stream      /api/minions/[id]/stream             :4096/event
+```
+
+**Why Server-Side Proxy:**
+- Keeps orchestrator internal_api_token secret (never sent to browser)
+- Avoids CORS issues
+- Handles WebSocket → SSE transformation
+- Survives orchestrator restarts (EventSource auto-reconnects)
+
+**Implementation:** control-panel/src/app/api/minions/[id]/events/stream/route.ts
+
+#### SSE Connection Troubleshooting
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| **401 Unauthorized** | Password mismatch or missing | Check `OPENCODE_SERVER_PASSWORD` env var in pod, verify DB has password stored |
+| **Connection refused** | OpenCode not listening on 0.0.0.0 | Check devbox/entrypoint.sh hostname flag, verify OpenCode started successfully |
+| **Connection timeout** | Pod not ready or network issue | Check pod status with `kubectl get pod`, verify pod IP reachable |
+| **SSE reconnection loop** | Orchestrator crashing or password cleared | Check orchestrator logs for panic, verify minion status is not terminal |
+
+**Debug Commands:**
+```bash
+# Check password in DB
+psql -c "SELECT id, status, opencode_password IS NOT NULL as has_password, pod_name FROM minions WHERE id='<minion-id>';"
+
+# Check pod env var
+kubectl exec <pod-name> -n minions -- env | grep OPENCODE_SERVER_PASSWORD
+
+# Check OpenCode server listening
+kubectl exec <pod-name> -n minions -- netstat -tlnp | grep 4096
+
+# Check orchestrator SSE connection logs
+kubectl logs -n minions <orchestrator-pod> | grep "SSE connection established\|Failed to connect SSE"
+```
+
+#### Deployment Notes
+
+**Observability Loss During Redeploy:**
+- When orchestrator pod is replaced, in-flight SSE connections are dropped
+- Reconnection happens automatically after new orchestrator starts (see restart behavior above)
+- Minions continue executing during orchestrator downtime (no task interruption)
+- Control panel shows "disconnected" status briefly, then reconnects via EventSource retry
+
+**Acceptable Blast Radius:**
+- ~30-60 seconds of lost observability during orchestrator rolling update
+- No minion task failures (execution is independent)
+- No user intervention required (automatic reconnection)
+
+**Database Migration:**
+- Migration 005 adds `opencode_password TEXT NULL` column to minions table
+- Existing minions have NULL password (cannot reconnect SSE, but tasks complete normally)
+- New minions spawned after migration get passwords automatically

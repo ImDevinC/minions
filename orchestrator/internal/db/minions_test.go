@@ -1,6 +1,13 @@
 package db
 
-import "testing"
+import (
+	"context"
+	"testing"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+)
 
 func TestRepoTaskHash(t *testing.T) {
 	// Same inputs should produce same hash
@@ -51,4 +58,71 @@ func TestDuplicateWindowConstant(t *testing.T) {
 	if DuplicateWindow.Minutes() != 5 {
 		t.Errorf("DuplicateWindow should be 5 minutes, got %v", DuplicateWindow)
 	}
+}
+
+func TestPasswordMethods(t *testing.T) {
+	// Create mock pool for testing password methods
+	mockPool := &mockPool{
+		execResults: make(map[string]execResult),
+	}
+
+	store := NewMinionStoreWithPool(mockPool)
+	ctx := context.Background()
+	minionID := uuid.New()
+	password := "test-password-uuid"
+
+	// Test StorePassword
+	mockPool.execResults["UPDATE minions SET opencode_password = $1 WHERE id = $2"] = execResult{
+		rowsAffected: 1,
+		err:          nil,
+	}
+	err := store.StorePassword(ctx, minionID, password)
+	if err != nil {
+		t.Fatalf("StorePassword failed: %v", err)
+	}
+
+	// Test ClearPassword
+	mockPool.execResults["UPDATE minions SET opencode_password = NULL WHERE id = $1"] = execResult{
+		rowsAffected: 1,
+		err:          nil,
+	}
+	err = store.ClearPassword(ctx, minionID)
+	if err != nil {
+		t.Fatalf("ClearPassword failed: %v", err)
+	}
+
+	// Test idempotency - calling ClearPassword twice should succeed
+	err = store.ClearPassword(ctx, minionID)
+	if err != nil {
+		t.Fatalf("ClearPassword idempotency test failed: %v", err)
+	}
+}
+
+type mockPool struct {
+	execResults map[string]execResult
+}
+
+type execResult struct {
+	rowsAffected int64
+	err          error
+}
+
+func (m *mockPool) Begin(ctx context.Context) (pgx.Tx, error) {
+	return nil, nil
+}
+
+func (m *mockPool) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	return nil, nil
+}
+
+func (m *mockPool) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	return nil
+}
+
+func (m *mockPool) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	// Find matching query in mock results
+	if result, ok := m.execResults[sql]; ok {
+		return pgconn.NewCommandTag(string(rune(result.rowsAffected))), result.err
+	}
+	return pgconn.NewCommandTag(""), nil
 }

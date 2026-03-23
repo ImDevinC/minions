@@ -23,6 +23,7 @@ type RouterConfig struct {
 	Pool          *pgxpool.Pool
 	PodTerminator k8s.PodTerminator
 	Notifier      webhook.Notifier
+	SSE           SSEDisconnector
 	Hub           *streaming.Hub // WebSocket hub for live event streaming
 }
 
@@ -49,6 +50,7 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 		Events:        eventStore,
 		PodTerminator: cfg.PodTerminator,
 		Notifier:      cfg.Notifier,
+		SSE:           cfg.SSE,
 		Logger:        cfg.Logger,
 	})
 

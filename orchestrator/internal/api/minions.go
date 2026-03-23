@@ -18,6 +18,12 @@ import (
 	"github.com/google/uuid"
 )
 
+// SSEDisconnector handles disconnecting SSE streams from minions.
+type SSEDisconnector interface {
+	// Disconnect stops streaming events for a minion.
+	Disconnect(minionID uuid.UUID)
+}
+
 // MinionHandler handles minion-related HTTP endpoints.
 type MinionHandler struct {
 	users         *db.UserStore
@@ -25,6 +31,7 @@ type MinionHandler struct {
 	events        *db.EventStore
 	podTerminator k8s.PodTerminator
 	notifier      webhook.Notifier
+	sse           SSEDisconnector
 	logger        *slog.Logger
 }
 
@@ -35,6 +42,7 @@ type MinionHandlerConfig struct {
 	Events        *db.EventStore
 	PodTerminator k8s.PodTerminator
 	Notifier      webhook.Notifier
+	SSE           SSEDisconnector
 	Logger        *slog.Logger
 }
 
@@ -46,6 +54,7 @@ func NewMinionHandler(cfg MinionHandlerConfig) *MinionHandler {
 		events:        cfg.Events,
 		podTerminator: cfg.PodTerminator,
 		notifier:      cfg.Notifier,
+		sse:           cfg.SSE,
 		logger:        cfg.Logger,
 	}
 }
@@ -438,6 +447,15 @@ func (h *MinionHandler) HandleDelete(w http.ResponseWriter, r *http.Request) {
 			"previous_status", result.PreviousStatus,
 		)
 
+		// Clean up SSE connection and password
+		h.sse.Disconnect(id)
+		if err := h.minions.ClearPassword(r.Context(), id); err != nil {
+			// Log but don't fail the request; cleanup is best-effort
+			h.logger.Error("failed to clear password", "error", err, "minion_id", id)
+		} else {
+			h.logger.Info("cleared opencode password", "minion_id", id)
+		}
+
 		// Terminate pod if one was assigned
 		if result.PodName != nil {
 			if err := h.podTerminator.TerminatePod(r.Context(), *result.PodName); err != nil {
@@ -529,6 +547,15 @@ func (h *MinionHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error("failed to complete minion", "error", err, "minion_id", id)
 		h.writeError(w, http.StatusInternalServerError, "internal server error", "")
 		return
+	}
+
+	// Clean up SSE connection and password
+	h.sse.Disconnect(id)
+	if err := h.minions.ClearPassword(r.Context(), id); err != nil {
+		// Log but don't fail the request; cleanup is best-effort
+		h.logger.Error("failed to clear password", "error", err, "minion_id", id)
+	} else {
+		h.logger.Info("cleared opencode password", "minion_id", id)
 	}
 
 	// If minion was actually updated, notify Discord
