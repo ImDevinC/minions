@@ -1,6 +1,7 @@
 #!/bin/bash
 # Minion devbox entrypoint
 # Clones repo, starts OpenCode serve, waits for readiness, creates session, sends task
+# The agent autonomously completes the task including creating commits and PRs
 #
 # Required environment variables:
 #   GITHUB_TOKEN            - GitHub token for cloning and API access
@@ -12,7 +13,8 @@
 #   INTERNAL_API_TOKEN      - Token for authenticating with orchestrator
 #
 # Optional environment variables:
-#   OPENCODE_PORT   - Port for OpenCode serve (default: 4096)
+#   OPENCODE_PORT           - Port for OpenCode serve (default: 4096)
+#   TASK_TIMEOUT            - Maximum task execution time in seconds (default: 1800 = 30 min)
 #
 # Orchestrator receives callbacks at:
 #   POST $ORCHESTRATOR_URL/api/minions/$MINION_ID/callback
@@ -26,6 +28,7 @@ HEALTH_ENDPOINT="${OPENCODE_BASE}/global/health"
 SESSION_ENDPOINT="${OPENCODE_BASE}/session"
 HEALTH_TIMEOUT=60
 HEALTH_INTERVAL=2
+TASK_TIMEOUT="${TASK_TIMEOUT:-1800}"  # 30 minutes default
 
 # Logging helpers
 log() {
@@ -62,6 +65,10 @@ clone_repo() {
     git config --global credential.helper store
     echo "https://x-access-token:${GITHUB_TOKEN}@github.com" > ~/.git-credentials
     chmod 600 ~/.git-credentials
+
+    # Configure git user for commits (agent will use these)
+    git config --global user.email "minion@anomaly.co"
+    git config --global user.name "Minion"
 
     # Clone with depth=1 for speed (full history not needed for most tasks)
     if ! git clone --depth=1 "https://github.com/${MINION_REPO}.git" /workspace/repo 2>&1; then
@@ -170,12 +177,27 @@ send_task() {
 }
 
 # Wait for session to complete by polling status
-# The orchestrator's SSE client handles event streaming; we just need
-# to know when to proceed to PR creation
+# Includes timeout and process monitoring for robustness
+# Returns:
+#   0 - Task completed successfully (session idle)
+#   1 - Task failed (session error/failed status)
+#   2 - Timeout exceeded
+#   3 - OpenCode process died
 wait_for_completion() {
-    log "Waiting for task completion"
+    log "Waiting for task completion (timeout: ${TASK_TIMEOUT}s)"
 
-    while true; do
+    local elapsed=0
+    local poll_interval=5
+
+    while [[ $elapsed -lt $TASK_TIMEOUT ]]; do
+        # Check if OpenCode process is still running
+        if ! kill -0 "$OPENCODE_PID" 2>/dev/null; then
+            log "OpenCode process died (PID $OPENCODE_PID)"
+            log "OpenCode logs:"
+            cat /tmp/opencode.log >&2 || true
+            return 3
+        fi
+
         local status_response
         status_response=$(curl -sf "${SESSION_ENDPOINT}/status" || echo "{}")
 
@@ -199,142 +221,45 @@ wait_for_completion() {
                 ;;
         esac
 
-        sleep 5
+        sleep "$poll_interval"
+        elapsed=$((elapsed + poll_interval))
     done
+
+    log "Task timed out after ${TASK_TIMEOUT}s"
+    return 2
 }
 
-# Check if there are any changes to commit
-has_changes() {
+# Check if there are any uncommitted changes
+has_uncommitted_changes() {
     # Check for staged, unstaged, or untracked files
     [[ -n "$(git status --porcelain)" ]]
 }
 
-# Exit codes for create_pr
-PR_SUCCESS=0
-PR_NO_CHANGES=10
-PR_PUSH_CONFLICT=11
-PR_ERROR=1
-
-# Create branch, commit, push, and create PR
-# Returns:
-#   PR_SUCCESS (0) - PR created or already exists, URL written to stdout
-#   PR_NO_CHANGES (10) - no changes detected
-#   PR_PUSH_CONFLICT (11) - push failed due to conflicts
-#   PR_ERROR (1) - other error
-create_pr() {
-    log "Checking for changes"
-
-    if ! has_changes; then
-        log "No changes detected"
-        return $PR_NO_CHANGES
-    fi
-
-    local branch_name="minion/${MINION_ID}"
-    log "Creating branch: ${branch_name}"
-
-    # Create and checkout the new branch
-    git checkout -b "${branch_name}"
-
-    # Stage all changes
-    git add -A
-
-    # Create commit with descriptive message
-    # Use the first line of the task as commit subject, truncated if needed
-    local commit_subject
-    commit_subject=$(echo "$MINION_TASK" | head -c 72 | tr '\n' ' ')
+# Check if we're on a non-default branch (agent created a branch)
+is_on_feature_branch() {
+    local current_branch
+    current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
     
-    # Configure git user for commit
-    git config user.email "minion@anomaly.co"
-    git config user.name "Minion"
+    # Check if not on main, master, or detached HEAD
+    [[ -n "$current_branch" && "$current_branch" != "main" && "$current_branch" != "master" && "$current_branch" != "HEAD" ]]
+}
 
-    git commit -m "feat: ${commit_subject}
-
-Automated change by Minion ${MINION_ID}
-
-Task:
-${MINION_TASK}"
-
-    log "Committed changes"
-
-    # Push to origin - capture stderr for conflict detection
-    log "Pushing branch to origin"
-    local push_output
-    local push_exit
-    push_output=$(git push -u origin "${branch_name}" 2>&1) && push_exit=0 || push_exit=$?
-
-    if [[ $push_exit -ne 0 ]]; then
-        log "git push stderr: ${push_output}"
-        
-        # Detect conflicts (rejected, non-fast-forward, etc.)
-        if echo "$push_output" | grep -qiE "(rejected|non-fast-forward|conflict|failed to push)"; then
-            log "Push failed due to conflicts"
-            return $PR_PUSH_CONFLICT
-        fi
-        
-        log "Push failed with unknown error"
-        return $PR_ERROR
-    fi
-
-    log "Creating PR via gh CLI"
-
-    # Create PR - gh uses GITHUB_TOKEN automatically
+# Detect PR URL created by the agent
+# Uses gh CLI to find PR for current branch
+detect_pr_url() {
+    log "Detecting PR URL for current branch"
+    
     local pr_url
-    local pr_body
-    pr_body=$(jq -n \
-        --arg task "$MINION_TASK" \
-        --arg minion_id "$MINION_ID" \
-        '
-## Minion Task
-
-\($task)
-
----
-_Automated PR by Minion `\($minion_id)`_
-')
-
-    # gh pr create returns the PR URL on success
-    # Capture both stdout and stderr separately
-    local gh_stderr
-    local gh_exit
-    pr_url=$(gh pr create \
-        --title "feat: ${commit_subject}" \
-        --body "$pr_body" \
-        --head "${branch_name}" \
-        2> >(tee >(cat >&2) | head -1 > /tmp/gh_stderr.tmp)) && gh_exit=0 || gh_exit=$?
+    pr_url=$(gh pr view HEAD --json url -q '.url' 2>/dev/null || echo "")
     
-    # Read stderr (if any)
-    gh_stderr=$(cat /tmp/gh_stderr.tmp 2>/dev/null || echo "")
-    
-    # Always log gh CLI output for debugging
-    [[ -n "$gh_stderr" ]] && log "gh pr create stderr: ${gh_stderr}"
-    
-    if [[ $gh_exit -ne 0 ]]; then
-        # Check if PR already exists for this branch (idempotent)
-        if echo "$gh_stderr" | grep -qiE "already exists|pull request already exists"; then
-            log "PR already exists for branch ${branch_name}, fetching URL"
-            
-            # Get existing PR URL
-            local existing_pr
-            existing_pr=$(gh pr view "${branch_name}" --json url -q '.url' 2>&1) || {
-                log "gh pr view stderr: ${existing_pr}"
-                # If we can't get the URL, still treat as success (PR exists)
-                log "Could not fetch existing PR URL, but PR exists"
-                echo "https://github.com/${MINION_REPO}/pull/unknown"
-                return $PR_SUCCESS
-            }
-            
-            log "Existing PR found: ${existing_pr}"
-            echo "${existing_pr}"
-            return $PR_SUCCESS
-        fi
-        
-        log "gh pr create failed with exit code ${gh_exit}"
-        return $PR_ERROR
+    if [[ -n "$pr_url" ]]; then
+        log "Found PR: ${pr_url}"
+        echo "$pr_url"
+        return 0
     fi
-
-    log "PR created: ${pr_url}"
-    echo "${pr_url}"
-    return $PR_SUCCESS
+    
+    log "No PR found for current branch"
+    return 1
 }
 
 # Callback retry configuration
@@ -343,7 +268,8 @@ CALLBACK_INITIAL_BACKOFF=1  # seconds
 CALLBACK_MAX_BACKOFF=60     # seconds
 
 # Send callback to orchestrator with exponential backoff retry
-# Args: status, pr_url (optional), error_msg (optional), result_type (optional: "no_changes")
+# Args: status, pr_url (optional), error_msg (optional), result_type (optional)
+# Result types: "no_changes", "partial_work", "timeout", "process_error"
 # On failure after all retries, returns non-zero
 send_callback() {
     local status="$1"
@@ -407,6 +333,104 @@ send_callback() {
     return 1
 }
 
+# Handle task completion - detect what the agent did and report appropriately
+handle_completion() {
+    local completion_status=$1
+    
+    case $completion_status in
+        0)
+            # Task completed successfully - check what agent accomplished
+            log "Task completed, checking results"
+            
+            local pr_url=""
+            if pr_url=$(detect_pr_url); then
+                # Agent created a PR - success!
+                log "Agent created PR successfully"
+                if ! send_callback "completed" "$pr_url"; then
+                    log "FATAL: Failed to notify orchestrator after ${CALLBACK_MAX_RETRIES} attempts"
+                    exit 1
+                fi
+            elif is_on_feature_branch; then
+                # Agent created a branch but no PR - partial work
+                log "Agent created branch but no PR found"
+                if has_uncommitted_changes; then
+                    if ! send_callback "failed" "" "Agent created branch with uncommitted changes but did not create PR" "partial_work"; then
+                        log "FATAL: Failed to notify orchestrator after ${CALLBACK_MAX_RETRIES} attempts"
+                        exit 1
+                    fi
+                else
+                    if ! send_callback "failed" "" "Agent created branch and committed but did not create PR" "partial_work"; then
+                        log "FATAL: Failed to notify orchestrator after ${CALLBACK_MAX_RETRIES} attempts"
+                        exit 1
+                    fi
+                fi
+                exit 1
+            elif has_uncommitted_changes; then
+                # Agent made changes but didn't commit or create PR
+                log "Agent made changes but did not commit or create PR"
+                if ! send_callback "failed" "" "Agent made file changes but did not commit or create PR" "partial_work"; then
+                    log "FATAL: Failed to notify orchestrator after ${CALLBACK_MAX_RETRIES} attempts"
+                    exit 1
+                fi
+                exit 1
+            else
+                # No changes at all - task completed with nothing to do
+                log "No changes detected - task completed with no modifications needed"
+                if ! send_callback "completed" "" "" "no_changes"; then
+                    log "FATAL: Failed to notify orchestrator after ${CALLBACK_MAX_RETRIES} attempts"
+                    exit 1
+                fi
+            fi
+            ;;
+        1)
+            # Task failed (session error)
+            log "Task execution failed"
+            if ! send_callback "failed" "" "Task execution failed"; then
+                log "FATAL: Failed to notify orchestrator after ${CALLBACK_MAX_RETRIES} attempts"
+                exit 1
+            fi
+            exit 1
+            ;;
+        2)
+            # Task timed out
+            log "Task timed out after ${TASK_TIMEOUT}s"
+            # Check if there's partial work
+            if pr_url=$(detect_pr_url 2>/dev/null); then
+                # Agent managed to create PR before timeout - treat as success
+                log "PR was created before timeout"
+                if ! send_callback "completed" "$pr_url"; then
+                    log "FATAL: Failed to notify orchestrator after ${CALLBACK_MAX_RETRIES} attempts"
+                    exit 1
+                fi
+            else
+                if ! send_callback "failed" "" "Task execution timed out after ${TASK_TIMEOUT}s" "timeout"; then
+                    log "FATAL: Failed to notify orchestrator after ${CALLBACK_MAX_RETRIES} attempts"
+                    exit 1
+                fi
+                exit 1
+            fi
+            ;;
+        3)
+            # OpenCode process died
+            log "OpenCode process died unexpectedly"
+            if ! send_callback "failed" "" "OpenCode process died during task execution" "process_error"; then
+                log "FATAL: Failed to notify orchestrator after ${CALLBACK_MAX_RETRIES} attempts"
+                exit 1
+            fi
+            exit 1
+            ;;
+        *)
+            # Unknown error
+            log "Unknown completion status: ${completion_status}"
+            if ! send_callback "failed" "" "Unknown error during task execution"; then
+                log "FATAL: Failed to notify orchestrator after ${CALLBACK_MAX_RETRIES} attempts"
+                exit 1
+            fi
+            exit 1
+            ;;
+    esac
+}
+
 # Main execution
 main() {
     validate_env
@@ -416,56 +440,11 @@ main() {
     create_session
     send_task
 
-    # Wait for task to complete
-    if wait_for_completion; then
-        log "Task completed successfully"
-        
-        # Attempt to create PR
-        local pr_url
-        local pr_exit
-        pr_url=$(create_pr) && pr_exit=0 || pr_exit=$?
-        
-        case $pr_exit in
-            $PR_SUCCESS)
-                log "PR created/found successfully"
-                if ! send_callback "completed" "$pr_url"; then
-                    log "FATAL: Failed to notify orchestrator after ${CALLBACK_MAX_RETRIES} attempts"
-                    exit 1
-                fi
-                ;;
-            $PR_NO_CHANGES)
-                log "No changes to commit - task completed with no modifications"
-                # Send "no_changes" status (not failure, per PRD)
-                if ! send_callback "completed" "" "" "no_changes"; then
-                    log "FATAL: Failed to notify orchestrator after ${CALLBACK_MAX_RETRIES} attempts"
-                    exit 1
-                fi
-                ;;
-            $PR_PUSH_CONFLICT)
-                log "Push failed due to branch conflicts"
-                if ! send_callback "failed" "" "Branch push failed: conflicts detected with remote"; then
-                    log "FATAL: Failed to notify orchestrator after ${CALLBACK_MAX_RETRIES} attempts"
-                    exit 1
-                fi
-                exit 1
-                ;;
-            *)
-                log "PR creation failed"
-                if ! send_callback "failed" "" "PR creation failed"; then
-                    log "FATAL: Failed to notify orchestrator after ${CALLBACK_MAX_RETRIES} attempts"
-                    exit 1
-                fi
-                exit 1
-                ;;
-        esac
-    else
-        log "Task failed"
-        if ! send_callback "failed" "" "Task execution failed"; then
-            log "FATAL: Failed to notify orchestrator after ${CALLBACK_MAX_RETRIES} attempts"
-            exit 1
-        fi
-        exit 1
-    fi
+    # Wait for task to complete and handle results
+    local completion_status
+    wait_for_completion && completion_status=0 || completion_status=$?
+    
+    handle_completion $completion_status
 }
 
 main "$@"
