@@ -1,13 +1,11 @@
 "use client";
 
-import { useRef, useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { useVirtualizer } from "@tanstack/react-virtual";
-import { MinionDetail, MinionEvent, MinionStatus } from "@/types/minion";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { MinionDetail, MinionStatus } from "@/types/minion";
 import { TerminateModal } from "./terminate-modal";
 import { useMinionEvents } from "@/hooks/use-minion-events";
+import { ChatView } from "./chat-view";
 
 // Re-export StatusBadge for server component compatibility
 interface StatusConfig {
@@ -75,310 +73,6 @@ function formatTokens(count: number): string {
   return count.toString();
 }
 
-// Format timestamp for event log
-function formatEventTime(timestamp: string): string {
-  const date = new Date(timestamp);
-  return date.toLocaleTimeString("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  });
-}
-
-// Detect code blocks in content and extract language
-interface CodeBlock {
-  language: string;
-  code: string;
-}
-
-function extractCodeBlocks(content: Record<string, unknown>): CodeBlock[] {
-  const blocks: CodeBlock[] = [];
-
-  // Check common patterns for code in events
-  const codeFields = ["code", "content", "output", "message", "text", "data"];
-
-  for (const field of codeFields) {
-    const value = content[field];
-    if (typeof value === "string" && value.includes("```")) {
-      // Extract fenced code blocks
-      const regex = /```(\w*)\n?([\s\S]*?)```/g;
-      let match;
-      while ((match = regex.exec(value)) !== null) {
-        blocks.push({
-          language: match[1] || "text",
-          code: match[2].trim(),
-        });
-      }
-    }
-  }
-
-  return blocks;
-}
-
-// Determine if content looks like code
-function looksLikeCode(content: string): boolean {
-  const codeIndicators = [
-    /^(import|export|const|let|var|function|class|interface|type)\s/m,
-    /^(def|class|import|from|return)\s/m,
-    /^(package|func|type|import)\s/m,
-    /[{};]\s*$/m,
-    /^\s*(\/\/|#|\/\*)/m,
-  ];
-  return codeIndicators.some((re) => re.test(content));
-}
-
-// Guess language from content
-function guessLanguage(content: string): string {
-  if (/^(import|export|const|let|interface|type)\s/m.test(content))
-    return "typescript";
-  if (/^(def|class|import|from)\s.*:/m.test(content)) return "python";
-  if (/^(package|func|type)\s/m.test(content)) return "go";
-  if (/^(fn|let|mut|impl|use)\s/m.test(content)) return "rust";
-  return "text";
-}
-
-interface EventRowProps {
-  event: MinionEvent;
-}
-
-function EventRow({ event }: EventRowProps) {
-  const [expanded, setExpanded] = useState(false);
-  const codeBlocks = extractCodeBlocks(event.content);
-
-  // Helper to safely extract string from unknown content
-  const stringify = (value: unknown): string => {
-    if (typeof value === "string") return value;
-    if (value === null || value === undefined) return "";
-    return JSON.stringify(value);
-  };
-
-  // Get display content
-  const displayContent: string = (() => {
-    // Handle different event types
-    if (event.event_type === "message" || event.event_type === "assistant") {
-      const content = event.content.content || event.content.message || "";
-      return stringify(content);
-    }
-    if (event.event_type === "tool_use" || event.event_type === "tool_call") {
-      const tool = event.content.tool || event.content.name || "tool";
-      return `Tool: ${stringify(tool)}`;
-    }
-    if (event.event_type === "tool_result") {
-      return "Tool result";
-    }
-    if (event.event_type === "error") {
-      const msg = event.content.message || event.content.error;
-      return msg ? stringify(msg) : "Error occurred";
-    }
-    if (event.event_type === "token_usage") {
-      const input = event.content.input_tokens || 0;
-      const output = event.content.output_tokens || 0;
-      return `Tokens: ${input} in, ${output} out`;
-    }
-    // Fallback: show type and summary
-    const summary = event.content.summary || event.content.message;
-    return summary
-      ? stringify(summary)
-      : JSON.stringify(event.content).slice(0, 200);
-  })();
-
-  const hasDetails =
-    codeBlocks.length > 0 ||
-    JSON.stringify(event.content).length > 200 ||
-    looksLikeCode(displayContent);
-
-  return (
-    <div className="border-b border-gray-800 py-2 px-3 hover:bg-gray-800/50 transition-colors">
-      <div className="flex items-start gap-3">
-        {/* Timestamp */}
-        <span className="text-xs text-gray-500 font-mono whitespace-nowrap pt-0.5">
-          {formatEventTime(event.timestamp)}
-        </span>
-
-        {/* Event type badge */}
-        <span
-          className={`text-xs px-1.5 py-0.5 rounded whitespace-nowrap ${
-            event.event_type === "error"
-              ? "bg-red-500/20 text-red-400"
-              : event.event_type === "message" ||
-                  event.event_type === "assistant"
-                ? "bg-blue-500/20 text-blue-400"
-                : event.event_type === "tool_use" ||
-                    event.event_type === "tool_call"
-                  ? "bg-purple-500/20 text-purple-400"
-                  : event.event_type === "tool_result"
-                    ? "bg-green-500/20 text-green-400"
-                    : "bg-gray-500/20 text-gray-400"
-          }`}
-        >
-          {event.event_type}
-        </span>
-
-        {/* Content */}
-        <div className="flex-1 min-w-0">
-          <div
-            className={`text-sm text-gray-300 ${!expanded ? "line-clamp-2" : ""}`}
-          >
-            {displayContent}
-          </div>
-
-          {/* Expanded content with code blocks */}
-          {expanded && codeBlocks.length > 0 && (
-            <div className="mt-2 space-y-2">
-              {codeBlocks.map((block, i) => (
-                <div
-                  key={i}
-                  className="rounded overflow-hidden text-xs border border-gray-700"
-                >
-                  <SyntaxHighlighter
-                    language={block.language}
-                    style={oneDark}
-                    customStyle={{
-                      margin: 0,
-                      padding: "0.75rem",
-                      background: "#1a1a2e",
-                      fontSize: "0.75rem",
-                    }}
-                    wrapLines
-                    wrapLongLines
-                  >
-                    {block.code}
-                  </SyntaxHighlighter>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Expanded raw JSON */}
-          {expanded && codeBlocks.length === 0 && hasDetails && (
-            <div className="mt-2 rounded overflow-hidden text-xs border border-gray-700">
-              <SyntaxHighlighter
-                language="json"
-                style={oneDark}
-                customStyle={{
-                  margin: 0,
-                  padding: "0.75rem",
-                  background: "#1a1a2e",
-                  fontSize: "0.75rem",
-                }}
-                wrapLines
-                wrapLongLines
-              >
-                {JSON.stringify(event.content, null, 2)}
-              </SyntaxHighlighter>
-            </div>
-          )}
-        </div>
-
-        {/* Expand button */}
-        {hasDetails && (
-          <button
-            onClick={() => setExpanded(!expanded)}
-            className="text-xs text-gray-500 hover:text-gray-300 whitespace-nowrap"
-          >
-            {expanded ? "▲ Less" : "▼ More"}
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-interface EventLogProps {
-  events: MinionEvent[];
-}
-
-export function EventLog({ events }: EventLogProps) {
-  const parentRef = useRef<HTMLDivElement>(null);
-  const [autoScroll, setAutoScroll] = useState(true);
-
-  // Sort events by timestamp ascending (oldest first)
-  const sortedEvents = [...events].sort(
-    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-  );
-
-  const virtualizer = useVirtualizer({
-    count: sortedEvents.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => 60, // Estimated row height
-    overscan: 10, // Render 10 extra items for smoother scrolling
-  });
-
-  // Auto-scroll to bottom when new events arrive
-  useEffect(() => {
-    if (autoScroll && sortedEvents.length > 0) {
-      virtualizer.scrollToIndex(sortedEvents.length - 1, { align: "end" });
-    }
-  }, [sortedEvents.length, autoScroll, virtualizer]);
-
-  // Detect manual scroll to disable auto-scroll
-  const handleScroll = useCallback(() => {
-    if (!parentRef.current) return;
-    const { scrollTop, scrollHeight, clientHeight } = parentRef.current;
-    const isAtBottom = scrollHeight - scrollTop - clientHeight < 100;
-    setAutoScroll(isAtBottom);
-  }, []);
-
-  if (sortedEvents.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-64 text-gray-500">
-        No events yet
-      </div>
-    );
-  }
-
-  return (
-    <div className="relative">
-      {/* Auto-scroll indicator */}
-      {!autoScroll && (
-        <button
-          onClick={() => {
-            setAutoScroll(true);
-            virtualizer.scrollToIndex(sortedEvents.length - 1, {
-              align: "end",
-            });
-          }}
-          className="absolute bottom-4 right-4 z-10 bg-blue-600 hover:bg-blue-500 text-white text-xs px-3 py-1.5 rounded-full shadow-lg transition-colors"
-        >
-          ↓ Jump to latest
-        </button>
-      )}
-
-      <div
-        ref={parentRef}
-        onScroll={handleScroll}
-        className="h-[500px] overflow-auto bg-gray-900 rounded-lg border border-gray-700"
-      >
-        <div
-          style={{
-            height: `${virtualizer.getTotalSize()}px`,
-            width: "100%",
-            position: "relative",
-          }}
-        >
-          {virtualizer.getVirtualItems().map((virtualRow) => (
-            <div
-              key={virtualRow.key}
-              style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                width: "100%",
-                transform: `translateY(${virtualRow.start}px)`,
-              }}
-              data-index={virtualRow.index}
-              ref={virtualizer.measureElement}
-            >
-              <EventRow event={sortedEvents[virtualRow.index]} />
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // Check if a minion can be terminated (is in a running state)
 function canTerminate(status: MinionStatus): boolean {
   return status === "pending" || status === "running" || status === "awaiting_clarification";
@@ -394,7 +88,7 @@ export function MinionDetailClient({ minion }: MinionDetailClientProps) {
   const [currentStatus, setCurrentStatus] = useState(minion.status);
 
   // Use WebSocket hook for live event updates
-  const { events, isConnected, connectionError } = useMinionEvents({
+  const { events, isConnected, connectionError, isCatchingUp } = useMinionEvents({
     minionId: minion.id,
     initialEvents: minion.events,
     status: currentStatus,
@@ -574,11 +268,11 @@ export function MinionDetailClient({ minion }: MinionDetailClientProps) {
         )}
       </div>
 
-      {/* Event log section */}
+      {/* Chat view section */}
       <div>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-semibold text-white">
-            Event Log ({events.length} events)
+            Agent Activity ({events.length} events)
           </h2>
           <div className="flex items-center gap-2">
             {/* Connection status indicator */}
@@ -599,7 +293,12 @@ export function MinionDetailClient({ minion }: MinionDetailClientProps) {
             )}
           </div>
         </div>
-        <EventLog events={events} />
+        <ChatView 
+          events={events}
+          status={currentStatus}
+          isConnected={isConnected}
+          isCatchingUp={isCatchingUp}
+        />
       </div>
     </div>
   );

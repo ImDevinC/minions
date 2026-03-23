@@ -178,3 +178,13 @@ Started: 2026-03-23
 - Extended useMinionEvents hook to expose isCatchingUp state
 - Files changed: control-panel/src/components/chat-view.tsx, control-panel/src/hooks/use-minion-events.ts
 - **Learnings:** Status-aware empty states require passing minion status down to ChatView; catching up state set in onopen handler's fetchEventsSince promise chain
+
+## Task - integration-1
+- Replaced EventLog with ChatView in minion-detail-client.tsx
+- Removed EventLog, EventRow, and supporting functions (~200 lines of code removed)
+- Imported ChatView and wired to useMinionEvents hook with all required props (events, status, isConnected, isCatchingUp)
+- Connection status indicator preserved in header (Live/Connecting indicator, error display)
+- 'Jump to latest' button now handled by ChatView internally (responsive positioning already implemented in streaming-2)
+- Renamed section header from "Event Log" to "Agent Activity" to reflect chat-style UI
+- Files changed: control-panel/src/components/minion-detail-client.tsx (lines 1-312, significant reduction)
+- **Learnings:** Clean removal - EventLog/EventRow were self-contained; ChatView has all needed props for status/loading/catching-up states

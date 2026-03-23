@@ -244,7 +244,7 @@
         "Verify 'Jump to latest' button positioning",
         "Manual test: Load active minion, verify chat renders and streams"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "performance-1",
