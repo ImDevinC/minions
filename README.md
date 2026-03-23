@@ -82,7 +82,7 @@ cd discord-bot
 export DISCORD_BOT_TOKEN="your-discord-bot-token"
 export ORCHESTRATOR_URL="http://localhost:8080"
 export INTERNAL_API_TOKEN="your-secret-token"
-export OPENROUTER_API_KEY="sk-or-..."
+export OPENAI_API_KEY="sk-or-..."
 
 go run ./cmd/bot
 ```
@@ -130,7 +130,7 @@ docker build -t minions-devbox:latest devbox/
 | `DISCORD_BOT_TOKEN` | Yes | Discord bot token |
 | `ORCHESTRATOR_URL` | Yes | Orchestrator API URL |
 | `INTERNAL_API_TOKEN` | Yes | Shared secret for API auth |
-| `OPENROUTER_API_KEY` | Yes | For clarification LLM calls |
+| `OPENAI_API_KEY` | Yes | For clarification LLM calls (OpenRouter) |
 
 ### Control Panel
 

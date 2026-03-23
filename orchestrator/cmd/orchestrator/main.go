@@ -56,10 +56,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	// OPENROUTER_API_KEY is required for LLM access in devbox pods
-	openRouterAPIKey := os.Getenv("OPENROUTER_API_KEY")
-	if openRouterAPIKey == "" {
-		logger.Error("OPENROUTER_API_KEY environment variable is required")
+	// OPENAI_API_KEY is required for LLM access in devbox pods
+	openAIAPIKey := os.Getenv("OPENAI_API_KEY")
+	if openAIAPIKey == "" {
+		logger.Error("OPENAI_API_KEY environment variable is required")
 		os.Exit(1)
 	}
 
@@ -114,8 +114,8 @@ func main() {
 
 	// Initialize Kubernetes client for pod management
 	podManager, err := k8s.NewClient(k8s.Config{
-		DevboxImage:      devboxImage,
-		OpenRouterAPIKey: openRouterAPIKey,
+		DevboxImage:  devboxImage,
+		OpenAIAPIKey: openAIAPIKey,
 	}, logger)
 	if err != nil {
 		logger.Error("failed to create kubernetes client", "error", err)
