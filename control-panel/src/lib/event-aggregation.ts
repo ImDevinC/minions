@@ -626,6 +626,12 @@ export function aggregateEvents(
       if (textContent) {
         const { type, content, partID: textPartID, isDelta } = textContent;
 
+        // Track part type for message.part.updated events BEFORE delta processing.
+        // This populates partTypeByID so delta events can look up their type.
+        if (event.event_type === "message.part.updated") {
+          state.partTypeByID.set(textPartID, type);
+        }
+
         if (isDelta) {
           // Delta event: only append if we haven't processed this event before
           if (!state.processedEventIds.has(event.id)) {

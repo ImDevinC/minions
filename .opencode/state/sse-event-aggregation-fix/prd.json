@@ -34,7 +34,7 @@
         "Map key is the partID, value is 'text' or 'reasoning'",
         "This runs BEFORE delta processing so type map is populated"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "functional-4",

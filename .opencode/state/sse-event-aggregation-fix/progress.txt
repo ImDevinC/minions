@@ -24,3 +24,10 @@ Started: 2026-03-23
 - Returns undefined for non-delta events or missing required fields
 - Files changed: control-panel/src/lib/event-aggregation.ts
 - **Learnings:** Delta events have completely different structure than part.updated events - flat vs nested
+
+## Task - functional-3
+- Added part type tracking in aggregation loop at line 631
+- When event_type === "message.part.updated" AND extractTextContent() returns result, store type in state.partTypeByID
+- Placement is intentional: runs BEFORE delta processing so delta events can look up their type
+- Files changed: control-panel/src/lib/event-aggregation.ts
+- **Learnings:** The extractTextContent() function already parses the type, just needed to store it in partTypeByID for later delta lookups
