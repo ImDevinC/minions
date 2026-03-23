@@ -136,3 +136,18 @@ Started: 2026-03-22
 - All orchestrator tests pass (9 packages)
 - Go build successful
 - **Learnings**: SSE disconnect must be called before password cleanup to ensure connections are closed before credentials are removed. Cleanup is idempotent and best-effort (non-fatal errors). The pattern is: Disconnect(id) → ClearPassword(ctx, id) → log result. Three terminal state entry points all follow same cleanup pattern: callback handler (completed/failed), delete handler (terminated), watchdog (pod failures and clarification timeouts).
+
+## Task - devbox-1
+- Changed OpenCode serve hostname from 127.0.0.1 to 0.0.0.0 in devbox/entrypoint.sh:80
+- Added OPENCODE_SERVER_PASSWORD to validate_env() required vars (entrypoint.sh:50)
+- Updated header comment to document OPENCODE_SERVER_PASSWORD as required env var (entrypoint.sh:8)
+- Verified orchestrator already passes OPENCODE_SERVER_PASSWORD env var (orchestrator/internal/k8s/pods.go:428)
+  - buildEnvVars reads params.OpencodePassword and creates env var
+  - Spawner passes password via SpawnParams.OpencodePassword (spawner.go:226)
+- Built devbox Docker image successfully: ghcr.io/imdevinc/minions/devbox:test
+- Validated entrypoint with docker run tests:
+  - Missing OPENCODE_SERVER_PASSWORD: exits with "Missing required environment variables" ✓
+  - All required vars present: proceeds to clone step ✓
+- All orchestrator tests pass (9 packages)
+- Go build successful
+- **Learnings**: OpenCode server binds to 0.0.0.0:4096 to accept connections from orchestrator pod (different pod, same namespace). Password validation happens at entrypoint startup (fail-fast). The full flow is: spawner generates password → stores in DB → passes to pod env → devbox validates env → opencode serve starts listening on all interfaces → orchestrator connects with Basic Auth.

@@ -3,13 +3,14 @@
 # Clones repo, starts OpenCode serve, waits for readiness, creates session, sends task
 #
 # Required environment variables:
-#   GITHUB_TOKEN      - GitHub token for cloning and API access
-#   MINION_REPO       - Repository to clone (owner/repo format)
-#   MINION_TASK       - Task description to send to OpenCode
-#   MINION_ID         - Unique minion identifier
-#   ORCHESTRATOR_URL  - Callback URL for the orchestrator
-#   MINION_MODEL      - LLM model to use (e.g., anthropic/claude-sonnet-4-5)
-#   INTERNAL_API_TOKEN - Token for authenticating with orchestrator
+#   GITHUB_TOKEN            - GitHub token for cloning and API access
+#   MINION_REPO             - Repository to clone (owner/repo format)
+#   MINION_TASK             - Task description to send to OpenCode
+#   MINION_ID               - Unique minion identifier
+#   ORCHESTRATOR_URL        - Callback URL for the orchestrator
+#   MINION_MODEL            - LLM model to use (e.g., anthropic/claude-sonnet-4-5)
+#   INTERNAL_API_TOKEN      - Token for authenticating with orchestrator
+#   OPENCODE_SERVER_PASSWORD - Per-minion password for SSE authentication
 #
 # Optional environment variables:
 #   OPENCODE_PORT   - Port for OpenCode serve (default: 4096)
@@ -47,6 +48,7 @@ validate_env() {
     [[ -z "${ORCHESTRATOR_URL:-}" ]] && missing+=("ORCHESTRATOR_URL")
     [[ -z "${MINION_MODEL:-}" ]] && missing+=("MINION_MODEL")
     [[ -z "${INTERNAL_API_TOKEN:-}" ]] && missing+=("INTERNAL_API_TOKEN")
+    [[ -z "${OPENCODE_SERVER_PASSWORD:-}" ]] && missing+=("OPENCODE_SERVER_PASSWORD")
 
     if [[ ${#missing[@]} -gt 0 ]]; then
         die "Missing required environment variables: ${missing[*]}"
@@ -77,7 +79,7 @@ start_opencode() {
     log "Starting OpenCode serve on port ${OPENCODE_PORT}"
 
     # Run opencode serve in background, redirect output to log file
-    opencode serve --port "${OPENCODE_PORT}" --hostname "127.0.0.1" > /tmp/opencode.log 2>&1 &
+    opencode serve --port "${OPENCODE_PORT}" --hostname "0.0.0.0" > /tmp/opencode.log 2>&1 &
     OPENCODE_PID=$!
 
     log "OpenCode started with PID ${OPENCODE_PID}"

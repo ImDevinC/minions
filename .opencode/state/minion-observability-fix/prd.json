@@ -131,7 +131,7 @@
         "Curl test: curl -H 'Authorization: Basic $(echo -n \"opencode:$PASSWORD\" | base64)' http://<pod-ip>:4096/event returns 200 and SSE stream",
         "Curl test: curl http://<pod-ip>:4096/event without auth returns 401"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "control-panel-1",
