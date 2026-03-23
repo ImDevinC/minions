@@ -32,7 +32,7 @@
         "Add detection for content.diff being an array in shouldSkipEvent()",
         "Verify events like {\"diff\":[...],\"sessionID\":\"...\"} are skipped"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "filtering-4",

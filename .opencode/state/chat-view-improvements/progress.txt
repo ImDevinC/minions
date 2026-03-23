@@ -20,3 +20,9 @@ Started: 2026-03-23
 - Skips usage/cost metadata events like `{info: {tokens: ..., cost: ...}}`
 - Files changed: control-panel/src/lib/event-aggregation.ts
 - **Learnings:** Check `!== null && typeof === "object" && !Array.isArray()` for plain objects
+
+## Task - filtering-3
+- Added detection for `content.diff` being an array in `shouldSkipEvent()`
+- Skips internal diff payloads like `{diff: [...], sessionID: "..."}`
+- Files changed: control-panel/src/lib/event-aggregation.ts
+- **Learnings:** Array.isArray() is sufficient for array detection

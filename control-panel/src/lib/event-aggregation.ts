@@ -244,6 +244,12 @@ function shouldSkipEvent(event: MinionEvent): boolean {
     return true;
   }
 
+  // Skip diff events: {diff: [...], sessionID: "..."}
+  // These are internal diff payloads, not displayable content
+  if (Array.isArray(content.diff)) {
+    return true;
+  }
+
   return false;
 }
 
