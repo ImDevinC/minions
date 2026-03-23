@@ -68,7 +68,7 @@
         "Default to treating as 'text' (add partID to textPartIDs)",
         "Log warning for debugging: 'Delta for unknown part type, defaulting to text'"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "functional-6",

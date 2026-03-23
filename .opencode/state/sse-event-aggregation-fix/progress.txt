@@ -47,3 +47,10 @@ Started: 2026-03-23
 - Default to text when type is unknown (sets up functional-5b handling)
 - Files changed: control-panel/src/lib/event-aggregation.ts
 - **Learnings:** The routing uses the type tracked in functional-3 to correctly categorize delta content
+
+## Task - functional-5b
+- Added console.warn when deltaType is undefined (race condition handling)
+- Warning logs partID for debugging when delta arrives before part.updated event
+- Text default behavior already existed, just added the warning
+- Files changed: control-panel/src/lib/event-aggregation.ts
+- **Learnings:** Race condition is real but harmless - deltas default to text which is safe fallback

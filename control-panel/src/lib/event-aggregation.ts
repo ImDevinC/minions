@@ -676,7 +676,13 @@ export function aggregateEvents(
             reasoningPartIDs.push(deltaPartID);
           }
         } else {
-          // Default to text for unknown types (functional-5b handles this case)
+          // Default to text for unknown types (race condition: delta arrived before part.updated)
+          if (deltaType === undefined) {
+            console.warn(
+              "Delta for unknown part type, defaulting to text",
+              deltaPartID
+            );
+          }
           if (!textPartIDs.includes(deltaPartID)) {
             textPartIDs.push(deltaPartID);
           }
