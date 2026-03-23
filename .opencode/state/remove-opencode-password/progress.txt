@@ -123,3 +123,12 @@ All tests pass after these changes.
 - Files changed: devbox/entrypoint.sh
 - **Learnings:** Simple grep verification ensures complete removal of env var references
 
+## Task - test-4
+- Removed leftover ClearPassword() method from mockMinionQuerier (orchestrator/internal/watchdog/watchdog_test.go:51-54)
+- Verified full test suite passes: all 9 test packages pass
+- Verified discord-bot builds successfully
+- Verified zero references to StorePassword/ClearPassword/storePasswordErr in test files
+- Verified zero references to OpencodePassword in test files
+- Files changed: orchestrator/internal/watchdog/watchdog_test.go
+- **Learnings:** Mock methods can linger as no-ops even after interface changes - always verify mocks match updated interfaces
+

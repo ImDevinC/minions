@@ -175,7 +175,7 @@
         "Verify removed: grep -r 'StorePassword\\|ClearPassword\\|storePasswordErr' orchestrator/internal/*_test.go returns no matches",
         "Verify removed: grep -r 'OpencodePassword' orchestrator/internal/*_test.go returns no matches"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "docs-1",
