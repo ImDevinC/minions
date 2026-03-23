@@ -115,7 +115,7 @@
         "Manual E2E: Verify password cleared on terminated status (kubectl delete pod)",
         "Verify password cleared on both successful completion and failure scenarios"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "devbox-1",

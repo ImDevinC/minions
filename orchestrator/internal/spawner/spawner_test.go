@@ -172,6 +172,10 @@ func (m *mockSSEConnector) Connect(ctx context.Context, minionID uuid.UUID, podN
 	}{minionID, podName, password})
 }
 
+func (m *mockSSEConnector) Disconnect(minionID uuid.UUID) {
+	// No-op for tests
+}
+
 func (m *mockSSEConnector) getConnectCalls() []struct {
 	minionID uuid.UUID
 	podName  string

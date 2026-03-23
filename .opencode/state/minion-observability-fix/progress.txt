@@ -103,3 +103,36 @@ Started: 2026-03-22
 - Go build successful
 - **Learnings**: Connect() is fire-and-forget with internal retry - no error handling needed at call site. Reconnection reads password from DB (Minion.OpencodePassword field), not from in-memory connections map (map is empty after restart). PodName is *string so requires nil check before dereferencing.
 
+## Task - orchestrator-cleanup-1
+- Added Disconnect() method to SSEConnector interface in orchestrator/internal/spawner/spawner.go:61
+- Created SSEDisconnector interface in orchestrator/internal/api/minions.go:22-25
+- Added SSE field to MinionHandler struct and MinionHandlerConfig (minions.go:30, 44)
+- Added cleanup to HandleCallback (minions.go:544-551):
+  - Call h.sse.Disconnect(id) before ClearPassword
+  - Call h.minions.ClearPassword(ctx, id) after Complete succeeds
+  - Log "cleared opencode password" on success
+  - Cleanup is best-effort (logs errors but doesn't fail request)
+- Added cleanup to HandleDelete (minions.go:445-452):
+  - Call h.sse.Disconnect(id) before ClearPassword
+  - Call h.minions.ClearPassword(ctx, id) after Terminate succeeds
+  - Same best-effort error handling pattern
+- Added SSEDisconnector to Watchdog struct and constructor (watchdog.go:57, 68)
+- Added ClearPassword to MinionQuerier interface (watchdog.go:42)
+- Added cleanup to checkFailedPods (watchdog.go:215-221):
+  - Call w.sse.Disconnect(minionID) after MarkFailed succeeds
+  - Call w.minions.ClearPassword(ctx, minionID)
+  - Log cleanup success/failure
+- Added cleanup to checkClarificationTimeouts (watchdog.go:248-254):
+  - Same pattern as checkFailedPods
+- Updated RouterConfig to include SSE field (router.go:27)
+- Updated NewRouter to pass SSE to MinionHandler (router.go:52)
+- Updated main.go to pass sseClient to both watchdog.New (line 221) and router config (line 232)
+- Updated test mocks:
+  - Added ClearPassword method to mockMinionQuerier in watchdog_test.go:51
+  - Added mockSSEDisconnector struct with Disconnect method in watchdog_test.go:76-91
+  - Updated all 16 watchdog test New() calls to pass &mockSSEDisconnector{}
+  - Fixed bug in TestWatchdog_MultipleIdleMinions (line 202): changed idleMinion to minion1, minion2
+  - Added Disconnect method to mockSSEConnector in spawner_test.go:175
+- All orchestrator tests pass (9 packages)
+- Go build successful
+- **Learnings**: SSE disconnect must be called before password cleanup to ensure connections are closed before credentials are removed. Cleanup is idempotent and best-effort (non-fatal errors). The pattern is: Disconnect(id) → ClearPassword(ctx, id) → log result. Three terminal state entry points all follow same cleanup pattern: callback handler (completed/failed), delete handler (terminated), watchdog (pod failures and clarification timeouts).

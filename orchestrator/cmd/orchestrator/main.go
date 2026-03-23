@@ -218,7 +218,7 @@ func main() {
 	logger.Info("spawner started")
 
 	// Start the watchdog for idle minion detection and failed pod monitoring
-	wdog := watchdog.New(minionStore, podManager, notifier, logger)
+	wdog := watchdog.New(minionStore, podManager, sseClient, notifier, logger)
 	watchdogCtx, watchdogCancel := context.WithCancel(ctx)
 	defer watchdogCancel()
 	go wdog.Run(watchdogCtx)
@@ -230,6 +230,7 @@ func main() {
 		Pool:          pool,
 		PodTerminator: podManager,
 		Notifier:      notifier,
+		SSE:           sseClient,
 		Hub:           hub,
 	})
 

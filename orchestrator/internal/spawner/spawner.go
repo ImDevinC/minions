@@ -58,6 +58,9 @@ type SSEConnector interface {
 	// Connect starts streaming events from a pod. Runs in a goroutine and
 	// reconnects automatically on disconnection. Non-blocking.
 	Connect(ctx context.Context, minionID uuid.UUID, podName string, password string)
+
+	// Disconnect stops streaming events for a minion.
+	Disconnect(minionID uuid.UUID)
 }
 
 // Config holds configuration for the spawner.
