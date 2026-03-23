@@ -81,7 +81,7 @@
         "Status bar shows retry state with yellow dot and 'Retrying...' text",
         "Apply appropriate background colors (bg-blue-900/30, bg-gray-800/50, bg-yellow-900/30)"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "ui-2",

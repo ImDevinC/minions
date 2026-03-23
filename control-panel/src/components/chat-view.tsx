@@ -12,6 +12,115 @@ import { ChatMessageRow } from "./chat-message-row";
 import { SystemMessageRow } from "./system-message-row";
 
 /**
+ * Session state derived from SSE events.
+ * Used to show status bar with agent activity.
+ */
+type SessionState = "busy" | "idle" | "retry";
+
+/**
+ * Derive the current session state from events.
+ * Looks at recent events to determine if agent is thinking, retrying, or idle.
+ */
+function deriveSessionState(events: MinionEvent[]): SessionState | null {
+  if (events.length === 0) return null;
+
+  // Check recent events (last 10) for status indicators
+  const recentEvents = events.slice(-10);
+
+  // Look for the most recent status or retry event
+  for (let i = recentEvents.length - 1; i >= 0; i--) {
+    const event = recentEvents[i];
+    const content = event.content;
+
+    // Check for retry events
+    if (
+      event.event_type === "retry" ||
+      (typeof content.type === "string" && content.type === "retry")
+    ) {
+      return "retry";
+    }
+
+    // Check for status with thinking: true
+    if (
+      content.status !== null &&
+      typeof content.status === "object" &&
+      !Array.isArray(content.status)
+    ) {
+      const status = content.status as Record<string, unknown>;
+      if (status.thinking === true) {
+        return "busy";
+      }
+    }
+
+    // Check for message streaming indicators
+    if (event.event_type === "message.updated") {
+      const status = content.status as string | undefined;
+      if (status === "streaming" || status === "pending") {
+        return "busy";
+      }
+    }
+
+    // Check for text delta events (agent is actively generating)
+    if (
+      event.event_type === "part.delta" ||
+      event.event_type === "text.delta"
+    ) {
+      return "busy";
+    }
+  }
+
+  return "idle";
+}
+
+/**
+ * Status bar component showing current session state.
+ * Renders above the chat messages with appropriate colors and indicators.
+ */
+function SessionStatusBar({ state }: { state: SessionState }) {
+  const config = {
+    busy: {
+      bg: "bg-blue-900/30",
+      dotBg: "bg-blue-500",
+      pingBg: "bg-blue-400",
+      text: "Agent is thinking...",
+      showPing: true,
+    },
+    idle: {
+      bg: "bg-gray-800/50",
+      dotBg: "bg-gray-500",
+      pingBg: "",
+      text: "Idle",
+      showPing: false,
+    },
+    retry: {
+      bg: "bg-yellow-900/30",
+      dotBg: "bg-yellow-500",
+      pingBg: "bg-yellow-400",
+      text: "Retrying...",
+      showPing: true,
+    },
+  }[state];
+
+  return (
+    <div
+      className={`flex items-center gap-2 px-3 py-1.5 text-xs text-gray-300 border-b border-gray-700 ${config.bg}`}
+    >
+      <span className="relative flex h-2 w-2">
+        {config.showPing && (
+          <span
+            className={`animate-ping absolute inline-flex h-full w-full rounded-full ${config.pingBg} opacity-75`}
+          />
+        )}
+        <span
+          className={`relative inline-flex rounded-full h-2 w-2 ${config.dotBg}`}
+        />
+      </span>
+      <span>{config.text}</span>
+    </div>
+  );
+}
+
+/**
  * Union type for virtualized list items.
  * We need to render both ChatMessages and SystemMessages in the same list.
  */
@@ -128,6 +237,13 @@ export function ChatView({
   // Helper: check if minion is in a terminal state
   const isTerminalStatus = status === "completed" || status === "failed" || status === "terminated";
 
+  // Derive session state from events for status bar
+  // Only show status bar for running minions with events
+  const sessionState = useMemo(() => {
+    if (status !== "running") return null;
+    return deriveSessionState(events);
+  }, [events, status]);
+
   // Loading state: show skeleton loaders during initial page load
   if (isLoading) {
     return (
@@ -209,11 +325,16 @@ export function ChatView({
         </button>
       )}
 
-      <div
-        ref={parentRef}
-        onScroll={handleScroll}
-        className="h-[400px] md:h-[500px] overflow-auto bg-gray-900 rounded-lg border border-gray-700"
-      >
+      {/* Main container with border - status bar and messages inside */}
+      <div className="bg-gray-900 rounded-lg border border-gray-700 overflow-hidden">
+        {/* Session status bar - shown for running minions with events */}
+        {sessionState && <SessionStatusBar state={sessionState} />}
+
+        <div
+          ref={parentRef}
+          onScroll={handleScroll}
+          className="h-[400px] md:h-[500px] overflow-auto"
+        >
         <div
           style={{
             height: `${virtualizer.getTotalSize()}px`,
@@ -257,6 +378,7 @@ export function ChatView({
             );
           })}
         </div>
+      </div>
       </div>
     </div>
   );

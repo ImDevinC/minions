@@ -48,3 +48,17 @@ Started: 2026-03-23
 - Tests verify: file events with >2 keys are NOT skipped, status events with messageID are NOT skipped
 - Files changed: control-panel/src/lib/event-aggregation.test.ts
 - **Learnings:** Test each skip condition independently for clarity; test both positive (should skip) and negative (should NOT skip) cases
+
+## Task - ui-1
+- Added session status bar component inside chat-view border, above messages
+- Created `SessionState` type and `deriveSessionState()` to analyze recent events
+- Detects busy state via: retry events, status.thinking=true, message.updated streaming, part.delta/text.delta events
+- Falls back to idle if no active indicators found
+- `SessionStatusBar` component renders appropriate dot + text + background per state:
+  - busy: blue pulsing dot, "Agent is thinking...", bg-blue-900/30
+  - idle: gray dot (no pulse), "Idle", bg-gray-800/50
+  - retry: yellow pulsing dot, "Retrying...", bg-yellow-900/30
+- Status bar only shown for running minions with events
+- Restructured render to wrap status bar + scrollable content inside bordered container
+- Files changed: control-panel/src/components/chat-view.tsx
+- **Learnings:** Derive session state from recent events (last 10); check event_type and content.status/content.type for indicators
