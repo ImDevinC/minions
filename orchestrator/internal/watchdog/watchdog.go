@@ -40,9 +40,6 @@ type MinionQuerier interface {
 
 	// MarkFailed marks a minion as failed with the given error message.
 	MarkFailed(ctx context.Context, id uuid.UUID, errorMsg string) error
-
-	// ClearPassword clears the opencode_password field for a minion.
-	ClearPassword(ctx context.Context, id uuid.UUID) error
 }
 
 // PodStatusChecker checks pod health status.
@@ -223,13 +220,8 @@ func (w *Watchdog) checkFailedPods(ctx context.Context) int {
 			continue
 		}
 
-		// Clean up SSE connection and password
+		// Clean up SSE connection
 		w.sse.Disconnect(minionID)
-		if err := w.minions.ClearPassword(ctx, minionID); err != nil {
-			w.logger.Error("failed to clear password", "error", err, "minion_id", minionID)
-		} else {
-			w.logger.Info("cleared opencode password", "minion_id", minionID)
-		}
 
 		w.logger.Warn("marked minion as failed due to pod failure",
 			"minion_id", minionID,
@@ -262,13 +254,8 @@ func (w *Watchdog) checkClarificationTimeouts(ctx context.Context) int {
 			continue
 		}
 
-		// Clean up SSE connection and password
+		// Clean up SSE connection
 		w.sse.Disconnect(m.ID)
-		if err := w.minions.ClearPassword(ctx, m.ID); err != nil {
-			w.logger.Error("failed to clear password", "error", err, "minion_id", m.ID)
-		} else {
-			w.logger.Info("cleared opencode password", "minion_id", m.ID)
-		}
 
 		// Notify Discord
 		channelID := ""

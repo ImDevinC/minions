@@ -186,11 +186,11 @@ func main() {
 	} else {
 		reconnectCount := 0
 		for _, m := range activeMinions {
-			// Only reconnect if we have both a password and a pod name
-			if m.OpencodePassword != nil && *m.OpencodePassword != "" && m.PodName != nil && *m.PodName != "" {
+			// Only reconnect if we have a pod name
+			if m.PodName != nil && *m.PodName != "" {
 				logger.Info("reconnecting to minion", "minion_id", m.ID, "pod_name", *m.PodName)
 				// Connect is fire-and-forget; it spawns a goroutine and handles retries internally
-				sseClient.Connect(ctx, m.ID, *m.PodName, *m.OpencodePassword)
+				sseClient.Connect(ctx, m.ID, *m.PodName)
 				reconnectCount++
 			}
 		}

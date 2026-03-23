@@ -3,7 +3,6 @@ package streaming
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -289,7 +288,7 @@ func TestSSEClient_ConnectDisconnect(t *testing.T) {
 
 	// Connect should start a goroutine that will fail to connect
 	ctx, cancel := context.WithCancel(context.Background())
-	client.Connect(ctx, minionID, "test-pod", "")
+	client.Connect(ctx, minionID, "test-pod")
 
 	// Disconnect should cancel the context
 	client.Disconnect(minionID)
@@ -317,8 +316,8 @@ func TestSSEClient_ReplacesExistingConnection(t *testing.T) {
 	ctx := context.Background()
 
 	// Connect twice with same minion ID
-	client.Connect(ctx, minionID, "pod-1", "")
-	client.Connect(ctx, minionID, "pod-2", "") // Should replace
+	client.Connect(ctx, minionID, "pod-1")
+	client.Connect(ctx, minionID, "pod-2") // Should replace
 
 	// Should only have one connection
 	client.mu.Lock()
@@ -330,100 +329,4 @@ func TestSSEClient_ReplacesExistingConnection(t *testing.T) {
 	}
 
 	client.Disconnect(minionID)
-}
-
-func TestSSEClient_HTTPBasicAuthHeader(t *testing.T) {
-	tests := []struct {
-		name            string
-		password        string
-		wantAuthValue   string
-		wantAuthPresent bool
-	}{
-		{
-			name:            "simple password",
-			password:        "test-password-123",
-			wantAuthValue:   "Basic b3BlbmNvZGU6dGVzdC1wYXNzd29yZC0xMjM=",
-			wantAuthPresent: true,
-		},
-		{
-			name:            "password with special characters",
-			password:        "p@ss:w0rd!#$%",
-			wantAuthValue:   "Basic b3BlbmNvZGU6cEBzczp3MHJkISMkJQ==",
-			wantAuthPresent: true,
-		},
-		{
-			name:            "uuid password",
-			password:        "550e8400-e29b-41d4-a716-446655440000",
-			wantAuthValue:   "Basic b3BlbmNvZGU6NTUwZTg0MDAtZTI5Yi00MWQ0LWE3MTYtNDQ2NjU1NDQwMDAw",
-			wantAuthPresent: true,
-		},
-		{
-			name:            "empty password",
-			password:        "",
-			wantAuthValue:   "Basic b3BlbmNvZGU6",
-			wantAuthPresent: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var capturedAuthHeader string
-			requestReceived := make(chan struct{})
-
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				// Capture the Authorization header
-				capturedAuthHeader = r.Header.Get("Authorization")
-
-				// Verify endpoint path is /event (singular, not /events)
-				if r.URL.Path != "/event" {
-					t.Errorf("expected path /event, got %s", r.URL.Path)
-				}
-
-				w.Header().Set("Content-Type", "text/event-stream")
-				w.WriteHeader(http.StatusOK)
-				close(requestReceived)
-				// Close immediately after headers
-			}))
-			defer server.Close()
-
-			handler := newMockEventHandler()
-			// Extract host from server URL (without port - we'll use a custom port via PodIPProvider)
-			// The server.URL is like "http://127.0.0.1:12345", we need just the IP
-			serverHost := server.Listener.Addr().(*net.TCPAddr).IP.String()
-			serverPort := server.Listener.Addr().(*net.TCPAddr).Port
-
-			provider := &mockPodIPProvider{ip: serverHost}
-
-			client := NewSSEClient(provider, handler, SSEClientConfig{
-				PodPort: serverPort, // Use the actual test server port
-			})
-
-			minionID := uuid.New()
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			defer cancel()
-
-			// Call streamEvents directly to test auth header
-			err := client.streamEvents(ctx, minionID, "test-pod", tt.password)
-			if err != nil {
-				// Expected to fail since we close connection immediately
-				t.Logf("streamEvents returned: %v", err)
-			}
-
-			// Wait for request to be received
-			select {
-			case <-requestReceived:
-			case <-time.After(1 * time.Second):
-				t.Fatal("request not received within timeout")
-			}
-
-			// Verify Authorization header was set correctly
-			if tt.wantAuthPresent && capturedAuthHeader != tt.wantAuthValue {
-				t.Errorf("Authorization header = %q, want %q", capturedAuthHeader, tt.wantAuthValue)
-			}
-
-			if !tt.wantAuthPresent && capturedAuthHeader != "" {
-				t.Errorf("Authorization header should be empty, got %q", capturedAuthHeader)
-			}
-		})
-	}
 }

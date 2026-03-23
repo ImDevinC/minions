@@ -447,14 +447,8 @@ func (h *MinionHandler) HandleDelete(w http.ResponseWriter, r *http.Request) {
 			"previous_status", result.PreviousStatus,
 		)
 
-		// Clean up SSE connection and password
+		// Clean up SSE connection
 		h.sse.Disconnect(id)
-		if err := h.minions.ClearPassword(r.Context(), id); err != nil {
-			// Log but don't fail the request; cleanup is best-effort
-			h.logger.Error("failed to clear password", "error", err, "minion_id", id)
-		} else {
-			h.logger.Info("cleared opencode password", "minion_id", id)
-		}
 
 		// Terminate pod if one was assigned
 		if result.PodName != nil {
@@ -549,14 +543,8 @@ func (h *MinionHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Clean up SSE connection and password
+	// Clean up SSE connection
 	h.sse.Disconnect(id)
-	if err := h.minions.ClearPassword(r.Context(), id); err != nil {
-		// Log but don't fail the request; cleanup is best-effort
-		h.logger.Error("failed to clear password", "error", err, "minion_id", id)
-	} else {
-		h.logger.Info("cleared opencode password", "minion_id", id)
-	}
 
 	// If minion was actually updated, notify Discord
 	if result.WasUpdated && result.DiscordChannelID != nil {

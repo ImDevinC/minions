@@ -36,3 +36,83 @@ Started: 2026-03-22
 - Removed StorePassword() and ClearPassword() methods (lines 1051-1069)
 - Files changed: orchestrator/internal/db/minions.go
 - **Learnings:** When removing a struct field, must update ALL query SELECT lists and Scan calls to match column count. Go will panic at runtime if SELECT/Scan column counts mismatch.
+
+## Task - code-2
+- Verified no references to StorePassword/ClearPassword remain in non-test code
+- Methods were already removed in code-1
+- Files verified: orchestrator/internal/**/*.go (excluding tests)
+
+## Task - code-3, code-4, code-5, code-6, code-7, code-8 (completed together)
+These tasks were tightly coupled due to interface dependencies, completed as one atomic change:
+
+### code-3: Remove password generation from spawner
+- Removed lines 191-218 from orchestrator/internal/spawner/spawner.go
+  - Password generation logic (UUID generation, reuse check)
+  - StorePassword() call and error handling
+  - Debug logging for password storage
+- Removed OpencodePassword from SpawnParams struct initialization
+
+### code-4: Remove password from pod environment
+- Removed OpencodePassword field from k8s.SpawnParams struct (orchestrator/internal/k8s/pods.go:99)
+- Removed OPENCODE_SERVER_PASSWORD env var from buildEnvVars() (orchestrator/internal/k8s/pods.go:427)
+
+### code-5: Remove password from SSE interfaces and implementation
+- Updated MinionUpdater interface in spawner.go: removed StorePassword() method (lines 35-37)
+- Updated SSEConnector interface in spawner.go: removed password parameter from Connect() (line 60)
+- Updated spawner call site: s.sse.Connect(ctx, m.ID, podName) without password (line 282)
+- Updated SSE client implementation (orchestrator/internal/streaming/sse.go):
+  - Removed password field from connection struct (line 76)
+  - Removed password parameter from Connect(), connectWithRetry(), streamEvents()
+  - Removed HTTP Basic Auth logic (lines 221-224: base64 encoding, Authorization header)
+  - Removed encoding/base64 import (no longer needed)
+
+### code-6: Update reconnection logic
+- Updated orchestrator/cmd/orchestrator/main.go reconnection block (lines 189-196)
+- Changed filter: removed password check, now only checks for pod name
+- Updated Connect call: sseClient.Connect(ctx, m.ID, *m.PodName) without password
+
+### code-7: Remove password cleanup from watchdog
+- Removed ClearPassword() from MinionQuerier interface (orchestrator/internal/watchdog/watchdog.go:44-45)
+- Removed ClearPassword() calls from checkFailedPods (line 228)
+- Removed ClearPassword() calls from checkClarificationTimeouts (line 267)
+- Removed associated error/success log messages
+
+### code-8: Remove password cleanup from API handlers
+- Removed ClearPassword() calls from HandleDelete (orchestrator/internal/api/minions.go:452)
+- Removed ClearPassword() calls from HandleCallback (orchestrator/internal/api/minions.go:554)
+- Removed associated error/success log messages
+
+**Learnings:**
+- Interface changes cascade through all implementations and call sites
+- When removing cross-cutting concerns like authentication, it's more efficient to do all layers at once rather than leave broken intermediate states
+- Go's strict type checking makes it impossible to commit half-done interface changes
+- The build passed immediately after all changes, confirming the coupling was handled correctly
+
+## Task - test-1, test-2, test-3 (completed together)
+Test fixes were done as one unit since they all fix compilation errors from the code changes above.
+
+### test-1: Remove password tests from minions_test.go
+- Deleted entire TestPasswordMethods function (lines 63-99)
+- Removed unused uuid import after test deletion
+- Files changed: orchestrator/internal/db/minions_test.go
+
+### test-2: Remove password tests from spawner_test.go
+- Removed passwordCalls and storePasswordErr fields from mockMinionUpdater struct
+- Removed StorePassword() method from mockMinionUpdater (lines 64-72)
+- Updated mockSSEConnector to remove password parameter:
+  - Removed password field from connectCalls struct
+  - Updated Connect() signature to match interface
+  - Updated getConnectCalls() return type and implementation
+- Removed password assertions from TestSpawner_GeneratesAndStoresPassword
+- Deleted TestSpawner_ReusesExistingPasswordOnRetry test (entire test was about password reuse)
+- Deleted TestSpawner_HandlesStorePasswordFailure test (tested password storage failures)
+- Fixed accidentally deleted failOnceTokenManager helper (was removed with deleted test)
+- Files changed: orchestrator/internal/spawner/spawner_test.go
+
+### test-3: Update SSE client test signatures
+- Updated Connect() calls to remove password parameter (3 occurrences)
+- Deleted TestSSEClient_HTTPBasicAuthHeader test (tested auth header formatting)
+- Removed unused "net" import after test deletion
+- Files changed: orchestrator/internal/streaming/sse_test.go
+
+All tests pass after these changes.

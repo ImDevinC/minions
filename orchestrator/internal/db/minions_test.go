@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -57,44 +56,6 @@ func TestDuplicateWindowConstant(t *testing.T) {
 	// Verify the duplicate window is 5 minutes as specified
 	if DuplicateWindow.Minutes() != 5 {
 		t.Errorf("DuplicateWindow should be 5 minutes, got %v", DuplicateWindow)
-	}
-}
-
-func TestPasswordMethods(t *testing.T) {
-	// Create mock pool for testing password methods
-	mockPool := &mockPool{
-		execResults: make(map[string]execResult),
-	}
-
-	store := NewMinionStoreWithPool(mockPool)
-	ctx := context.Background()
-	minionID := uuid.New()
-	password := "test-password-uuid"
-
-	// Test StorePassword
-	mockPool.execResults["UPDATE minions SET opencode_password = $1 WHERE id = $2"] = execResult{
-		rowsAffected: 1,
-		err:          nil,
-	}
-	err := store.StorePassword(ctx, minionID, password)
-	if err != nil {
-		t.Fatalf("StorePassword failed: %v", err)
-	}
-
-	// Test ClearPassword
-	mockPool.execResults["UPDATE minions SET opencode_password = NULL WHERE id = $1"] = execResult{
-		rowsAffected: 1,
-		err:          nil,
-	}
-	err = store.ClearPassword(ctx, minionID)
-	if err != nil {
-		t.Fatalf("ClearPassword failed: %v", err)
-	}
-
-	// Test idempotency - calling ClearPassword twice should succeed
-	err = store.ClearPassword(ctx, minionID)
-	if err != nil {
-		t.Fatalf("ClearPassword idempotency test failed: %v", err)
 	}
 }
 

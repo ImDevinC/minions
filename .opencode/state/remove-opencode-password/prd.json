@@ -44,7 +44,7 @@
         "ClearPassword() method removed from orchestrator/internal/db/minions.go",
         "No references to these methods remain in codebase"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "code-3",
@@ -55,7 +55,7 @@
         "No UUID password generation code remains",
         "Spawner builds without errors"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "code-4",
@@ -66,7 +66,7 @@
         "OPENCODE_SERVER_PASSWORD env var removed from buildEnvVars() in orchestrator/internal/k8s/pods.go",
         "kubectl describe pod shows no OPENCODE_SERVER_PASSWORD env var"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "code-5-interfaces",
@@ -83,7 +83,7 @@
         "SSE client implementation: HTTP Basic Auth header logic removed from streamEvents() (Base64 encoding and Authorization header)",
         "Interface and implementation signatures match (no compilation errors)"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "code-6",
@@ -94,7 +94,7 @@
         "No password filtering in reconnection query",
         "Orchestrator builds without errors"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "code-7",
@@ -106,7 +106,7 @@
         "ClearPassword() calls removed from checkClarificationTimeouts in orchestrator/internal/watchdog/watchdog.go (line ~267)",
         "Password-related log messages removed from watchdog (grep -r 'password.*logger\\|logger.*password' orchestrator/internal/watchdog/ returns no matches)"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "code-8",
@@ -118,7 +118,7 @@
         "Password-related log messages removed from API handlers (grep -r 'password.*logger\\|logger.*password' orchestrator/internal/api/ returns no matches)",
         "API handlers build without errors"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "code-9",
@@ -140,7 +140,7 @@
         "Mock StorePassword method removed from mockMinionUpdater struct in orchestrator/internal/db/minions_test.go",
         "Tests compile without errors"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "test-2",
@@ -152,7 +152,7 @@
         "Password call count assertions (lines 665, 725) removed",
         "TestSpawner_HandlesStorePasswordFailure test function (line 744) deleted"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "test-3",
@@ -162,7 +162,7 @@
         "SSE client test signatures updated to remove password parameter in orchestrator/internal/streaming/sse_test.go",
         "All SSE tests compile and pass"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "test-4",
