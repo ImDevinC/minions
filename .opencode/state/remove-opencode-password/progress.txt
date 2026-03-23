@@ -15,3 +15,9 @@ Started: 2026-03-22
 - Uses DROP COLUMN IF EXISTS for idempotency
 - Comment explains removal: SSE now trusts pod network instead of password auth
 - **Learnings:** Standard migration format - comment explaining "why" at top, idempotent DDL
+
+## Task - db-2
+- Added migration 006 to infra/configmap.yaml db-migrations ConfigMap
+- Inserted after 005_add_opencode_password.sql (both migrations coexist in ConfigMap)
+- Files changed: infra/configmap.yaml (added 4 lines after line 112)
+- **Learnings:** ConfigMap migrations use `NNN_description.sql: |` key format with literal block scalar

@@ -22,7 +22,7 @@
         "Migration 006 present: grep -c '006_remove_opencode_password.sql:' infra/configmap.yaml returns 1",
         "ConfigMap validates: kubectl create --dry-run=client -f infra/configmap.yaml succeeds"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "code-1",

@@ -110,3 +110,8 @@ data:
     -- Add opencode_password column for per-minion SSE authentication
     -- Nullable: passwords only exist during active execution
     ALTER TABLE minions ADD COLUMN opencode_password TEXT NULL;
+
+  006_remove_opencode_password.sql: |
+    -- Remove opencode_password column (no longer using password authentication for SSE)
+    -- SSE now relies on trusted pod network instead of per-minion credentials
+    ALTER TABLE minions DROP COLUMN IF EXISTS opencode_password;
