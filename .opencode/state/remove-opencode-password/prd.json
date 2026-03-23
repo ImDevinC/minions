@@ -210,7 +210,7 @@
         "Image builds without errors",
         "Entrypoint script is executable in container"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "validation-1",
