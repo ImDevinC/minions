@@ -106,3 +106,13 @@ Started: 2026-03-23
 - "Show full input/output" button toggles full content display
 - Files changed: control-panel/src/components/tool-call-card.tsx
 - **Learnings:** Separate components for plain text vs syntax-highlighted truncation keeps concerns clean; useState per-component handles individual expand state
+
+## Task - component-5
+- Implemented `getToolSummary` function for human-readable tool summaries
+- Handles all specified tools: read, write, edit, glob, grep, bash, task/agent
+- Added bonus support for webfetch, todowrite, skill tools
+- Glob/grep parse output line count, bash truncates commands at 40 chars
+- Unknown tools fall back to capitalized tool name
+- Memoized summary computation in ToolCallCard via useMemo
+- Files changed: control-panel/src/components/tool-call-card.tsx (lines 47-120)
+- **Learnings:** Tool input field names vary (filePath vs file_path vs path), check multiple keys

@@ -153,7 +153,7 @@
         "Task tool shows 'Spawned <type>agent'",
         "Unknown tools fall back to tool name"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "component-6",

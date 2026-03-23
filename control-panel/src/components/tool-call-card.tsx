@@ -33,6 +33,93 @@ function getToolIcon(tool: string): string {
 }
 
 /**
+ * Generate human-readable summary from tool input/output.
+ * Spec:
+ * - Read: "Read <filepath>"
+ * - Write: "Wrote <filepath>"
+ * - Edit: "Edited <filepath>"
+ * - Glob: "Found N files"
+ * - Grep: "Found N matches"
+ * - Bash: "Ran: <truncated command>"
+ * - Task: "Spawned <type> agent"
+ * - Unknown: fall back to tool name
+ */
+export function getToolSummary(tool: ToolCall): string {
+  const toolName = tool.tool.toLowerCase();
+  const input = tool.input || {};
+
+  switch (toolName) {
+    case "read": {
+      const filePath = (input.filePath || input.file_path || input.path) as string | undefined;
+      return filePath ? `Read ${filePath}` : "Read file";
+    }
+    case "write": {
+      const filePath = (input.filePath || input.file_path || input.path) as string | undefined;
+      return filePath ? `Wrote ${filePath}` : "Wrote file";
+    }
+    case "edit": {
+      const filePath = (input.filePath || input.file_path || input.path) as string | undefined;
+      return filePath ? `Edited ${filePath}` : "Edited file";
+    }
+    case "glob": {
+      // Try to parse output for match count, fall back to showing pattern
+      if (tool.output) {
+        const lines = tool.output.trim().split("\n").filter((l) => l.length > 0);
+        return `Found ${lines.length} files`;
+      }
+      const pattern = (input.pattern || input.glob) as string | undefined;
+      return pattern ? `Glob: ${pattern}` : "Finding files";
+    }
+    case "grep": {
+      // Try to parse output for match count
+      if (tool.output) {
+        const lines = tool.output.trim().split("\n").filter((l) => l.length > 0);
+        return `Found ${lines.length} matches`;
+      }
+      const pattern = (input.pattern || input.query || input.search) as string | undefined;
+      return pattern ? `Grep: ${pattern}` : "Searching";
+    }
+    case "bash": {
+      const command = (input.command || input.cmd) as string | undefined;
+      if (command) {
+        // Truncate long commands (show first ~40 chars)
+        const truncated = command.length > 40 ? command.slice(0, 40) + "..." : command;
+        return `Ran: ${truncated}`;
+      }
+      return "Ran command";
+    }
+    case "task":
+    case "agent": {
+      const agentType = (input.subagent_type || input.agent_type || input.type || input.agent) as string | undefined;
+      return agentType ? `Spawned ${agentType} agent` : "Spawned agent";
+    }
+    case "webfetch": {
+      const url = (input.url) as string | undefined;
+      if (url) {
+        // Truncate long URLs
+        const truncated = url.length > 40 ? url.slice(0, 40) + "..." : url;
+        return `Fetched ${truncated}`;
+      }
+      return "Fetched URL";
+    }
+    case "todowrite": {
+      const todos = (input.todos) as unknown[] | undefined;
+      if (Array.isArray(todos)) {
+        return `Updated ${todos.length} todos`;
+      }
+      return "Updated todos";
+    }
+    case "skill": {
+      const name = (input.name) as string | undefined;
+      return name ? `Loaded skill: ${name}` : "Loaded skill";
+    }
+    default:
+      // Fall back to just the tool name, capitalized
+      return tool.tool.charAt(0).toUpperCase() + tool.tool.slice(1);
+  }
+}
+
+/**
  * Status badge colors:
  * - pending: gray
  * - running: blue with pulse animation
@@ -167,6 +254,9 @@ export function ToolCallCard({ tool, isExpanded, onToggle }: ToolCallCardProps) 
     }
   }, [tool.input]);
 
+  // Generate human-readable summary (memoized based on tool data)
+  const summary = useMemo(() => getToolSummary(tool), [tool]);
+
   const icon = getToolIcon(tool.tool);
   const statusClasses = getStatusBadgeClasses(tool.status);
 
@@ -197,7 +287,7 @@ export function ToolCallCard({ tool, isExpanded, onToggle }: ToolCallCardProps) 
 
         {/* Summary - truncated */}
         <span className="text-sm text-gray-400 truncate flex-1">
-          {tool.summary}
+          {summary}
         </span>
 
         {/* Expand indicator */}
