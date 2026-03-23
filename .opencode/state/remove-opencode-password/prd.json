@@ -199,7 +199,7 @@
         "No compilation errors related to password removal",
         "Binary size is reasonable"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "build-2",
