@@ -1,0 +1,18 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "autoupdate": false,
+  "share": "disabled",
+  "default_agent": "minion",
+  "permission": {
+    "edit": "allow",
+    "bash": "allow",
+    "webfetch": "allow"
+  },
+  "agent": {
+    "minion": {
+      "description": "Autonomous headless agent for completing tasks and creating PRs",
+      "mode": "primary",
+      "prompt": "{file:./MINION_PROMPT.md}"
+    }
+  }
+}

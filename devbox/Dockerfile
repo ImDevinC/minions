@@ -55,8 +55,13 @@ RUN ARCH=$(dpkg --print-architecture) \
 RUN groupadd -g 1000 minion \
     && useradd -u 1000 -g minion -m -s /bin/bash minion
 
-# Create workspace directory
-RUN mkdir -p /workspace && chown minion:minion /workspace
+# Create workspace directory and config directory
+RUN mkdir -p /workspace && chown minion:minion /workspace \
+    && mkdir -p /home/minion/.config/opencode && chown -R minion:minion /home/minion/.config
+
+# Copy OpenCode configuration (global config for autonomous operation)
+COPY config/ /home/minion/.config/opencode/
+RUN chown -R minion:minion /home/minion/.config/opencode
 
 # Copy entrypoint script
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
