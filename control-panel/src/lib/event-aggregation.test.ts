@@ -531,4 +531,410 @@ describe("event-aggregation", () => {
       expect(subtask2?.messages[0].text).toBe("From subtask 2");
     });
   });
+
+  describe("event filtering - skip logic", () => {
+    it("skips heartbeat events", () => {
+      const heartbeat: MinionEvent = {
+        id: "hb1",
+        timestamp: new Date().toISOString(),
+        event_type: "heartbeat",
+        content: {},
+      };
+      const ping: MinionEvent = {
+        id: "ping1",
+        timestamp: new Date().toISOString(),
+        event_type: "ping",
+        content: {},
+      };
+      const keepalive: MinionEvent = {
+        id: "ka1",
+        timestamp: new Date().toISOString(),
+        event_type: "keepalive",
+        content: {},
+      };
+
+      const result = aggregateEvents([heartbeat, ping, keepalive]);
+
+      expect(result.messages).toHaveLength(0);
+      expect(result.systemMessages).toHaveLength(0);
+    });
+
+    it("skips step-start events", () => {
+      const event: MinionEvent = {
+        id: "e1",
+        timestamp: new Date().toISOString(),
+        event_type: "part.updated",
+        content: {
+          messageID: "msg1",
+          type: "step-start",
+          id: "step1",
+        },
+      };
+
+      const result = aggregateEvents([event]);
+
+      expect(result.messages).toHaveLength(0);
+      expect(result.systemMessages).toHaveLength(0);
+    });
+
+    it("skips step-finish events", () => {
+      const event: MinionEvent = {
+        id: "e1",
+        timestamp: new Date().toISOString(),
+        event_type: "part.updated",
+        content: {
+          messageID: "msg1",
+          type: "step-finish",
+          id: "step1",
+        },
+      };
+
+      const result = aggregateEvents([event]);
+
+      expect(result.messages).toHaveLength(0);
+      expect(result.systemMessages).toHaveLength(0);
+    });
+
+    it("skips snapshot events", () => {
+      const event: MinionEvent = {
+        id: "e1",
+        timestamp: new Date().toISOString(),
+        event_type: "part.updated",
+        content: {
+          messageID: "msg1",
+          type: "snapshot",
+          data: { some: "snapshot" },
+        },
+      };
+
+      const result = aggregateEvents([event]);
+
+      expect(result.messages).toHaveLength(0);
+      expect(result.systemMessages).toHaveLength(0);
+    });
+
+    it("skips patch events", () => {
+      const event: MinionEvent = {
+        id: "e1",
+        timestamp: new Date().toISOString(),
+        event_type: "part.updated",
+        content: {
+          messageID: "msg1",
+          type: "patch",
+          operations: [],
+        },
+      };
+
+      const result = aggregateEvents([event]);
+
+      expect(result.messages).toHaveLength(0);
+      expect(result.systemMessages).toHaveLength(0);
+    });
+
+    it("skips compaction events", () => {
+      const event: MinionEvent = {
+        id: "e1",
+        timestamp: new Date().toISOString(),
+        event_type: "part.updated",
+        content: {
+          messageID: "msg1",
+          type: "compaction",
+        },
+      };
+
+      const result = aggregateEvents([event]);
+
+      expect(result.messages).toHaveLength(0);
+      expect(result.systemMessages).toHaveLength(0);
+    });
+
+    it("skips bare file events with 1 key", () => {
+      const event: MinionEvent = {
+        id: "e1",
+        timestamp: new Date().toISOString(),
+        event_type: "part.updated",
+        content: {
+          file: "/path/to/file.go",
+        },
+      };
+
+      const result = aggregateEvents([event]);
+
+      expect(result.messages).toHaveLength(0);
+      expect(result.systemMessages).toHaveLength(0);
+    });
+
+    it("skips bare file events with 2 keys", () => {
+      const event: MinionEvent = {
+        id: "e1",
+        timestamp: new Date().toISOString(),
+        event_type: "part.updated",
+        content: {
+          event: "change",
+          file: "/path/to/file.go",
+        },
+      };
+
+      const result = aggregateEvents([event]);
+
+      expect(result.messages).toHaveLength(0);
+      expect(result.systemMessages).toHaveLength(0);
+    });
+
+    it("skips info object events", () => {
+      const event: MinionEvent = {
+        id: "e1",
+        timestamp: new Date().toISOString(),
+        event_type: "part.updated",
+        content: {
+          info: { tokens: 100, cost: 0.01 },
+        },
+      };
+
+      const result = aggregateEvents([event]);
+
+      expect(result.messages).toHaveLength(0);
+      expect(result.systemMessages).toHaveLength(0);
+    });
+
+    it("skips diff array events", () => {
+      const event: MinionEvent = {
+        id: "e1",
+        timestamp: new Date().toISOString(),
+        event_type: "part.updated",
+        content: {
+          diff: [{ op: "add", path: "/foo" }],
+          sessionID: "session-123",
+        },
+      };
+
+      const result = aggregateEvents([event]);
+
+      expect(result.messages).toHaveLength(0);
+      expect(result.systemMessages).toHaveLength(0);
+    });
+
+    it("skips bare status events without messageID", () => {
+      const event: MinionEvent = {
+        id: "e1",
+        timestamp: new Date().toISOString(),
+        event_type: "part.updated",
+        content: {
+          sessionID: "session-123",
+          status: { thinking: true },
+        },
+      };
+
+      const result = aggregateEvents([event]);
+
+      expect(result.messages).toHaveLength(0);
+      expect(result.systemMessages).toHaveLength(0);
+    });
+
+    it("skips summary events", () => {
+      const event: MinionEvent = {
+        id: "e1",
+        timestamp: new Date().toISOString(),
+        event_type: "part.updated",
+        content: {
+          sessionID: "session-123",
+          summary: { tokens: 100, cost: 0.01 },
+        },
+      };
+
+      const result = aggregateEvents([event]);
+
+      expect(result.messages).toHaveLength(0);
+      expect(result.systemMessages).toHaveLength(0);
+    });
+  });
+
+  describe("legitimate events render correctly", () => {
+    it("renders text events", () => {
+      const event = makeTextEvent("e1", "msg1", "part1", "Hello world", {
+        timestamp: "2024-01-01T00:00:00Z",
+      });
+
+      const result = aggregateEvents([event]);
+
+      expect(result.messages).toHaveLength(1);
+      expect(result.messages[0].text).toBe("Hello world");
+      expect(result.messages[0].id).toBe("msg1");
+    });
+
+    it("renders tool call events", () => {
+      const event: MinionEvent = {
+        id: "e1",
+        timestamp: new Date().toISOString(),
+        event_type: "part.updated",
+        content: {
+          messageID: "msg1",
+          id: "tool1",
+          type: "tool",
+          tool: "bash",
+          state: {
+            status: "completed",
+            input: { command: "ls -la" },
+            output: "file1.txt\nfile2.txt",
+          },
+        },
+      };
+
+      const result = aggregateEvents([event]);
+
+      expect(result.messages).toHaveLength(1);
+      expect(result.messages[0].tools).toHaveLength(1);
+      expect(result.messages[0].tools[0].tool).toBe("bash");
+      expect(result.messages[0].tools[0].status).toBe("completed");
+      expect(result.messages[0].tools[0].input).toEqual({ command: "ls -la" });
+      expect(result.messages[0].tools[0].output).toBe("file1.txt\nfile2.txt");
+    });
+
+    it("renders reasoning/thinking events", () => {
+      const event = makeReasoningEvent(
+        "e1",
+        "msg1",
+        "think1",
+        "Let me think about this...",
+        { timestamp: "2024-01-01T00:00:00Z" }
+      );
+
+      const result = aggregateEvents([event]);
+
+      expect(result.messages).toHaveLength(1);
+      expect(result.messages[0].thinking).toBe("Let me think about this...");
+    });
+
+    it("renders agent events as system messages", () => {
+      const event: MinionEvent = {
+        id: "e1",
+        timestamp: new Date().toISOString(),
+        event_type: "part.updated",
+        content: {
+          type: "agent",
+          properties: {
+            part: {
+              type: "agent",
+              agent: "code-reviewer",
+            },
+          },
+        },
+      };
+
+      const result = aggregateEvents([event]);
+
+      expect(result.messages).toHaveLength(0);
+      expect(result.systemMessages).toHaveLength(1);
+      expect(result.systemMessages[0].type).toBe("agent");
+      expect(result.systemMessages[0].content).toBe("code-reviewer");
+    });
+
+    it("renders retry events as system messages", () => {
+      const event: MinionEvent = {
+        id: "e1",
+        timestamp: new Date().toISOString(),
+        event_type: "part.updated",
+        content: {
+          type: "retry",
+          properties: {
+            part: {
+              type: "retry",
+              attempt: 2,
+              reason: "rate limit",
+            },
+          },
+        },
+      };
+
+      const result = aggregateEvents([event]);
+
+      expect(result.messages).toHaveLength(0);
+      expect(result.systemMessages).toHaveLength(1);
+      expect(result.systemMessages[0].type).toBe("retry");
+      expect(result.systemMessages[0].content).toEqual({
+        type: "retry",
+        attempt: 2,
+        reason: "rate limit",
+      });
+    });
+
+    it("renders session.error events as system messages", () => {
+      const event: MinionEvent = {
+        id: "e1",
+        timestamp: new Date().toISOString(),
+        event_type: "session.error",
+        content: {
+          error: "Connection failed",
+        },
+      };
+
+      const result = aggregateEvents([event]);
+
+      expect(result.messages).toHaveLength(0);
+      expect(result.systemMessages).toHaveLength(1);
+      expect(result.systemMessages[0].type).toBe("session.error");
+      expect(result.systemMessages[0].content).toBe("Connection failed");
+    });
+
+    it("renders error events as system messages", () => {
+      const event: MinionEvent = {
+        id: "e1",
+        timestamp: new Date().toISOString(),
+        event_type: "error",
+        content: {
+          message: "Something went wrong",
+        },
+      };
+
+      const result = aggregateEvents([event]);
+
+      expect(result.messages).toHaveLength(0);
+      expect(result.systemMessages).toHaveLength(1);
+      expect(result.systemMessages[0].type).toBe("session.error");
+      expect(result.systemMessages[0].content).toBe("Something went wrong");
+    });
+
+    it("does NOT skip status events with messageID (message-scoped status)", () => {
+      const event: MinionEvent = {
+        id: "e1",
+        timestamp: new Date().toISOString(),
+        event_type: "part.updated",
+        content: {
+          sessionID: "session-123",
+          messageID: "msg1",
+          status: { thinking: true },
+          type: "text",
+          id: "part1",
+          text: "Processing...",
+        },
+      };
+
+      const result = aggregateEvents([event]);
+
+      // Should render because it has messageID
+      expect(result.messages).toHaveLength(1);
+      expect(result.messages[0].text).toBe("Processing...");
+    });
+
+    it("does NOT skip file events with more than 2 keys", () => {
+      const event: MinionEvent = {
+        id: "e1",
+        timestamp: new Date().toISOString(),
+        event_type: "part.updated",
+        content: {
+          messageID: "msg1",
+          id: "part1",
+          type: "text",
+          file: "/path/to/file.go",
+          text: "File content here",
+        },
+      };
+
+      const result = aggregateEvents([event]);
+
+      // Should render because it has more than 2 keys
+      expect(result.messages).toHaveLength(1);
+      expect(result.messages[0].text).toBe("File content here");
+    });
+  });
 });

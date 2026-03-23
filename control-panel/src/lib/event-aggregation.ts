@@ -223,6 +223,56 @@ function shouldSkipEvent(event: MinionEvent): boolean {
   const partType = getPartType(event);
   if (partType && SKIP_PART_TYPES.has(partType)) return true;
 
+  const content = event.content;
+
+  // Skip bare file change events: {file: string} or {event: string, file: string}
+  // These are noise from file watcher notifications
+  if (
+    typeof content.file === "string" &&
+    Object.keys(content).length <= 2
+  ) {
+    return true;
+  }
+
+  // Skip info events: {info: {...tokens, cost...}}
+  // These are usage/cost metadata, not displayable content
+  if (
+    content.info !== null &&
+    typeof content.info === "object" &&
+    !Array.isArray(content.info)
+  ) {
+    return true;
+  }
+
+  // Skip diff events: {diff: [...], sessionID: "..."}
+  // These are internal diff payloads, not displayable content
+  if (Array.isArray(content.diff)) {
+    return true;
+  }
+
+  // Skip bare status events: {sessionID: "...", status: {...}} without messageID
+  // These are session-level status updates, not displayable chat content
+  if (
+    typeof content.sessionID === "string" &&
+    content.status !== null &&
+    typeof content.status === "object" &&
+    !Array.isArray(content.status) &&
+    typeof content.messageID !== "string"
+  ) {
+    return true;
+  }
+
+  // Skip summary events: {sessionID: "...", summary: {...}}
+  // These are session-level summary metadata, not displayable chat content
+  if (
+    typeof content.sessionID === "string" &&
+    content.summary !== null &&
+    typeof content.summary === "object" &&
+    !Array.isArray(content.summary)
+  ) {
+    return true;
+  }
+
   return false;
 }
 

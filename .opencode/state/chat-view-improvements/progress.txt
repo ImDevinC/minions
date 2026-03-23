@@ -1,0 +1,93 @@
+# Progress Log
+PRD: chat-view-improvements
+Started: 2026-03-23
+
+## Codebase Patterns
+- Event filtering in `shouldSkipEvent()` at event-aggregation.ts:220
+- Pattern: check content properties + key count for noise filtering
+
+---
+<!-- Task logs below - APPEND ONLY -->
+
+## Task - filtering-1
+- Added detection for `content.file` (string) with ≤2 keys in `shouldSkipEvent()`
+- Skips file watcher noise like `{file: "/path"}` or `{event: "change", file: "..."}`
+- Files changed: control-panel/src/lib/event-aggregation.ts
+- **Learnings:** content is typed as Record<string, unknown>, can safely check typeof + Object.keys()
+
+## Task - filtering-2
+- Added detection for `content.info` being an object in `shouldSkipEvent()`
+- Skips usage/cost metadata events like `{info: {tokens: ..., cost: ...}}`
+- Files changed: control-panel/src/lib/event-aggregation.ts
+- **Learnings:** Check `!== null && typeof === "object" && !Array.isArray()` for plain objects
+
+## Task - filtering-3
+- Added detection for `content.diff` being an array in `shouldSkipEvent()`
+- Skips internal diff payloads like `{diff: [...], sessionID: "..."}`
+- Files changed: control-panel/src/lib/event-aggregation.ts
+- **Learnings:** Array.isArray() is sufficient for array detection
+
+## Task - filtering-4
+- Added detection for bare status events in `shouldSkipEvent()`
+- Skips session-level status updates like `{sessionID: "...", status: {...}}` without messageID
+- Events with messageID are NOT skipped (they belong to chat messages)
+- Files changed: control-panel/src/lib/event-aggregation.ts
+- **Learnings:** Negative check (`typeof content.messageID !== "string"`) distinguishes bare status from message-scoped status
+
+## Task - filtering-5
+- Added detection for `content.summary` being an object with `content.sessionID` in `shouldSkipEvent()`
+- Skips session-level summary metadata like `{sessionID: "...", summary: {...}}`
+- Files changed: control-panel/src/lib/event-aggregation.ts
+- **Learnings:** Summary events don't need messageID check since they never have one (unlike status which can be message-scoped)
+
+## Task - filtering-6
+- Added comprehensive test coverage for existing skip logic and legitimate events
+- Tests verify: heartbeat/ping/keepalive, step-start/finish, snapshot, patch, compaction all skipped
+- Tests verify: text, tool call, reasoning/thinking events render as chat messages
+- Tests verify: agent, retry, session.error, error events render as system messages
+- Tests verify: file events with >2 keys are NOT skipped, status events with messageID are NOT skipped
+- Files changed: control-panel/src/lib/event-aggregation.test.ts
+- **Learnings:** Test each skip condition independently for clarity; test both positive (should skip) and negative (should NOT skip) cases
+
+## Task - ui-1
+- Added session status bar component inside chat-view border, above messages
+- Created `SessionState` type and `deriveSessionState()` to analyze recent events
+- Detects busy state via: retry events, status.thinking=true, message.updated streaming, part.delta/text.delta events
+- Falls back to idle if no active indicators found
+- `SessionStatusBar` component renders appropriate dot + text + background per state:
+  - busy: blue pulsing dot, "Agent is thinking...", bg-blue-900/30
+  - idle: gray dot (no pulse), "Idle", bg-gray-800/50
+  - retry: yellow pulsing dot, "Retrying...", bg-yellow-900/30
+- Status bar only shown for running minions with events
+- Restructured render to wrap status bar + scrollable content inside bordered container
+- Files changed: control-panel/src/components/chat-view.tsx
+- **Learnings:** Derive session state from recent events (last 10); check event_type and content.status/content.type for indicators
+
+## Task - ui-2
+- Extended `SessionState` type to include `completed`, `failed`, `terminated`
+- Added terminal states to `SessionStatusBar` config:
+  - completed: green dot, "Completed", bg-green-900/30
+  - failed: red dot, "Failed", bg-red-900/30
+  - terminated: orange dot, "Terminated", bg-orange-900/30
+- Updated `sessionState` derivation to check `status` prop for terminal states before deriving from events
+- Files changed: control-panel/src/components/chat-view.tsx
+- **Learnings:** Terminal states come from minion status prop, not from event stream; check status first, then fall through to event-based derivation for running minions
+
+## Task - ui-3
+- Added comprehensive tests for `deriveSessionState` function to verify status bar visibility logic
+- Exported `deriveSessionState` for testing (marked as @internal)
+- Tests verify: null returned for empty events, idle returned for events without activity indicators
+- Tests verify: busy/retry states correctly detected from various event types
+- Tests verify: only last 10 events are checked for activity indicators
+- Implementation was already correct from ui-1/ui-2, but now has explicit test coverage
+- Files changed: control-panel/src/components/chat-view.tsx, control-panel/src/components/chat-view.test.ts
+- **Learnings:** Status bar visibility relies on: (1) terminal states from minion status, (2) status !== "running" returns null, (3) events.length === 0 returns null, (4) events with activity indicators return busy/retry, (5) fallback to idle
+
+## Task - debug-1, debug-2, debug-3
+- Added NEXT_PUBLIC_DEBUG_SSE environment variable for SSE debug logging
+- When set to "true", logs raw SSE event data before parsing: `[SSE] Raw event: <JSON>`
+- When set to "true", logs parsed/normalized event after construction: `[SSE] Parsed event: <JSON>`
+- Debug logging is conditional and does not affect event processing flow
+- All existing tests pass (52 tests), typecheck and lint clean
+- Files changed: control-panel/src/hooks/use-minion-events.ts
+- **Learnings:** Use process.env.NEXT_PUBLIC_* for client-side env vars in Next.js; conditional logging with `=== "true"` check is idiomatic

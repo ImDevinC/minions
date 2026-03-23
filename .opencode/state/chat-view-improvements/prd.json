@@ -1,0 +1,162 @@
+{
+  "prdName": "chat-view-improvements",
+  "tasks": [
+    {
+      "id": "filtering-1",
+      "category": "filtering",
+      "description": "Filter events with content.file (string) and ≤2 keys",
+      "steps": [
+        "Add detection for content.file being a string with ≤2 total keys in shouldSkipEvent()",
+        "Verify events like {\"file\":\"/path/file.go\"} are skipped",
+        "Verify events like {\"event\":\"change\",\"file\":\"...\"} are skipped",
+        "Verify legitimate events with file property and more keys still render"
+      ],
+      "passes": true
+    },
+    {
+      "id": "filtering-2",
+      "category": "filtering",
+      "description": "Filter events with content.info (object)",
+      "steps": [
+        "Add detection for content.info being an object in shouldSkipEvent()",
+        "Verify events like {\"info\":{...tokens, cost...}} are skipped",
+        "Verify no regression in existing event rendering"
+      ],
+      "passes": true
+    },
+    {
+      "id": "filtering-3",
+      "category": "filtering",
+      "description": "Filter events with content.diff (array)",
+      "steps": [
+        "Add detection for content.diff being an array in shouldSkipEvent()",
+        "Verify events like {\"diff\":[...],\"sessionID\":\"...\"} are skipped"
+      ],
+      "passes": true
+    },
+    {
+      "id": "filtering-4",
+      "category": "filtering",
+      "description": "Filter bare status events (sessionID + status without messageID)",
+      "steps": [
+        "Add detection for content.sessionID + content.status without messageID in shouldSkipEvent()",
+        "Verify events like {\"sessionID\":\"...\",\"status\":{...}} are skipped",
+        "Verify events with messageID are NOT skipped"
+      ],
+      "passes": true
+    },
+    {
+      "id": "filtering-5",
+      "category": "filtering",
+      "description": "Filter summary events (sessionID + summary)",
+      "steps": [
+        "Add detection for content.sessionID + content.summary in shouldSkipEvent()",
+        "Verify events like {\"sessionID\":\"...\",\"summary\":{...}} are skipped"
+      ],
+      "passes": true
+    },
+    {
+      "id": "filtering-6",
+      "category": "filtering",
+      "description": "Verify existing skip logic and legitimate events still work",
+      "steps": [
+        "Verify heartbeat, step-start, step-finish, snapshot, patch, compaction events are still skipped",
+        "Verify text events render correctly",
+        "Verify tool call events render correctly",
+        "Verify reasoning/thinking events render correctly",
+        "Verify agent events render correctly",
+        "Verify retry events render correctly",
+        "Verify error events render correctly"
+      ],
+      "passes": true
+    },
+    {
+      "id": "ui-1",
+      "category": "ui",
+      "description": "Add session status bar component at top of chat view",
+      "steps": [
+        "Create status bar component inside chat-view.tsx border, above messages",
+        "Status bar shows busy state with blue pulsing dot and 'Agent is thinking...' text",
+        "Status bar shows idle state with gray dot and 'Idle' text",
+        "Status bar shows retry state with yellow dot and 'Retrying...' text",
+        "Apply appropriate background colors (bg-blue-900/30, bg-gray-800/50, bg-yellow-900/30)"
+      ],
+      "passes": true
+    },
+    {
+      "id": "ui-2",
+      "category": "ui",
+      "description": "Add terminal state display to status bar",
+      "steps": [
+        "Status bar shows 'Completed' with green dot for completed minions (bg-green-900/30)",
+        "Status bar shows 'Failed' with red dot for failed minions (bg-red-900/30)",
+        "Status bar shows 'Terminated' with orange dot for terminated minions (bg-orange-900/30)"
+      ],
+      "passes": true
+    },
+    {
+      "id": "ui-3",
+      "category": "ui",
+      "description": "Handle status bar visibility for pending minions",
+      "steps": [
+        "Status bar hidden when no status information available",
+        "Status bar hidden for pending minions before first event",
+        "Status bar appears once first status event is received"
+      ],
+      "passes": true
+    },
+    {
+      "id": "debug-1",
+      "category": "debug",
+      "description": "Add NEXT_PUBLIC_DEBUG_SSE environment variable for raw event logging",
+      "steps": [
+        "Check for NEXT_PUBLIC_DEBUG_SSE environment variable in use-minion-events.ts",
+        "When 'true', log '[SSE] Raw event: <JSON>' for each SSE message received",
+        "Logging occurs in onmessage handler before parsing"
+      ],
+      "passes": true
+    },
+    {
+      "id": "debug-2",
+      "category": "debug",
+      "description": "Add parsed event logging when debug enabled",
+      "steps": [
+        "When NEXT_PUBLIC_DEBUG_SSE is 'true', log '[SSE] Parsed event: <JSON>' showing normalized structure",
+        "Log occurs after event is parsed but before processing",
+        "When unset or 'false', no debug logging occurs"
+      ],
+      "passes": true
+    },
+    {
+      "id": "debug-3",
+      "category": "debug",
+      "description": "Verify debug logging does not break event processing",
+      "steps": [
+        "Enable debug logging and verify all events still process correctly",
+        "Verify chat view still renders all legitimate events",
+        "Verify SSE connection remains stable with logging enabled"
+      ],
+      "passes": true
+    }
+  ],
+  "context": {
+    "patterns": [
+      "Event filtering: control-panel/src/lib/event-aggregation.ts:220-227 - shouldSkipEvent() function",
+      "Event type detection: control-panel/src/lib/event-aggregation.ts:91-102 - getPartType() function",
+      "SSE parsing: control-panel/src/hooks/use-minion-events.ts:185-204 - onmessage handler"
+    ],
+    "keyFiles": [
+      "control-panel/src/lib/event-aggregation.ts",
+      "control-panel/src/hooks/use-minion-events.ts",
+      "control-panel/src/components/chat-view.tsx",
+      "control-panel/src/components/system-message-row.tsx",
+      "control-panel/src/types/minion.ts"
+    ],
+    "nonGoals": [
+      "Fixing apply_patch input extraction",
+      "Real-time token/cost updates in chat",
+      "Filtering by event type UI",
+      "Persistent debug log storage"
+    ]
+  }
+}

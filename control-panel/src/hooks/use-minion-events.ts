@@ -185,6 +185,11 @@ export function useMinionEvents({
       eventSource.onmessage = (event) => {
         if (!mountedRef.current) return;
 
+        // Debug logging: raw SSE event before parsing
+        if (process.env.NEXT_PUBLIC_DEBUG_SSE === "true") {
+          console.log("[SSE] Raw event:", event.data);
+        }
+
         try {
           const data = JSON.parse(event.data);
           
@@ -196,6 +201,12 @@ export function useMinionEvents({
             event_type: data.event_type || data.content?.event_type || data.type || "unknown",
             content: data.content?.content || data.content || {},
           };
+
+          // Debug logging: parsed/normalized event structure
+          if (process.env.NEXT_PUBLIC_DEBUG_SSE === "true") {
+            console.log("[SSE] Parsed event:", JSON.stringify(newEvent));
+          }
+
           // Use debounced add to batch rapid events into single React render
           addEventDebounced(newEvent);
         } catch (err) {
