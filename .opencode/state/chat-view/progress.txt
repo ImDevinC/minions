@@ -1,0 +1,214 @@
+# Progress Log
+PRD: chat-view
+Started: 2026-03-23
+
+## Codebase Patterns
+<!-- Consolidate reusable patterns here -->
+- Event content structure: messageID/part info can be at root, in `properties.part`, or in `part` directly - check all locations
+- Use `Array.from(map.values())` instead of iterating `map.values()` directly to avoid TS downlevelIteration issues
+- Delta tracking: use `DeltaState` with both `textByPart` map and `processedEventIds` set to avoid double-counting on re-aggregation
+- Subtask linking: task tool `callID` becomes the subtask's sessionID; filter events by sessionID to group subtask conversations
+
+---
+<!-- Task logs below - APPEND ONLY -->
+
+## Task - setup-1
+- Added react-markdown@^9.1.0 and remark-gfm@^4.0.1 to control-panel
+- Files changed: control-panel/package.json, control-panel/package-lock.json
+- **Learnings:** .next/types can hold stale references to deleted routes; `rm -rf .next` clears this
+
+## Task - types-1
+- Defined ChatMessage, ToolCall, ToolCallStatus, and SystemMessage types
+- Files changed: control-panel/src/types/minion.ts (lines 58-106)
+- **Learnings:** None - straightforward type definitions following PRD spec
+
+## Task - aggregation-1
+- Implemented event aggregation logic in control-panel/src/lib/event-aggregation.ts
+- Groups events by messageID into ChatMessages
+- System events (no messageID, agent/retry parts, session.error) become SystemMessages
+- Deduplicates by event ID, sorts by timestamp, filters heartbeats
+- Handles message.updated events for metadata updates
+- Files changed: control-panel/src/lib/event-aggregation.ts (new)
+- **Learnings:** Event content structure varies - messageID can be at root, in properties.part, or part directly
+
+## Task - aggregation-2
+- Implemented delta accumulation for streaming text
+- Added `DeltaState` interface with `textByPart` Map and `processedEventIds` Set
+- Delta events (`properties.delta: true`) append to buffer, non-delta replace
+- Track processed event IDs to avoid double-counting on re-aggregation
+- Added vitest for testing, wrote unit tests for delta/replacement behavior
+- Files changed: control-panel/src/lib/event-aggregation.ts, control-panel/src/lib/event-aggregation.test.ts (new), control-panel/package.json, control-panel/vitest.config.ts (new)
+- **Learnings:** Persistent state across aggregation calls requires tracking both accumulated text AND which events have been processed
+
+## Task - aggregation-3
+- Implemented subtask event aggregation for nested message threads
+- Added `SubtaskThread` type with sessionID, description, agent, and nested messages array
+- Updated `ChatMessage` to include `subtasks: SubtaskThread[]` field
+- Added `getSessionID()` helper to extract session ID from events
+- Added `extractSubtaskInfo()` to identify task tool calls and their callIDs
+- Modified `aggregateEvents()` to: detect root session ID, collect subtask session IDs from task tools, filter events by session, recursively aggregate subtask events
+- Added 5 unit tests covering session ID extraction, subtask grouping, recursive aggregation, and multi-subtask separation
+- Files changed: control-panel/src/types/minion.ts (lines 78-93), control-panel/src/lib/event-aggregation.ts, control-panel/src/lib/event-aggregation.test.ts
+- **Learnings:** Task tool `callID` becomes subtask session ID; events filtered by matching sessionID; use separate deltaState per subtask to avoid pollution
+
+## Task - component-4b
+- Added smooth CSS collapse animation to ToolCallCard expand/collapse
+- Accordion behavior already worked (ChatView tracks single expandedToolId globally)
+- Used `grid-template-rows` transition for smooth height animation (grid-rows-[0fr] -> grid-rows-[1fr])
+- Added opacity transition for content fade effect
+- Files changed: control-panel/src/components/tool-call-card.tsx
+- **Learnings:** `grid-template-rows` with `0fr`/`1fr` is the modern CSS way to animate height from 0 to auto smoothly; requires overflow-hidden wrapper
+
+## Task - component-1
+- Implemented ChatView container component with virtualized list
+- Takes MinionEvent[] prop, aggregates via aggregateEvents() into ChatMessage/SystemMessage
+- Uses @tanstack/react-virtual with overscan: 20 for smooth scrolling
+- Maintains persistent DeltaState ref across renders for streaming accumulation
+- Combines chat messages and system messages into chronological RenderItem[] union
+- Includes placeholder ChatMessageRow and SystemMessageRow (to be replaced in future tasks)
+- Files changed: control-panel/src/components/chat-view.tsx (new)
+- **Learnings:** Use useRef for DeltaState to persist across renders without triggering re-computation; estimateSize can vary by item type for better virtualization hints
+
+## Task - component-2
+- Implemented ChatMessageRow with react-markdown and react-syntax-highlighter
+- Text renders via ReactMarkdown with remarkGfm plugin for GitHub-flavored markdown
+- Code blocks use SyntaxHighlighter with oneDark theme, horizontal scroll (no wrap)
+- Memoized markdown parsing with useMemo keyed on text content
+- Empty/null content returns null (no blank bubbles)
+- Files changed: control-panel/src/components/chat-message-row.tsx (new), control-panel/src/components/chat-view.tsx (import new component)
+- **Learnings:** react-syntax-highlighter needs wrapLines={false} and wrapLongLines={false} plus whiteSpace: "pre" for horizontal scroll
+
+## Task - component-3
+- Implemented ThinkingBlock component for collapsible reasoning content
+- Default state collapsed showing "▶ Thinking..." with muted gray-500 text
+- Click toggles expansion, expanded state shows full reasoning with gray-400 text
+- Collapsed uses smaller text (text-xs), expanded uses text-sm
+- Smooth rotation transition on arrow indicator
+- Replaced placeholder in ChatMessageRow with ThinkingBlock component
+- Files changed: control-panel/src/components/thinking-block.tsx (new), control-panel/src/components/chat-message-row.tsx (import + use ThinkingBlock)
+- **Learnings:** useState(false) for default collapsed; rotate-90 class for arrow animation
+
+## Task - component-4a
+- Implemented ToolCallCard component for compact expandable tool invocation cards
+- Tool icon mapping: read=📖, write/edit=✏️, glob=🔍, grep=🔎, bash=⚙️, task=🤖, webfetch=🌐, fallback=🔧
+- Status badge colors: pending (gray-600), running (blue-600 animate-pulse), completed (green-700), error (red-700)
+- Expanded state shows syntax-highlighted JSON input with oneDark theme
+- Output/error sections render when present
+- Integrated into ChatMessageRow with expandedToolId state managed by ChatView
+- Files changed: control-panel/src/components/tool-call-card.tsx (new), control-panel/src/components/chat-message-row.tsx, control-panel/src/components/chat-view.tsx
+- **Learnings:** Accordion state across messages uses "messageId:toolId" format in parent ChatView; basic expansion works but accordion auto-collapse behavior is task 4b
+
+## Task - component-4c
+- Implemented truncation for large inputs/outputs (>10KB)
+- Added `TruncatedContent` component for plain text with expand/collapse button
+- Added `TruncatedSyntaxHighlighter` component for syntax-highlighted JSON with expand/collapse
+- Shows first ~500 chars with "..." indicator when truncated
+- "Show full input/output" button toggles full content display
+- Files changed: control-panel/src/components/tool-call-card.tsx
+- **Learnings:** Separate components for plain text vs syntax-highlighted truncation keeps concerns clean; useState per-component handles individual expand state
+
+## Task - component-5
+- Implemented `getToolSummary` function for human-readable tool summaries
+- Handles all specified tools: read, write, edit, glob, grep, bash, task/agent
+- Added bonus support for webfetch, todowrite, skill tools
+- Glob/grep parse output line count, bash truncates commands at 40 chars
+- Unknown tools fall back to capitalized tool name
+- Memoized summary computation in ToolCallCard via useMemo
+- Files changed: control-panel/src/components/tool-call-card.tsx (lines 47-120)
+- **Learnings:** Tool input field names vary (filePath vs file_path vs path), check multiple keys
+
+## Task - component-6
+- Created SubtaskBlock component for nested conversation threads
+- Collapsible header: "▶ Subtask: [description] (agent)" with message count badge
+- Default collapsed state, click expands to show nested messages
+- Visual distinction: cyan left border, gray-800/40 background, rounded container
+- SubtaskMessageRow for simplified nested message rendering (no full markdown)
+- Recursively renders nested subtasks within subtask threads
+- Integrated into ChatMessageRow, replaced placeholder
+- Files changed: control-panel/src/components/subtask-block.tsx (new), control-panel/src/components/chat-message-row.tsx
+- **Learnings:** Simplified nested rendering (no markdown, just pre-wrap text) keeps subtask threads clean and performant
+
+## Task - component-7
+- Created SystemMessageRow component for events without messageID
+- Styled as subtle banners with timestamp on left side
+- Agent events: "Switched to X agent" in gray banner
+- session.error/error events: red error banner with left border
+- Retry events: yellow warning banner with "⚠️ Retrying, attempt N"
+- Unknown events: muted gray system message with truncated content
+- Replaced placeholder in ChatView with dedicated component import
+- Files changed: control-panel/src/components/system-message-row.tsx (new), control-panel/src/components/chat-view.tsx (import change)
+- **Learnings:** Helper functions for content extraction handle both string and object content shapes cleanly
+
+## Task - streaming-1
+- Real-time streaming updates with debounced event batching
+- Added 16ms debounce buffer in useMinionEvents to batch rapid SSE delta events into single React renders
+- Streaming indicator already existed in ChatMessageRow (shows pulsing blue dot + "streaming" text)
+- isStreaming detection already worked in aggregateEvents (sets true if latest event within 30s)
+- Files changed: control-panel/src/hooks/use-minion-events.ts
+- **Learnings:** Debounce buffer with refs (pendingEventsRef, debounceTimerRef) avoids stale closures; ~16ms matches 60fps for smooth UI
+
+## Task - streaming-2
+- Auto-scroll behavior for streaming view was mostly pre-implemented
+- autoScroll state defaults to true, scrolls to bottom on new items via useEffect
+- Scroll handler detects when user scrolls up (>100px from bottom) and disables auto-scroll
+- "Jump to latest" button appears when auto-scroll disabled, re-enables on click
+- Added responsive positioning: smaller padding/sizing on mobile (bottom-3 right-2, px-2.5 py-1), larger on md+ (bottom-4 right-4, px-3 py-1.5)
+- Files changed: control-panel/src/components/chat-view.tsx (lines 124-136)
+- **Learnings:** Most streaming UX was already implemented; task was mainly verifying and adding responsive button positioning
+
+## Task - error-1
+- Error state handling was mostly pre-implemented, added warning logs for unknown events
+- session.error events: SystemMessageRow already renders as red error banner (lines 89-98)
+- Malformed JSON: useMinionEvents has try/catch around JSON.parse with console.error (lines 179-194)
+- Missing messageID: isSystemEvent() returns true, eventToSystemMessage() converts to SystemMessage
+- SSE connection loss: minion-detail-client shows "Connecting..." with yellow pulse (lines 585-596)
+- Unknown events: Added console.warn in eventToSystemMessage() before fallback rendering
+- Files changed: control-panel/src/lib/event-aggregation.ts (lines 265-270)
+- **Learnings:** Most error handling already in place; unknown event logging is helpful for debugging malformed backend events
+
+## Task - loading-1
+- Implemented loading and empty states for ChatView
+- Added skeleton loaders: 3 animated placeholder rows during isLoading state
+- Status-aware empty states:
+  - Running/pending minion: "Waiting for agent to start..." with pulsing blue dot
+  - Completed with no events: "No output produced" message
+  - Default fallback: "No events yet"
+- Added "Catching up..." indicator after SSE reconnection (yellow banner at top)
+- Extended ChatView props: status, isConnected, isLoading, isCatchingUp
+- Extended useMinionEvents hook to expose isCatchingUp state
+- Files changed: control-panel/src/components/chat-view.tsx, control-panel/src/hooks/use-minion-events.ts
+- **Learnings:** Status-aware empty states require passing minion status down to ChatView; catching up state set in onopen handler's fetchEventsSince promise chain
+
+## Task - integration-1
+- Replaced EventLog with ChatView in minion-detail-client.tsx
+- Removed EventLog, EventRow, and supporting functions (~200 lines of code removed)
+- Imported ChatView and wired to useMinionEvents hook with all required props (events, status, isConnected, isCatchingUp)
+- Connection status indicator preserved in header (Live/Connecting indicator, error display)
+- 'Jump to latest' button now handled by ChatView internally (responsive positioning already implemented in streaming-2)
+- Renamed section header from "Event Log" to "Agent Activity" to reflect chat-style UI
+- Files changed: control-panel/src/components/minion-detail-client.tsx (lines 1-312, significant reduction)
+- **Learnings:** Clean removal - EventLog/EventRow were self-contained; ChatView has all needed props for status/loading/catching-up states
+
+## Task - performance-1
+- Memoized markdown parsing by part ID for efficient streaming renders
+- Added `TextPart` interface to types (id + text) for per-part caching
+- Updated aggregation to populate `textParts` array alongside combined `text` string
+- Refactored ChatMessageRow to render parts individually via `MemoizedMarkdownPart`
+- `React.memo` with custom comparison ensures unchanged parts skip re-render
+- Extracted `markdownComponents` to module level for stable reference
+- Wrapped ChatMessageRow itself in `React.memo` to prevent re-renders on accordion state changes
+- Added unit test verifying textParts population
+- Files changed: control-panel/src/types/minion.ts, control-panel/src/lib/event-aggregation.ts, control-panel/src/lib/event-aggregation.test.ts, control-panel/src/components/chat-message-row.tsx
+- **Learnings:** Per-part memoization + virtualization = smooth streaming; during rapid deltas only the active part re-renders while completed parts stay cached
+
+## Task - responsive-1
+- Added responsive layout for tablet screens (768px+)
+- ChatView: responsive height (h-[400px] md:h-[500px]), responsive padding in skeleton loader
+- ChatMessageRow: responsive padding (py-2 md:py-3, px-3 md:px-4), responsive prose sizing (prose-sm md:prose)
+- ToolCallCard: responsive gaps/padding, smaller fonts on mobile (text-xs md:text-sm), tool name hidden on <sm to save space
+- SubtaskBlock: responsive padding, smaller badge text on mobile (text-[10px] md:text-xs)
+- SystemMessageRow: responsive padding (px-3 md:px-4), smaller error text on mobile (text-xs md:text-sm)
+- ThinkingBlock: responsive padding/font sizes
+- Code blocks already scroll horizontally via whiteSpace: "pre" (verified)
+- Files changed: chat-view.tsx, chat-message-row.tsx, tool-call-card.tsx, subtask-block.tsx, system-message-row.tsx, thinking-block.tsx
+- **Learnings:** Tailwind's md: breakpoint (768px) aligns perfectly with tablet targets; hiding non-essential elements (tool name) on mobile keeps cards compact while summary provides context

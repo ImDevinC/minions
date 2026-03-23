@@ -3,6 +3,10 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { MinionEvent, MinionStatus } from "@/types/minion";
 
+// Debounce delay for batching rapid SSE events into single React renders
+// Matches ~60fps for smooth UI updates
+const EVENT_DEBOUNCE_MS = 16;
+
 interface UseMinionEventsOptions {
   minionId: string;
   initialEvents: MinionEvent[];
@@ -13,6 +17,8 @@ interface UseMinionEventsResult {
   events: MinionEvent[];
   isConnected: boolean;
   connectionError: string | null;
+  /** True when SSE reconnected and is fetching missed events */
+  isCatchingUp: boolean;
 }
 
 // Fetch events since a timestamp (for reconnection catch-up)
@@ -81,6 +87,7 @@ export function useMinionEvents({
   const [events, setEvents] = useState<MinionEvent[]>(initialEvents);
   const [isConnected, setIsConnected] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [isCatchingUp, setIsCatchingUp] = useState(false);
 
   // Refs for EventSource lifecycle
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -89,6 +96,10 @@ export function useMinionEvents({
   );
   const mountedRef = useRef(true);
   const currentStatusRef = useRef(status);
+  
+  // Debounce buffer for batching rapid SSE events
+  const pendingEventsRef = useRef<MinionEvent[]>([]);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Update status ref when it changes
   useEffect(() => {
@@ -102,6 +113,28 @@ export function useMinionEvents({
       lastTimestampRef.current = latest;
     }
   }, [events]);
+  
+  // Flush pending events to state (used by debounce)
+  const flushPendingEvents = useCallback(() => {
+    if (!mountedRef.current) return;
+    if (pendingEventsRef.current.length === 0) return;
+    
+    const eventsToFlush = pendingEventsRef.current;
+    pendingEventsRef.current = [];
+    debounceTimerRef.current = null;
+    
+    setEvents((prev) => mergeEvents(prev, eventsToFlush));
+  }, []);
+  
+  // Add event to buffer with debounce (batches rapid events into single render)
+  const addEventDebounced = useCallback((event: MinionEvent) => {
+    pendingEventsRef.current.push(event);
+    
+    // If no timer pending, start one
+    if (!debounceTimerRef.current) {
+      debounceTimerRef.current = setTimeout(flushPendingEvents, EVENT_DEBOUNCE_MS);
+    }
+  }, [flushPendingEvents]);
 
   const connect = useCallback(async () => {
     if (!mountedRef.current) return;
@@ -130,6 +163,7 @@ export function useMinionEvents({
         // On reconnect, fetch missed events
         const lastTs = lastTimestampRef.current;
         if (lastTs) {
+          setIsCatchingUp(true);
           fetchEventsSince(minionId, lastTs)
             .then((missedEvents) => {
               if (!mountedRef.current) return;
@@ -139,6 +173,11 @@ export function useMinionEvents({
             })
             .catch((err) => {
               console.error("Failed to fetch missed events:", err);
+            })
+            .finally(() => {
+              if (mountedRef.current) {
+                setIsCatchingUp(false);
+              }
             });
         }
       };
@@ -157,7 +196,8 @@ export function useMinionEvents({
             event_type: data.event_type || data.content?.event_type || data.type || "unknown",
             content: data.content?.content || data.content || {},
           };
-          setEvents((prev) => mergeEvents(prev, [newEvent]));
+          // Use debounced add to batch rapid events into single React render
+          addEventDebounced(newEvent);
         } catch (err) {
           console.error("Failed to parse SSE message:", err);
         }
@@ -181,7 +221,7 @@ export function useMinionEvents({
       console.error("Failed to create EventSource:", err);
       setConnectionError("Failed to create SSE connection");
     }
-  }, [minionId]);
+  }, [minionId, addEventDebounced]);
 
   // Connect on mount, cleanup on unmount
   useEffect(() => {
@@ -200,6 +240,12 @@ export function useMinionEvents({
         eventSourceRef.current.close();
         eventSourceRef.current = null;
       }
+      
+      // Cleanup debounce timer
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+      }
     };
   }, [connect, status]);
 
@@ -215,5 +261,6 @@ export function useMinionEvents({
     events,
     isConnected,
     connectionError,
+    isCatchingUp,
   };
 }

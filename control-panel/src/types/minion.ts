@@ -55,6 +55,84 @@ export interface MinionEvent {
   content: Record<string, unknown>;
 }
 
+// Chat view types for aggregated message rendering
+
+export type ToolCallStatus = "pending" | "running" | "completed" | "error";
+
+/**
+ * A tool invocation within a ChatMessage.
+ * Rendered as a compact expandable card.
+ */
+export interface ToolCall {
+  id: string;
+  tool: string;
+  status: ToolCallStatus;
+  title?: string;
+  /** Human-readable summary (e.g., "Read src/foo.ts") */
+  summary: string;
+  input: Record<string, unknown>;
+  output?: string;
+  error?: string;
+}
+
+/**
+ * A nested conversation thread from a subtask (spawned subagent).
+ * The sessionID links events from the child session to this thread.
+ */
+export interface SubtaskThread {
+  /** Session ID of the subtask (matches callID of the task tool) */
+  sessionID: string;
+  /** Human-readable description of the subtask */
+  description: string;
+  /** Agent type (e.g., "task", "explore", "code-reviewer") */
+  agent?: string;
+  /** Nested messages from the subtask session */
+  messages: ChatMessage[];
+}
+
+/**
+ * A text part with its ID for memoized rendering.
+ * Part IDs are stable across re-aggregation, enabling efficient caching.
+ */
+export interface TextPart {
+  id: string;
+  text: string;
+}
+
+/**
+ * An aggregated chat message from grouped events.
+ * Events with the same messageID are combined into one ChatMessage.
+ */
+export interface ChatMessage {
+  id: string;
+  timestamp: string;
+  /** Accumulated reasoning/thinking text (collapsed by default) */
+  thinking?: string;
+  /** Accumulated text content rendered as markdown */
+  text: string;
+  /** Individual text parts for memoized rendering - keyed by part ID */
+  textParts: TextPart[];
+  /** Tool calls in chronological order */
+  tools: ToolCall[];
+  /** Nested subtask threads (spawned subagents) */
+  subtasks: SubtaskThread[];
+  /** True while message is still receiving streaming events */
+  isStreaming: boolean;
+}
+
+/**
+ * A system message for events without a messageID.
+ * Rendered as subtle banners outside the main conversation flow.
+ */
+export interface SystemMessage {
+  id: string;
+  timestamp: string;
+  /** System message type (e.g., "agent", "session.error", "retry") */
+  type: string;
+  /** Display content or raw event data */
+  content: string | Record<string, unknown>;
+}
+
 // Response from GET /api/stats
 export interface Stats {
   total_cost_usd: number;
