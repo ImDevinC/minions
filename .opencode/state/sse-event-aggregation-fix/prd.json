@@ -1,0 +1,143 @@
+{
+  "prdName": "sse-event-aggregation-fix",
+  "tasks": [
+    {
+      "id": "functional-1",
+      "category": "functional",
+      "description": "Add partTypeByID tracking to DeltaState interface",
+      "steps": [
+        "DeltaState interface at lines 33-38 includes partTypeByID: Map<string, 'text' | 'reasoning'>",
+        "createDeltaState() at line 693 initializes partTypeByID as new Map()"
+      ],
+      "passes": false
+    },
+    {
+      "id": "functional-2",
+      "category": "functional",
+      "description": "Create extractDeltaContent() function for flat delta event structure",
+      "steps": [
+        "New function extractDeltaContent(event) exists near extractTextContent()",
+        "Function extracts {partID, delta, field} from flat content structure (NOT nested in properties.part)",
+        "Delta events are flat: content.partID, content.delta, content.field - NO type field",
+        "Function returns undefined for non-delta events",
+        "Function handles content.delta, content.partID, content.field"
+      ],
+      "passes": false
+    },
+    {
+      "id": "functional-3",
+      "category": "functional",
+      "description": "Track part types from message.part.updated events",
+      "steps": [
+        "Only when event_type === 'message.part.updated' AND extractTextContent() returns result",
+        "Store part.type ('text' or 'reasoning') in state.partTypeByID[partID]",
+        "Map key is the partID, value is 'text' or 'reasoning'",
+        "This runs BEFORE delta processing so type map is populated"
+      ],
+      "passes": false
+    },
+    {
+      "id": "functional-4",
+      "category": "functional",
+      "description": "Handle message.part.delta events in aggregation loop",
+      "steps": [
+        "Aggregation loop (lines 596-622) checks for message.part.delta event type",
+        "Delta events call extractDeltaContent() to get partID and delta text",
+        "Delta text is accumulated in state.textByPart by partID",
+        "Event is added to state.processedEventIds to prevent duplicates"
+      ],
+      "passes": false
+    },
+    {
+      "id": "functional-5",
+      "category": "functional",
+      "description": "Route deltas to thinking or textContent based on tracked part type",
+      "steps": [
+        "Delta partID is looked up in state.partTypeByID to get type",
+        "If type is 'reasoning', partID is added to reasoningPartIDs",
+        "If type is 'text', partID is added to textPartIDs"
+      ],
+      "passes": false
+    },
+    {
+      "id": "functional-5b",
+      "category": "functional",
+      "description": "Handle deltas for partIDs not yet in type map (race condition)",
+      "steps": [
+        "If partID lookup in state.partTypeByID returns undefined",
+        "Default to treating as 'text' (add partID to textPartIDs)",
+        "Log warning for debugging: 'Delta for unknown part type, defaulting to text'"
+      ],
+      "passes": false
+    },
+    {
+      "id": "functional-6",
+      "category": "functional",
+      "description": "Merge tool input when non-empty input arrives",
+      "steps": [
+        "Tool merge logic (lines 629-639) includes input merge",
+        "Condition: if (toolCall.input && Object.keys(toolCall.input).length > 0)",
+        "When condition met: existing.input = toolCall.input (replace, not deep merge)",
+        "Note: toolCall is NEW event state, existing is ACCUMULATED state from previous events",
+        "Empty input {} does not overwrite existing populated input"
+      ],
+      "passes": false
+    },
+    {
+      "id": "verification-1",
+      "category": "verification",
+      "description": "Verify thinking/reasoning content displays correctly",
+      "steps": [
+        "Start control panel dev server: cd control-panel && npm run dev",
+        "Load SSE test data from /home/devin/Projects/minions/sse",
+        "Thinking blocks show actual reasoning content (not empty)",
+        "Text content still displays correctly",
+        "No regressions in existing message rendering"
+      ],
+      "passes": false
+    },
+    {
+      "id": "verification-2",
+      "category": "verification",
+      "description": "Verify tool input displays correctly",
+      "steps": [
+        "Start control panel dev server: cd control-panel && npm run dev",
+        "Load SSE test data from /home/devin/Projects/minions/sse",
+        "Tool call cards show input parameters (file paths, search patterns)",
+        "Tool output and status still display correctly",
+        "No regressions in existing tool rendering"
+      ],
+      "passes": false
+    }
+  ],
+  "taskDependencies": {
+    "functional-2": [],
+    "functional-3": ["functional-1"],
+    "functional-4": ["functional-2"],
+    "functional-5": ["functional-3", "functional-4"],
+    "functional-5b": ["functional-5"],
+    "functional-6": [],
+    "verification-1": ["functional-1", "functional-2", "functional-3", "functional-4", "functional-5", "functional-5b"],
+    "verification-2": ["functional-6"]
+  },
+  "context": {
+    "patterns": [
+      "extractTextContent() at event-aggregation.ts:372-394 - nested part structure extraction",
+      "extractToolCall() at event-aggregation.ts:335-366 - tool data extraction",
+      "Tool merge logic at event-aggregation.ts:629-639 - existing merge pattern"
+    ],
+    "keyFiles": [
+      "control-panel/src/lib/event-aggregation.ts",
+      "sse",
+      "control-panel/src/types/minion.ts",
+      "control-panel/src/components/thinking-block.tsx",
+      "control-panel/src/components/tool-call-card.tsx"
+    ],
+    "nonGoals": [
+      "Performance optimization of aggregation loop",
+      "Adding observability/logging for event processing",
+      "Handling hypothetical future event types",
+      "Unit tests for new functions"
+    ]
+  }
+}

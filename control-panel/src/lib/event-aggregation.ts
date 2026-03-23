@@ -35,6 +35,8 @@ export interface DeltaState {
   textByPart: Map<string, string>;
   /** Set of event IDs that have already been processed (for delta deduplication) */
   processedEventIds: Set<string>;
+  /** Maps partID -> part type ('text' or 'reasoning') for routing deltas */
+  partTypeByID: Map<string, "text" | "reasoning">;
 }
 
 /**
@@ -694,5 +696,6 @@ export function createDeltaState(): DeltaState {
   return {
     textByPart: new Map(),
     processedEventIds: new Set(),
+    partTypeByID: new Map(),
   };
 }
