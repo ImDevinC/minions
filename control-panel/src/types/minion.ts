@@ -91,6 +91,15 @@ export interface SubtaskThread {
 }
 
 /**
+ * A text part with its ID for memoized rendering.
+ * Part IDs are stable across re-aggregation, enabling efficient caching.
+ */
+export interface TextPart {
+  id: string;
+  text: string;
+}
+
+/**
  * An aggregated chat message from grouped events.
  * Events with the same messageID are combined into one ChatMessage.
  */
@@ -101,6 +110,8 @@ export interface ChatMessage {
   thinking?: string;
   /** Accumulated text content rendered as markdown */
   text: string;
+  /** Individual text parts for memoized rendering - keyed by part ID */
+  textParts: TextPart[];
   /** Tool calls in chronological order */
   tools: ToolCall[];
   /** Nested subtask threads (spawned subagents) */

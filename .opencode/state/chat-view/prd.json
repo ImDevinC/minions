@@ -255,7 +255,7 @@
         "Render performance smooth with 500+ messages (manual test)",
         "No visible jank during rapid delta streaming"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "responsive-1",

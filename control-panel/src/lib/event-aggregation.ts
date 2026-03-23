@@ -15,6 +15,7 @@ import type {
   ToolCall,
   ToolCallStatus,
   SubtaskThread,
+  TextPart,
 } from "@/types/minion";
 
 /**
@@ -590,11 +591,13 @@ export function aggregateEvents(
       }
     }
 
+    // Build individual text parts for memoized rendering
+    const textParts = textPartIDs
+      .map((pid) => ({ id: pid, text: state.textByPart.get(pid) || "" }))
+      .filter((part) => part.text.length > 0);
+
     // Build final text from accumulated parts (join with double newlines)
-    const text = textPartIDs
-      .map((pid) => state.textByPart.get(pid) || "")
-      .filter((t) => t.length > 0)
-      .join("\n\n");
+    const text = textParts.map((p) => p.text).join("\n\n");
 
     // Build final thinking from accumulated reasoning parts
     const thinking = reasoningPartIDs
@@ -622,6 +625,7 @@ export function aggregateEvents(
       timestamp: earliestTimestamp,
       thinking: thinking || undefined,
       text,
+      textParts,
       tools,
       subtasks,
       isStreaming,

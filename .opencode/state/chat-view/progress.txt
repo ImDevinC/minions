@@ -188,3 +188,15 @@ Started: 2026-03-23
 - Renamed section header from "Event Log" to "Agent Activity" to reflect chat-style UI
 - Files changed: control-panel/src/components/minion-detail-client.tsx (lines 1-312, significant reduction)
 - **Learnings:** Clean removal - EventLog/EventRow were self-contained; ChatView has all needed props for status/loading/catching-up states
+
+## Task - performance-1
+- Memoized markdown parsing by part ID for efficient streaming renders
+- Added `TextPart` interface to types (id + text) for per-part caching
+- Updated aggregation to populate `textParts` array alongside combined `text` string
+- Refactored ChatMessageRow to render parts individually via `MemoizedMarkdownPart`
+- `React.memo` with custom comparison ensures unchanged parts skip re-render
+- Extracted `markdownComponents` to module level for stable reference
+- Wrapped ChatMessageRow itself in `React.memo` to prevent re-renders on accordion state changes
+- Added unit test verifying textParts population
+- Files changed: control-panel/src/types/minion.ts, control-panel/src/lib/event-aggregation.ts, control-panel/src/lib/event-aggregation.test.ts, control-panel/src/components/chat-message-row.tsx
+- **Learnings:** Per-part memoization + virtualization = smooth streaming; during rapid deltas only the active part re-renders while completed parts stay cached

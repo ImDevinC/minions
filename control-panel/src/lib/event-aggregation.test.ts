@@ -317,6 +317,26 @@ describe("event-aggregation", () => {
       expect(result.messages).toHaveLength(1);
       expect(result.messages[0].text).toBe("");
     });
+
+    it("populates textParts with part IDs for memoized rendering", () => {
+      const deltaState = createDeltaState();
+
+      const event1 = makeTextEvent("e1", "msg1", "part1", "First paragraph", {
+        delta: false,
+        timestamp: "2024-01-01T00:00:00Z",
+      });
+      const event2 = makeTextEvent("e2", "msg1", "part2", "Second paragraph", {
+        delta: false,
+        timestamp: "2024-01-01T00:00:01Z",
+      });
+
+      const result = aggregateEvents([event1, event2], deltaState);
+
+      expect(result.messages).toHaveLength(1);
+      expect(result.messages[0].textParts).toHaveLength(2);
+      expect(result.messages[0].textParts[0]).toEqual({ id: "part1", text: "First paragraph" });
+      expect(result.messages[0].textParts[1]).toEqual({ id: "part2", text: "Second paragraph" });
+    });
   });
 
   describe("subtask aggregation", () => {
