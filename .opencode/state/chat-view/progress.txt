@@ -165,3 +165,16 @@ Started: 2026-03-23
 - Unknown events: Added console.warn in eventToSystemMessage() before fallback rendering
 - Files changed: control-panel/src/lib/event-aggregation.ts (lines 265-270)
 - **Learnings:** Most error handling already in place; unknown event logging is helpful for debugging malformed backend events
+
+## Task - loading-1
+- Implemented loading and empty states for ChatView
+- Added skeleton loaders: 3 animated placeholder rows during isLoading state
+- Status-aware empty states:
+  - Running/pending minion: "Waiting for agent to start..." with pulsing blue dot
+  - Completed with no events: "No output produced" message
+  - Default fallback: "No events yet"
+- Added "Catching up..." indicator after SSE reconnection (yellow banner at top)
+- Extended ChatView props: status, isConnected, isLoading, isCatchingUp
+- Extended useMinionEvents hook to expose isCatchingUp state
+- Files changed: control-panel/src/components/chat-view.tsx, control-panel/src/hooks/use-minion-events.ts
+- **Learnings:** Status-aware empty states require passing minion status down to ChatView; catching up state set in onopen handler's fetchEventsSince promise chain

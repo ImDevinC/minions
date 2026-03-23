@@ -231,7 +231,7 @@
         "Reconnection after SSE drop shows 'Catching up...' indicator briefly",
         "Completed minion with zero events shows 'No output produced' message"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "integration-1",

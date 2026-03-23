@@ -2,7 +2,7 @@
 
 import { useRef, useState, useCallback, useMemo, useEffect } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import type { MinionEvent, ChatMessage, SystemMessage } from "@/types/minion";
+import type { MinionEvent, ChatMessage, SystemMessage, MinionStatus } from "@/types/minion";
 import {
   aggregateEvents,
   createDeltaState,
@@ -22,6 +22,14 @@ type RenderItem =
 interface ChatViewProps {
   /** Raw events from the SSE stream */
   events: MinionEvent[];
+  /** Current minion status for empty state logic */
+  status?: MinionStatus;
+  /** Whether SSE connection is established */
+  isConnected?: boolean;
+  /** Whether component is in initial loading state (server render) */
+  isLoading?: boolean;
+  /** Whether SSE just reconnected and is fetching missed events */
+  isCatchingUp?: boolean;
 }
 
 /**
@@ -32,8 +40,15 @@ interface ChatViewProps {
  * - Uses @tanstack/react-virtual for efficient rendering of large message lists
  * - Maintains persistent delta state for streaming text accumulation
  * - ~20 items overscan above/below viewport for smooth scrolling
+ * - Shows appropriate loading/empty states based on minion status
  */
-export function ChatView({ events }: ChatViewProps) {
+export function ChatView({ 
+  events, 
+  status, 
+  isConnected,
+  isLoading = false,
+  isCatchingUp = false,
+}: ChatViewProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
   
@@ -110,8 +125,57 @@ export function ChatView({ events }: ChatViewProps) {
     setAutoScroll(isAtBottom);
   }, []);
 
-  // Empty state
+  // Helper: check if minion is in a terminal state
+  const isTerminalStatus = status === "completed" || status === "failed" || status === "terminated";
+
+  // Loading state: show skeleton loaders during initial page load
+  if (isLoading) {
+    return (
+      <div className="h-[500px] bg-gray-900 rounded-lg border border-gray-700 p-4 space-y-4">
+        {/* Skeleton message rows */}
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="animate-pulse space-y-2">
+            <div className="flex items-center gap-2">
+              <div className="h-3 w-16 bg-gray-700 rounded" />
+              <div className="h-5 w-5 bg-gray-700 rounded" />
+            </div>
+            <div className="space-y-2 pl-6">
+              <div className="h-4 bg-gray-700 rounded w-3/4" />
+              <div className="h-4 bg-gray-700 rounded w-1/2" />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // Empty state handling based on minion status
   if (renderItems.length === 0) {
+    // Running/pending minion with no events: agent is starting up
+    if (status === "running" || status === "pending") {
+      return (
+        <div className="flex flex-col items-center justify-center h-64 text-gray-400 gap-2">
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-3 w-3">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500" />
+            </span>
+            <span>Waiting for agent to start...</span>
+          </div>
+        </div>
+      );
+    }
+
+    // Completed minion with zero events: task produced no output
+    if (isTerminalStatus && status === "completed") {
+      return (
+        <div className="flex items-center justify-center h-64 text-gray-500">
+          No output produced
+        </div>
+      );
+    }
+
+    // Default empty state (failed/terminated with no events, or unknown status)
     return (
       <div className="flex items-center justify-center h-64 text-gray-500">
         No events yet
@@ -121,6 +185,17 @@ export function ChatView({ events }: ChatViewProps) {
 
   return (
     <div className="relative">
+      {/* Catching up indicator - shown after SSE reconnection */}
+      {isCatchingUp && (
+        <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 bg-yellow-500/90 text-yellow-900 text-xs px-3 py-1 rounded-full shadow-lg flex items-center gap-2">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-900 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-yellow-900" />
+          </span>
+          Catching up...
+        </div>
+      )}
+
       {/* Jump to latest button - repositions on smaller screens */}
       {!autoScroll && (
         <button

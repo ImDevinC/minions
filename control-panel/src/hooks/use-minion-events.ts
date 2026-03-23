@@ -17,6 +17,8 @@ interface UseMinionEventsResult {
   events: MinionEvent[];
   isConnected: boolean;
   connectionError: string | null;
+  /** True when SSE reconnected and is fetching missed events */
+  isCatchingUp: boolean;
 }
 
 // Fetch events since a timestamp (for reconnection catch-up)
@@ -85,6 +87,7 @@ export function useMinionEvents({
   const [events, setEvents] = useState<MinionEvent[]>(initialEvents);
   const [isConnected, setIsConnected] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [isCatchingUp, setIsCatchingUp] = useState(false);
 
   // Refs for EventSource lifecycle
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -160,6 +163,7 @@ export function useMinionEvents({
         // On reconnect, fetch missed events
         const lastTs = lastTimestampRef.current;
         if (lastTs) {
+          setIsCatchingUp(true);
           fetchEventsSince(minionId, lastTs)
             .then((missedEvents) => {
               if (!mountedRef.current) return;
@@ -169,6 +173,11 @@ export function useMinionEvents({
             })
             .catch((err) => {
               console.error("Failed to fetch missed events:", err);
+            })
+            .finally(() => {
+              if (mountedRef.current) {
+                setIsCatchingUp(false);
+              }
             });
         }
       };
@@ -252,5 +261,6 @@ export function useMinionEvents({
     events,
     isConnected,
     connectionError,
+    isCatchingUp,
   };
 }
