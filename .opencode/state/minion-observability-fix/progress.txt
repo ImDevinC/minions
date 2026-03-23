@@ -1,0 +1,28 @@
+# Progress Log
+PRD: minion-observability-fix
+Started: 2026-03-22
+
+## Codebase Patterns
+- **Database column additions**: Add field to Minion struct, update all query SELECT/Scan statements (8 methods in this case), add accessor methods
+- **Idempotent operations**: StorePassword and ClearPassword are both idempotent - safe to call multiple times
+
+---
+<!-- Task logs below - APPEND ONLY -->
+
+## Task - db-1
+- Created migration schema/migrations/005_add_opencode_password.sql
+- Added OpencodePassword string field to Minion struct in orchestrator/internal/db/minions.go:57
+- Implemented StorePassword() and ClearPassword() methods in orchestrator/internal/db/minions.go:1044-1060
+- Updated all 8 query methods to SELECT and Scan opencode_password:
+  - GetByID (line 264)
+  - FindRecentDuplicate (line 156)
+  - List (line 364)
+  - ListByStatuses (line 668)
+  - ListPending (line 715)
+  - ListIdleRunning (line 794)
+  - ListClarificationTimeouts (line 837)
+  - GetByClarificationMessageID (line 881)
+- Added unit test TestPasswordMethods in orchestrator/internal/db/minions_test.go
+- All orchestrator tests pass
+- **Learnings**: Column is TEXT NULL to allow cleanup on completion; OpencodePassword field is non-pointer string (empty string when NULL)
+

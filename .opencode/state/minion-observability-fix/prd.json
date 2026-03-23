@@ -1,0 +1,251 @@
+{
+  "prdName": "minion-observability-fix",
+  "tasks": [
+    {
+      "id": "db-1",
+      "category": "db",
+      "description": "Database migration and model updates for opencode_password column",
+      "steps": [
+        "Verify migration 005 doesn't already exist in schema/migrations/",
+        "Create schema/migrations/005_add_opencode_password.sql with: ALTER TABLE minions ADD COLUMN opencode_password TEXT NULL;",
+        "Add OpencodePassword string field to Minion struct in orchestrator/internal/db/minions.go",
+        "Implement StorePassword(ctx, id, password) error method",
+        "Implement ClearPassword(ctx, id) error method",
+        "Update all 8 query methods to SELECT and Scan opencode_password: GetByID, FindRecentDuplicate, List, ListByStatuses, ListPending, ListIdleRunning, ListClarificationTimeouts, GetByClarificationMessageID",
+        "Run unit test: create minion, store password, retrieve minion, verify password field populated",
+        "Verify migration applies cleanly to local postgres container"
+      ],
+      "passes": true
+    },
+    {
+      "id": "research-1",
+      "category": "orchestrator",
+      "description": "Locate callback handler method for password cleanup integration",
+      "steps": [
+        "Search for callback handling in orchestrator/internal/api/ directory",
+        "Identify exact method name and file location that handles minion completion callbacks",
+        "Document method signature and terminal status handling logic",
+        "Verify method handles completed, failed, and terminated statuses",
+        "Document findings for use in orchestrator-cleanup-1 task"
+      ],
+      "passes": false
+    },
+    {
+      "id": "orchestrator-interfaces-1",
+      "category": "orchestrator",
+      "description": "Update SSEConnector interface signature to support password authentication",
+      "steps": [
+        "Locate SSEConnector interface definition in orchestrator/internal/spawner/spawner.go (around line 53-57)",
+        "Change Connect signature from Connect(ctx, minionID, podName) to Connect(ctx, minionID, podName, password string)",
+        "Update streaming.SSEClient to implement new interface signature",
+        "Update processMinion() in spawner.go to pass empty string to Connect() initially (password added later in spawner-1)",
+        "Verify interface contract satisfied by SSEClient implementation"
+      ],
+      "passes": false
+    },
+    {
+      "id": "orchestrator-core-1",
+      "category": "orchestrator",
+      "description": "Fix SSE endpoint path bug and add authentication support",
+      "steps": [
+        "Change orchestrator/internal/streaming/sse.go:190 from /events to /event (singular)",
+        "Define connection struct before SSEClient type: type connection struct { cancel context.CancelFunc; password string; podName string }",
+        "Change SSEClient.connections from map[uuid.UUID]context.CancelFunc to map[uuid.UUID]*connection",
+        "Update Connect() method to accept password parameter and store in connections map",
+        "Update connectWithRetry() to accept and pass password parameter",
+        "Update streamEvents() to accept password parameter",
+        "Import encoding/base64 in sse.go",
+        "Add HTTP Basic Auth header in streamEvents() after line 202: req.Header.Set(Authorization, Basic + base64.StdEncoding.EncodeToString([]byte(opencode: + password)))",
+        "Update Disconnect() method to work with new connection struct type",
+        "Update httpClient in NewSSEClient() with Transport: &http.Transport{MaxIdleConns: 100, MaxConnsPerHost: 50, MaxIdleConnsPerHost: 50}",
+        "Add unit test for HTTP Basic Auth header generation with special characters in password",
+        "Verify existing SSE retry logic still works with password auth"
+      ],
+      "passes": false
+    },
+    {
+      "id": "spawner-1",
+      "category": "orchestrator",
+      "description": "Generate and store per-minion UUID passwords before pod spawn",
+      "steps": [
+        "Import github.com/google/uuid in spawner.go if not already imported",
+        "Update MinionUpdater interface in spawner/spawner.go to add: StorePassword(ctx context.Context, id uuid.UUID, password string) error",
+        "Modify orchestrator/internal/spawner/spawner.go processMinion() before line 185",
+        "Add idempotent password check: if m.OpencodePassword is empty, generate uuid.New().String(), else reuse existing",
+        "Call s.minionUpdater.StorePassword(ctx, m.ID, password) BEFORE spawning pod",
+        "If StorePassword fails, log error and mark minion as failed (don't continue spawn)",
+        "Add OpencodePassword string field to SpawnParams struct in orchestrator/internal/k8s/pods.go:91-99",
+        "Pass password to SpawnParams: OpencodePassword: password",
+        "Update sseClient.Connect() call to pass password: Connect(ctx, m.ID, podName, password)",
+        "Verify orchestrator crash between generate and spawn reuses existing password from DB"
+      ],
+      "passes": false
+    },
+    {
+      "id": "orchestrator-reconnect-1",
+      "category": "orchestrator",
+      "description": "Orchestrator reconnects to active minions on restart",
+      "steps": [
+        "Add reconnection logic in orchestrator/cmd/orchestrator/main.go after reconciliation (around line 156)",
+        "Query: minions := minionStore.ListByStatuses(ctx, []db.MinionStatus{StatusRunning, StatusPending})",
+        "Filter minions with nil pointer check: if m.OpencodePassword != empty string AND m.PodName != nil AND *m.PodName != empty string",
+        "For each matching minion: retrieve password from m.OpencodePassword (read from DB, not connections map)",
+        "Call sseClient.Connect(ctx, m.ID, *m.PodName, m.OpencodePassword) with password from DB",
+        "Log reconnection attempt: 'Reconnecting to minion' with minion_id and pod_name",
+        "If Connect fails, log warning but continue (don't fail startup)",
+        "Manual E2E: Kill orchestrator pod, verify reconnection to active minions",
+        "Manual E2E: Restart orchestrator mid-task, verify events continue streaming in control panel",
+        "Verify if reconnection fails, minion continues executing (observability loss acceptable)"
+      ],
+      "passes": false
+    },
+    {
+      "id": "orchestrator-cleanup-1",
+      "category": "orchestrator",
+      "description": "Disconnect SSE streams and clear passwords when minions reach terminal states",
+      "steps": [
+        "Locate callback handler method using findings from research-1 task",
+        "Before ClearPassword(), call sseClient.Disconnect(minionID) to close SSE connection",
+        "Add ClearPassword() call in callback handler when status is completed/failed",
+        "Add sseClient.Disconnect() and ClearPassword() in orchestrator/internal/watchdog/watchdog.go when marking minion as failed",
+        "Add ClearPassword() for terminated status (kubectl delete pod scenario)",
+        "Log password cleanup: 'Cleared opencode password' with minion_id",
+        "Verify cleanup is idempotent (calling twice doesn't error)",
+        "Manual E2E: Verify password cleared from database after minion completion",
+        "Manual E2E: Verify password cleared on terminated status (kubectl delete pod)",
+        "Verify password cleared on both successful completion and failure scenarios"
+      ],
+      "passes": false
+    },
+    {
+      "id": "devbox-1",
+      "category": "devbox",
+      "description": "OpenCode server listens on all interfaces with password validation",
+      "steps": [
+        "Update devbox/entrypoint.sh line 80: change --hostname 127.0.0.1 to --hostname 0.0.0.0",
+        "Add OPENCODE_SERVER_PASSWORD to validate_env() required vars (line 41-54) with pattern: [[ -z ${OPENCODE_SERVER_PASSWORD:-} ]] && missing+=(OPENCODE_SERVER_PASSWORD)",
+        "Test password validation: verify entrypoint exits with error if OPENCODE_SERVER_PASSWORD is empty string",
+        "Update orchestrator/internal/k8s/pods.go buildEnvVars() to pass OPENCODE_SERVER_PASSWORD env var: {Name: OPENCODE_SERVER_PASSWORD, Value: params.OpencodePassword}",
+        "Verify params.OpencodePassword is accessible in buildEnvVars from SpawnParams",
+        "Build devbox Docker image successfully",
+        "Curl test: curl -H 'Authorization: Basic $(echo -n \"opencode:$PASSWORD\" | base64)' http://<pod-ip>:4096/event returns 200 and SSE stream",
+        "Curl test: curl http://<pod-ip>:4096/event without auth returns 401"
+      ],
+      "passes": false
+    },
+    {
+      "id": "control-panel-1",
+      "category": "control-panel",
+      "description": "Create SSE proxy API route for minion event streaming",
+      "steps": [
+        "Check Next.js version and Node version in control-panel/package.json to determine if ws package needed",
+        "Run npm install ws in control-panel directory (or skip if Node 20+ with native WebSocket)",
+        "Create control-panel/src/app/api/minions/[id]/events/stream/route.ts (note: events in path)",
+        "API route connects to orchestrator WebSocket server-side: ws://orchestrator.minions.svc.cluster.local:8080/api/minions/{id}/stream",
+        "Transform WebSocket messages to SSE format: event: <type>\\ndata: <json>\\n\\n",
+        "Send heartbeat comments every 30s: : heartbeat\\n\\n",
+        "Handle browser disconnect via req.signal.addEventListener('abort') to close upstream WebSocket",
+        "On WebSocket error, emit: event: error\\ndata: {error: upstream connection failed}\\n\\n",
+        "Set response headers: Content-Type: text/event-stream, Cache-Control: no-cache no-transform, Connection: keep-alive, X-Accel-Buffering: no",
+        "Verify WebSocket connection closes when browser disconnects (no connection leak)"
+      ],
+      "passes": false
+    },
+    {
+      "id": "control-panel-2",
+      "category": "control-panel",
+      "description": "Replace WebSocket with EventSource in frontend hook",
+      "steps": [
+        "Modify control-panel/src/hooks/use-minion-events.ts lines 134-261",
+        "Replace WebSocket with EventSource API",
+        "Remove fetchWSConfig() function and dependency",
+        "Remove WebSocket reconnection logic (INITIAL_BACKOFF_MS, MAX_BACKOFF_MS constants)",
+        "Use same-origin URL: /api/minions/${minionId}/events/stream (matches control-panel-1 route path)",
+        "Implement eventSource.onmessage handler for event parsing",
+        "Implement eventSource.onerror handler that logs but doesn't retry (SSE auto-retries)",
+        "Implement eventSource.onopen handler",
+        "Cleanup via eventSource.close()",
+        "Delete control-panel/src/app/api/ws-config/route.ts after removing all references",
+        "Test EventSource connection with browser DevTools to verify SSE format",
+        "Verify browser console shows no WebSocket-related errors",
+        "Verify control panel handles malformed SSE messages gracefully"
+      ],
+      "passes": false
+    },
+    {
+      "id": "testing-1",
+      "category": "testing",
+      "description": "Build images and run comprehensive E2E validation",
+      "steps": [
+        "Go unit tests pass for new password methods (StorePassword, ClearPassword)",
+        "Unit test: SSEClient HTTP Basic Auth with special characters in password",
+        "TypeScript compiles without errors",
+        "Control panel npm run build succeeds",
+        "Docker build orchestrator image successfully",
+        "Docker build devbox image successfully",
+        "Docker build control-panel image successfully",
+        "Manual E2E: Spawn minion, verify password in DB with SELECT query",
+        "Manual E2E: Verify control panel shows events in real-time",
+        "Manual E2E: Verify SSE auth header in orchestrator logs (base64-encoded)",
+        "Manual E2E: Kill orchestrator pod, verify reconnection to active minions",
+        "Manual E2E: Restart orchestrator mid-task, verify events continue streaming in control panel",
+        "Manual E2E: Verify password cleared after minion completion (completed status)",
+        "Manual E2E: Verify password cleared on failure (failed status)",
+        "Manual E2E: Verify password cleared on terminated status (kubectl delete pod)",
+        "Manual E2E: Spawn minion with wrong password env var, verify 401 in orchestrator logs (not connection refused)",
+        "Manual E2E: Test concurrent spawn with password reuse (idempotency)",
+        "Verify orchestrator logs show 'SSE connection established' for each minion",
+        "Verify all OpenCode authentication warnings eliminated from logs"
+      ],
+      "passes": false
+    },
+    {
+      "id": "docs-1",
+      "category": "documentation",
+      "description": "Document password lifecycle and troubleshooting",
+      "steps": [
+        "Add password state machine diagram to orchestrator/AGENTS.md or root AGENTS.md",
+        "Document SSE connection troubleshooting: 401 (auth failure) vs connection refused (binding issue)",
+        "Add orchestrator restart behavior notes: reconnects to active minions with passwords from DB",
+        "Document control panel SSE proxy architecture in control-panel README",
+        "Add deployment notes: in-flight minions lose observability during redeploy (acceptable blast radius)",
+        "Document password lifecycle in code comments at key locations (spawner, cleanup, reconnection)"
+      ],
+      "passes": false
+    }
+  ],
+  "context": {
+    "patterns": [
+      "Password Storage: orchestrator/internal/db/minions.go - Store transient credentials during execution, clear on completion",
+      "Secret Management: infra/deployments.yaml:91-100 - Per-pod dynamic secrets passed as plain env.value",
+      "SSE Streaming: orchestrator/internal/streaming/sse.go - Long-lived connection with retry/backoff logic",
+      "Control Panel API Proxy: control-panel/src/app/api/minions/[id]/events/route.ts - Server-side proxy to avoid CORS/DNS issues"
+    ],
+    "keyFiles": [
+      "schema/migrations/002_create_minions_table.sql",
+      "orchestrator/internal/db/minions.go",
+      "orchestrator/internal/spawner/spawner.go",
+      "orchestrator/internal/streaming/sse.go",
+      "orchestrator/internal/k8s/pods.go",
+      "orchestrator/cmd/orchestrator/main.go",
+      "orchestrator/internal/api/minions.go",
+      "orchestrator/internal/watchdog/watchdog.go",
+      "devbox/entrypoint.sh",
+      "control-panel/src/hooks/use-minion-events.ts",
+      "control-panel/src/app/api/ws-config/route.ts"
+    ],
+    "nonGoals": [
+      "NetworkPolicy-only security (rejected - defense in depth requires auth)",
+      "Shared static password (rejected - per-pod passwords limit blast radius)",
+      "Keep WebSocket with ingress (rejected - adds infrastructure complexity and security risk)",
+      "Polling instead of streaming (rejected - poor UX and 5s latency)"
+    ],
+    "criticalIssues": [
+      "SSEConnector interface requires password parameter - signature mismatch must be fixed first",
+      "Reconnection logic must read password from DB (not connections map - map is empty after restart)",
+      "Control panel route path must match frontend: /api/minions/[id]/events/stream",
+      "PodName is *string (nullable pointer) - must check nil before dereferencing",
+      "SSE disconnect must be called before password cleanup to avoid connection leaks"
+    ]
+  }
+}
