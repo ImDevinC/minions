@@ -98,7 +98,7 @@ spec:
             # INTERNAL_API_TOKEN
             - secretRef:
                 name: minions-internal-api
-            # OPENROUTER_API_KEY (passed to devbox pods)
+            # OPENAI_API_KEY (passed to devbox pods via OPENAI_API_KEY + OPENAI_API_BASE)
             - secretRef:
                 name: minions-llm-keys
             # GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY
@@ -211,7 +211,7 @@ spec:
             # INTERNAL_API_TOKEN
             - secretRef:
                 name: minions-internal-api
-            # OPENROUTER_API_KEY (for clarification LLM)
+            # OPENAI_API_KEY (for clarification LLM)
             - secretRef:
                 name: minions-llm-keys
           resources:

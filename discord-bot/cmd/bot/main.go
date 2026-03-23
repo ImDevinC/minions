@@ -53,10 +53,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	// OPENROUTER_API_KEY is required for clarification LLM
-	openrouterKey := os.Getenv("OPENROUTER_API_KEY")
-	if openrouterKey == "" {
-		logger.Error("OPENROUTER_API_KEY environment variable is required")
+	// OPENAI_API_KEY is required for clarification LLM
+	openaiKey := os.Getenv("OPENAI_API_KEY")
+	if openaiKey == "" {
+		logger.Error("OPENAI_API_KEY environment variable is required")
 		os.Exit(1)
 	}
 
@@ -64,7 +64,7 @@ func main() {
 	orchClient := orchestrator.NewClient(orchestratorURL, apiToken)
 
 	// Create clarification LLM client and handler
-	llmClient := clarify.NewOpenRouterClient(openrouterKey)
+	llmClient := clarify.NewOpenRouterClient(openaiKey)
 	clarifyHandler := clarify.NewHandler(llmClient, logger)
 
 	// Create Discord session
