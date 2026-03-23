@@ -129,7 +129,7 @@
         "OPENCODE_SERVER_PASSWORD documentation removed from header comment in devbox/entrypoint.sh",
         "Entrypoint script has valid bash syntax"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "test-1",

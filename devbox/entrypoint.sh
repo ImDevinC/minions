@@ -10,7 +10,6 @@
 #   ORCHESTRATOR_URL        - Callback URL for the orchestrator
 #   MINION_MODEL            - LLM model to use (e.g., anthropic/claude-sonnet-4-5)
 #   INTERNAL_API_TOKEN      - Token for authenticating with orchestrator
-#   OPENCODE_SERVER_PASSWORD - Per-minion password for SSE authentication
 #
 # Optional environment variables:
 #   OPENCODE_PORT   - Port for OpenCode serve (default: 4096)
@@ -48,7 +47,6 @@ validate_env() {
     [[ -z "${ORCHESTRATOR_URL:-}" ]] && missing+=("ORCHESTRATOR_URL")
     [[ -z "${MINION_MODEL:-}" ]] && missing+=("MINION_MODEL")
     [[ -z "${INTERNAL_API_TOKEN:-}" ]] && missing+=("INTERNAL_API_TOKEN")
-    [[ -z "${OPENCODE_SERVER_PASSWORD:-}" ]] && missing+=("OPENCODE_SERVER_PASSWORD")
 
     if [[ ${#missing[@]} -gt 0 ]]; then
         die "Missing required environment variables: ${missing[*]}"

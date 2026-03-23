@@ -116,3 +116,10 @@ Test fixes were done as one unit since they all fix compilation errors from the 
 - Files changed: orchestrator/internal/streaming/sse_test.go
 
 All tests pass after these changes.
+
+## Task - code-9
+- Removed OPENCODE_SERVER_PASSWORD from required env var list (devbox/entrypoint.sh:51)
+- Removed OPENCODE_SERVER_PASSWORD documentation from header comment (devbox/entrypoint.sh:13)
+- Files changed: devbox/entrypoint.sh
+- **Learnings:** Simple grep verification ensures complete removal of env var references
+
