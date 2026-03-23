@@ -1,0 +1,297 @@
+{
+  "prdName": "chat-view",
+  "tasks": [
+    {
+      "id": "setup-1",
+      "category": "setup",
+      "description": "Add react-markdown and remark-gfm dependencies",
+      "steps": [
+        "npm install react-markdown@^9.0.0 remark-gfm@^4.0.0 in control-panel",
+        "Verify packages appear in package.json dependencies",
+        "Verify npm install succeeds without errors"
+      ],
+      "passes": true
+    },
+    {
+      "id": "types-1",
+      "category": "types",
+      "description": "Define TypeScript types for ChatMessage, ToolCall, and SystemMessage",
+      "steps": [
+        "ChatMessage interface exists with id, timestamp, thinking?, text, tools, isStreaming fields",
+        "ToolCall interface exists with id, tool, status, title?, summary, input, output?, error? fields",
+        "SystemMessage interface exists for events without messageID (id, timestamp, type, content)",
+        "Types compile without errors"
+      ],
+      "passes": false
+    },
+    {
+      "id": "aggregation-1",
+      "category": "aggregation",
+      "description": "Event aggregation logic groups events by messageID into ChatMessage objects",
+      "steps": [
+        "Events with same messageID are grouped into single ChatMessage",
+        "Events without messageID render as system messages outside conversation flow",
+        "Events sorted by timestamp field (not arrival order)",
+        "Duplicate events (same ID) are deduplicated",
+        "Heartbeat events are filtered out",
+        "Handle message.updated events by updating ChatMessage metadata (title, status) without re-rendering parts"
+      ],
+      "passes": false
+    },
+    {
+      "id": "aggregation-2",
+      "category": "aggregation",
+      "description": "Delta accumulation appends streaming text correctly",
+      "steps": [
+        "Delta events (properties.delta present) append to existing text buffer",
+        "Non-delta updates replace part content entirely",
+        "Maintain Map<partId, accumulatedText> in aggregation function for delta tracking",
+        "Multiple text parts in same message concatenate with double newlines",
+        "Delta map persists across aggregation calls (not recreated each render)",
+        "Unit test verifies delta append behavior",
+        "Unit test verifies full replacement behavior"
+      ],
+      "passes": false
+    },
+    {
+      "id": "aggregation-3",
+      "category": "aggregation",
+      "description": "Aggregate subtask events into nested message threads",
+      "steps": [
+        "Extract subtask sessionID from subtask part",
+        "Filter events where event.content.sessionID matches subtask sessionID",
+        "Recursively aggregate subtask events into ChatMessage[] for nested rendering",
+        "Unit test verifies subtask messages are correctly grouped"
+      ],
+      "passes": false
+    },
+    {
+      "id": "component-1",
+      "category": "component",
+      "description": "ChatView container component renders virtualized list of messages",
+      "steps": [
+        "ChatView component exists and accepts MinionEvent[] prop",
+        "Uses @tanstack/react-virtual for virtualization",
+        "Virtualization window renders ~20 items above/below viewport"
+      ],
+      "passes": false
+    },
+    {
+      "id": "component-2",
+      "category": "component",
+      "description": "ChatMessage component renders text as markdown with syntax highlighting",
+      "steps": [
+        "Text content renders via react-markdown with remark-gfm",
+        "Code blocks render with react-syntax-highlighter and oneDark theme",
+        "Code blocks scroll horizontally (no forced line wrap)",
+        "Multiple sequential text parts concatenate cleanly",
+        "Empty or null content does not render (no blank bubbles)"
+      ],
+      "passes": false
+    },
+    {
+      "id": "component-3",
+      "category": "component",
+      "description": "ThinkingBlock renders collapsible reasoning content",
+      "steps": [
+        "ReasoningPart events render as collapsible blocks",
+        "Default state is collapsed showing '▶ Thinking...'",
+        "Clicking expands to show full reasoning text",
+        "Collapsed state has muted, smaller styling"
+      ],
+      "passes": false
+    },
+    {
+      "id": "component-4a",
+      "category": "component",
+      "description": "ToolCallCard renders compact expandable tool invocation cards",
+      "steps": [
+        "ToolPart events render as compact single-line cards",
+        "Card shows icon (based on tool type), tool name, status badge, one-line summary",
+        "Define tool icon mapping (read=📖, write=✏️, edit=✏️, glob=🔍, grep=🔎, bash=⚙️, task=🤖, webfetch=🌐, fallback=🔧)",
+        "Status badge colors: pending (gray), running (blue pulse), completed (green), error (red)",
+        "Clicking card expands to show full input and output",
+        "Render tool input as syntax-highlighted JSON with react-syntax-highlighter (oneDark theme)"
+      ],
+      "passes": false
+    },
+    {
+      "id": "component-4b",
+      "category": "component",
+      "description": "ToolCallCard accordion behavior auto-collapses previous cards",
+      "steps": [
+        "Expanding a card auto-collapses previously expanded cards (accordion)",
+        "Only one tool card can be expanded at a time within a ChatMessage",
+        "Collapse animation is smooth (CSS transition)"
+      ],
+      "passes": false
+    },
+    {
+      "id": "component-4c",
+      "category": "component",
+      "description": "ToolCallCard output truncation for large outputs",
+      "steps": [
+        "Tool outputs >10KB are truncated with 'Show full output' button",
+        "Clicking 'Show full output' expands to show complete output",
+        "Truncated preview shows first ~500 chars with '...' indicator",
+        "Large inputs >10KB are also truncated with same pattern"
+      ],
+      "passes": false
+    },
+    {
+      "id": "component-5",
+      "category": "component",
+      "description": "Tool summaries are human-readable",
+      "steps": [
+        "getToolSummary function exists matching spec",
+        "Read tool shows 'Read <filepath>'",
+        "Write tool shows 'Wrote <filepath>'",
+        "Edit tool shows 'Edited <filepath>'",
+        "Glob tool shows 'Found N files'",
+        "Grep tool shows 'Found N matches'",
+        "Bash tool shows 'Ran: <truncated command>'",
+        "Task tool shows 'Spawned <type>agent'",
+        "Unknown tools fall back to tool name"
+      ],
+      "passes": false
+    },
+    {
+      "id": "component-6",
+      "category": "component",
+      "description": "SubtaskBlock renders nested conversation threads",
+      "note": "Depends on aggregation-3 for subtask event grouping",
+      "steps": [
+        "subtask parts render as nested conversation threads",
+        "Default state collapsed with '▶ Subtask: [description]' header",
+        "Clicking expands to show subtask's messages inline (indented)",
+        "Subtask thread has visual distinction (left border or background)"
+      ],
+      "passes": false
+    },
+    {
+      "id": "component-7",
+      "category": "component",
+      "description": "SystemMessage component for events without messageID",
+      "steps": [
+        "SystemMessage component renders events without messageID",
+        "Styled as subtle gray banner with timestamp on left",
+        "agent part type renders as 'Switched to X agent'",
+        "session.error renders as red error banner",
+        "retry part renders as warning banner ('⚠️ Retrying, attempt N')",
+        "Unknown event types render as muted system message"
+      ],
+      "passes": false
+    },
+    {
+      "id": "streaming-1",
+      "category": "streaming",
+      "description": "Real-time streaming updates appear as agent works",
+      "note": "Depends on aggregation-2 (delta accumulation must work before testing streaming)",
+      "steps": [
+        "New content appears in real-time as SSE events arrive",
+        "Streaming indicator shows while message still receiving events",
+        "Rapid delta events batch into single React render (~16ms debounce)"
+      ],
+      "passes": false
+    },
+    {
+      "id": "streaming-2",
+      "category": "streaming",
+      "description": "Auto-scroll behavior keeps view at bottom during streaming",
+      "steps": [
+        "Auto-scroll keeps view at bottom by default",
+        "Scrolling up disables auto-scroll",
+        "'Jump to latest' button appears when auto-scroll disabled",
+        "Clicking 'Jump to latest' re-enables auto-scroll and scrolls to bottom",
+        "Button repositions appropriately on smaller screens"
+      ],
+      "passes": false
+    },
+    {
+      "id": "error-1",
+      "category": "error",
+      "description": "Error states handled gracefully",
+      "steps": [
+        "session.error events render as error banners in chat (red background)",
+        "Malformed event JSON logs to console but doesn't crash UI",
+        "Missing messageID events render as system messages",
+        "SSE connection loss shows existing 'Reconnecting...' indicator",
+        "Unknown event types log warning and render as subtle system message"
+      ],
+      "passes": false
+    },
+    {
+      "id": "loading-1",
+      "category": "loading",
+      "description": "Loading and empty states provide clear feedback",
+      "steps": [
+        "Initial page load shows skeleton loaders for chat area",
+        "'No events yet' state shows when minion hasn't produced output",
+        "Running minion with no events shows 'Waiting for agent to start...' with pulse animation",
+        "Reconnection after SSE drop shows 'Catching up...' indicator briefly",
+        "Completed minion with zero events shows 'No output produced' message"
+      ],
+      "passes": false
+    },
+    {
+      "id": "integration-1",
+      "category": "integration",
+      "description": "Replace EventLog with ChatView in minion detail page",
+      "steps": [
+        "Remove EventLog and EventRow components from minion-detail-client.tsx",
+        "Import ChatView and wire to useMinionEvents hook",
+        "Verify connection status indicator still works",
+        "Verify 'Jump to latest' button positioning",
+        "Manual test: Load active minion, verify chat renders and streams"
+      ],
+      "passes": false
+    },
+    {
+      "id": "performance-1",
+      "category": "performance",
+      "description": "Performance handles hundreds of messages smoothly",
+      "steps": [
+        "Markdown parsing results are memoized by part ID",
+        "Render performance smooth with 500+ messages (manual test)",
+        "No visible jank during rapid delta streaming"
+      ],
+      "passes": false
+    },
+    {
+      "id": "responsive-1",
+      "category": "responsive",
+      "description": "Basic responsive layout works on tablet-sized screens (768px+)",
+      "steps": [
+        "Chat view is usable on tablet screens (768px+)",
+        "Tool cards remain readable on narrower screens",
+        "Code blocks scroll horizontally (no forced line wrap)"
+      ],
+      "passes": false
+    }
+  ],
+  "context": {
+    "patterns": [
+      "Virtualized list: control-panel/src/components/minion-detail-client.tsx uses @tanstack/react-virtual",
+      "Syntax highlighting: react-syntax-highlighter with oneDark theme",
+      "SSE hook: control-panel/src/hooks/use-minion-events.ts handles EventSource connection",
+      "Event structure: { id, timestamp, event_type, content }"
+    ],
+    "keyFiles": [
+      "control-panel/src/components/minion-detail-client.tsx",
+      "control-panel/src/hooks/use-minion-events.ts",
+      "control-panel/src/types/minion.ts"
+    ],
+    "nonGoals": [
+      "Reply/interact with agent",
+      "Search/filter chat history",
+      "Export chat transcript",
+      "Multiple chat sessions",
+      "User messages display",
+      "Customizable tool icons/colors",
+      "File attachment preview",
+      "Full mobile optimization (<768px)",
+      "WCAG accessibility",
+      "Permission prompt UI"
+    ]
+  }
+}
