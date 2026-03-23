@@ -1,0 +1,17 @@
+# Progress Log
+PRD: remove-opencode-password
+Started: 2026-03-22
+
+## Codebase Patterns
+- Migrations are sequential SQL files in schema/migrations/NNN_description.sql
+- All migrations embedded in infra/configmap.yaml db-migrations ConfigMap
+- Orchestrator applies migrations on startup (automatic)
+- Use IF EXISTS/IF NOT EXISTS for idempotency
+
+---
+
+## Task - db-1
+- Created schema/migrations/006_remove_opencode_password.sql
+- Uses DROP COLUMN IF EXISTS for idempotency
+- Comment explains removal: SSE now trusts pod network instead of password auth
+- **Learnings:** Standard migration format - comment explaining "why" at top, idempotent DDL
