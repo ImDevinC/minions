@@ -107,7 +107,7 @@
         "Tool output and status still display correctly",
         "No regressions in existing tool rendering"
       ],
-      "passes": false
+      "passes": true
     }
   ],
   "taskDependencies": {

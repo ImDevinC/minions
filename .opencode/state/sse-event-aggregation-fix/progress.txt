@@ -74,3 +74,12 @@ Started: 2026-03-23
 - All 57 tests pass, typecheck passes, build succeeds
 - Files changed: control-panel/src/lib/event-aggregation.ts, control-panel/src/lib/event-aggregation.test.ts
 - **Learnings:** Non-delta events with empty content should not overwrite existing accumulated content
+
+## Task - verification-2
+- Verified tool input preservation through unit tests
+- Added 2 new tests:
+  - preserves tool input when subsequent events have empty input
+  - updates tool input when new non-empty input arrives
+- All 59 tests pass, typecheck passes, lint passes
+- Files changed: control-panel/src/lib/event-aggregation.test.ts
+- **Learnings:** Tool events arrive incrementally - pending first with input, then completed with empty input. Merge logic must preserve existing input.

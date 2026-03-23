@@ -990,6 +990,96 @@ describe("event-aggregation", () => {
       expect(result.messages[0].tools[0].output).toBe("file1.txt\nfile2.txt");
     });
 
+    it("preserves tool input when subsequent events have empty input", () => {
+      // First event has populated input
+      const event1: MinionEvent = {
+        id: "e1",
+        timestamp: "2024-01-01T00:00:00Z",
+        event_type: "part.updated",
+        content: {
+          messageID: "msg1",
+          id: "tool1",
+          type: "tool",
+          tool: "read",
+          state: {
+            status: "pending",
+            input: { filePath: "/home/user/file.ts" },
+          },
+        },
+      };
+
+      // Second event has empty input (shouldn't overwrite)
+      const event2: MinionEvent = {
+        id: "e2",
+        timestamp: "2024-01-01T00:00:01Z",
+        event_type: "part.updated",
+        content: {
+          messageID: "msg1",
+          id: "tool1",
+          type: "tool",
+          tool: "read",
+          state: {
+            status: "completed",
+            input: {},
+            output: "file contents here",
+          },
+        },
+      };
+
+      const result = aggregateEvents([event1, event2]);
+
+      expect(result.messages).toHaveLength(1);
+      expect(result.messages[0].tools).toHaveLength(1);
+      // Input should be preserved from first event
+      expect(result.messages[0].tools[0].input).toEqual({ filePath: "/home/user/file.ts" });
+      expect(result.messages[0].tools[0].status).toBe("completed");
+      expect(result.messages[0].tools[0].output).toBe("file contents here");
+    });
+
+    it("updates tool input when new non-empty input arrives", () => {
+      // First event with partial input
+      const event1: MinionEvent = {
+        id: "e1",
+        timestamp: "2024-01-01T00:00:00Z",
+        event_type: "part.updated",
+        content: {
+          messageID: "msg1",
+          id: "tool1",
+          type: "tool",
+          tool: "bash",
+          state: {
+            status: "pending",
+            input: { command: "echo hello" },
+          },
+        },
+      };
+
+      // Second event with different input (should update)
+      const event2: MinionEvent = {
+        id: "e2",
+        timestamp: "2024-01-01T00:00:01Z",
+        event_type: "part.updated",
+        content: {
+          messageID: "msg1",
+          id: "tool1",
+          type: "tool",
+          tool: "bash",
+          state: {
+            status: "completed",
+            input: { command: "echo world", workdir: "/tmp" },
+            output: "world",
+          },
+        },
+      };
+
+      const result = aggregateEvents([event1, event2]);
+
+      expect(result.messages).toHaveLength(1);
+      expect(result.messages[0].tools).toHaveLength(1);
+      // Input should be updated to new non-empty input
+      expect(result.messages[0].tools[0].input).toEqual({ command: "echo world", workdir: "/tmp" });
+    });
+
     it("renders reasoning/thinking events", () => {
       const event = makeReasoningEvent(
         "e1",
