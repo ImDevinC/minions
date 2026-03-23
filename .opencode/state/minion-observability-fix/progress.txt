@@ -151,3 +151,27 @@ Started: 2026-03-22
 - All orchestrator tests pass (9 packages)
 - Go build successful
 - **Learnings**: OpenCode server binds to 0.0.0.0:4096 to accept connections from orchestrator pod (different pod, same namespace). Password validation happens at entrypoint startup (fail-fast). The full flow is: spawner generates password → stores in DB → passes to pod env → devbox validates env → opencode serve starts listening on all interfaces → orchestrator connects with Basic Auth.
+
+## Task - control-panel-1
+- Verified Node v22.22.1 (native WebSocket support, no ws package needed)
+- Created control-panel/src/app/api/minions/[id]/events/stream/route.ts (SSE proxy route)
+- Route connects to orchestrator WebSocket server-side: `${wsUrl}/api/minions/${id}/stream?token=${INTERNAL_API_TOKEN}`
+- Transforms WebSocket JSON messages to SSE format: `event: message
+data: ${JSON.stringify(data)}
+
+`
+- Sends heartbeat every 30s: `: heartbeat
+
+` (keeps connection alive)
+- Cleanup handled via ReadableStream.cancel() callback - closes WebSocket on browser disconnect
+- Error handling: emits `event: error
+data: {...}
+
+` on WebSocket error or connection failure
+- Response headers: Content-Type: text/event-stream, Cache-Control: no-cache, Connection: keep-alive, X-Accel-Buffering: no
+- Control panel npm run build succeeds
+- Next.js route visible in build output: `/api/minions/[id]/events/stream`
+- **Learnings**: Next.js 14 has native WebSocket support in Node 20+. SSE format requires `event: <type>
+data: <json>
+
+` with double newline. Heartbeat comments prevent proxy/load balancer timeouts. ReadableStream.cancel() is called when browser closes EventSource, allowing cleanup of upstream WebSocket. The proxy pattern avoids CORS and keeps orchestrator internal_api_token server-side only.

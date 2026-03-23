@@ -149,7 +149,7 @@
         "Set response headers: Content-Type: text/event-stream, Cache-Control: no-cache no-transform, Connection: keep-alive, X-Accel-Buffering: no",
         "Verify WebSocket connection closes when browser disconnects (no connection leak)"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "control-panel-2",
