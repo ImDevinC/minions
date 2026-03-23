@@ -39,10 +39,21 @@ func NewDBEventHandler(config DBEventHandlerConfig) *DBEventHandler {
 
 // HandleEvent persists the event to minion_events table and broadcasts to WebSocket clients.
 func (h *DBEventHandler) HandleEvent(ctx context.Context, minionID uuid.UUID, event *PodEvent) error {
+	// Filter out heartbeat events - they're keepalives with no useful data
+	if event.Type == "server.heartbeat" {
+		return nil
+	}
+
+	// Defensive: ensure content is never nil (DB has NOT NULL constraint)
+	content := event.Content
+	if content == nil {
+		content = map[string]any{}
+	}
+
 	dbEvent := &db.MinionEvent{
 		MinionID:  minionID,
 		EventType: event.Type,
-		Content:   event.Content,
+		Content:   content,
 	}
 
 	if err := h.eventStore.InsertEvent(ctx, dbEvent); err != nil {
