@@ -9,32 +9,7 @@ import {
   type DeltaState,
 } from "@/lib/event-aggregation";
 import { ChatMessageRow } from "./chat-message-row";
-
-/**
- * Placeholder for SystemMessageRow - will be implemented in component-7.
- * Renders a system message (agent switch, errors, retries).
- */
-function SystemMessageRow({ message }: { message: SystemMessage }) {
-  const isError = message.type === "session.error" || message.type === "error";
-  return (
-    <div
-      className={`py-2 px-4 text-xs ${
-        isError
-          ? "bg-red-500/10 text-red-400 border-l-2 border-red-500"
-          : "bg-gray-800/50 text-gray-500"
-      }`}
-    >
-      <span className="mr-2">
-        {new Date(message.timestamp).toLocaleTimeString()}
-      </span>
-      <span>
-        {typeof message.content === "string"
-          ? message.content
-          : JSON.stringify(message.content)}
-      </span>
-    </div>
-  );
-}
+import { SystemMessageRow } from "./system-message-row";
 
 /**
  * Union type for virtualized list items.

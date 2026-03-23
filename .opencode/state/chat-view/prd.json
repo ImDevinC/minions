@@ -180,7 +180,7 @@
         "retry part renders as warning banner ('⚠️ Retrying, attempt N')",
         "Unknown event types render as muted system message"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "streaming-1",

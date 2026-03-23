@@ -127,3 +127,14 @@ Started: 2026-03-23
 - Integrated into ChatMessageRow, replaced placeholder
 - Files changed: control-panel/src/components/subtask-block.tsx (new), control-panel/src/components/chat-message-row.tsx
 - **Learnings:** Simplified nested rendering (no markdown, just pre-wrap text) keeps subtask threads clean and performant
+
+## Task - component-7
+- Created SystemMessageRow component for events without messageID
+- Styled as subtle banners with timestamp on left side
+- Agent events: "Switched to X agent" in gray banner
+- session.error/error events: red error banner with left border
+- Retry events: yellow warning banner with "⚠️ Retrying, attempt N"
+- Unknown events: muted gray system message with truncated content
+- Replaced placeholder in ChatView with dedicated component import
+- Files changed: control-panel/src/components/system-message-row.tsx (new), control-panel/src/components/chat-view.tsx (import change)
+- **Learnings:** Helper functions for content extraction handle both string and object content shapes cleanly
