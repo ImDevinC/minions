@@ -68,7 +68,7 @@
         "Verify retry events render correctly",
         "Verify error events render correctly"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "ui-1",

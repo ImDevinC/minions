@@ -39,3 +39,12 @@ Started: 2026-03-23
 - Skips session-level summary metadata like `{sessionID: "...", summary: {...}}`
 - Files changed: control-panel/src/lib/event-aggregation.ts
 - **Learnings:** Summary events don't need messageID check since they never have one (unlike status which can be message-scoped)
+
+## Task - filtering-6
+- Added comprehensive test coverage for existing skip logic and legitimate events
+- Tests verify: heartbeat/ping/keepalive, step-start/finish, snapshot, patch, compaction all skipped
+- Tests verify: text, tool call, reasoning/thinking events render as chat messages
+- Tests verify: agent, retry, session.error, error events render as system messages
+- Tests verify: file events with >2 keys are NOT skipped, status events with messageID are NOT skipped
+- Files changed: control-panel/src/lib/event-aggregation.test.ts
+- **Learnings:** Test each skip condition independently for clarity; test both positive (should skip) and negative (should NOT skip) cases
