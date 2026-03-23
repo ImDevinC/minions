@@ -7,6 +7,7 @@ Started: 2026-03-23
 - Event content structure: messageID/part info can be at root, in `properties.part`, or in `part` directly - check all locations
 - Use `Array.from(map.values())` instead of iterating `map.values()` directly to avoid TS downlevelIteration issues
 - Delta tracking: use `DeltaState` with both `textByPart` map and `processedEventIds` set to avoid double-counting on re-aggregation
+- Subtask linking: task tool `callID` becomes the subtask's sessionID; filter events by sessionID to group subtask conversations
 
 ---
 <!-- Task logs below - APPEND ONLY -->
@@ -38,3 +39,14 @@ Started: 2026-03-23
 - Added vitest for testing, wrote unit tests for delta/replacement behavior
 - Files changed: control-panel/src/lib/event-aggregation.ts, control-panel/src/lib/event-aggregation.test.ts (new), control-panel/package.json, control-panel/vitest.config.ts (new)
 - **Learnings:** Persistent state across aggregation calls requires tracking both accumulated text AND which events have been processed
+
+## Task - aggregation-3
+- Implemented subtask event aggregation for nested message threads
+- Added `SubtaskThread` type with sessionID, description, agent, and nested messages array
+- Updated `ChatMessage` to include `subtasks: SubtaskThread[]` field
+- Added `getSessionID()` helper to extract session ID from events
+- Added `extractSubtaskInfo()` to identify task tool calls and their callIDs
+- Modified `aggregateEvents()` to: detect root session ID, collect subtask session IDs from task tools, filter events by session, recursively aggregate subtask events
+- Added 5 unit tests covering session ID extraction, subtask grouping, recursive aggregation, and multi-subtask separation
+- Files changed: control-panel/src/types/minion.ts (lines 78-93), control-panel/src/lib/event-aggregation.ts, control-panel/src/lib/event-aggregation.test.ts
+- **Learnings:** Task tool `callID` becomes subtask session ID; events filtered by matching sessionID; use separate deltaState per subtask to avoid pollution

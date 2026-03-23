@@ -63,7 +63,7 @@
         "Recursively aggregate subtask events into ChatMessage[] for nested rendering",
         "Unit test verifies subtask messages are correctly grouped"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "component-1",

@@ -14,6 +14,7 @@ import type {
   SystemMessage,
   ToolCall,
   ToolCallStatus,
+  SubtaskThread,
 } from "@/types/minion";
 
 /**
@@ -114,6 +115,79 @@ function getPartID(event: MinionEvent): string | undefined {
   const part = content.part as Record<string, unknown> | undefined;
   if (part && typeof part.id === "string") return part.id;
   return undefined;
+}
+
+/**
+ * Extract session ID from event content.
+ * Events belong to a session, and subtask events have a different sessionID
+ * than the parent session.
+ */
+export function getSessionID(event: MinionEvent): string | undefined {
+  const content = event.content;
+  // Check at root level
+  if (typeof content.sessionID === "string") return content.sessionID;
+  if (typeof content.session_id === "string") return content.session_id;
+  // Check nested in properties
+  const properties = content.properties as Record<string, unknown> | undefined;
+  if (properties) {
+    const part = properties.part as Record<string, unknown> | undefined;
+    if (part && typeof part.sessionID === "string") return part.sessionID;
+    if (typeof properties.sessionID === "string") return properties.sessionID;
+  }
+  // Check nested in part directly
+  const part = content.part as Record<string, unknown> | undefined;
+  if (part && typeof part.sessionID === "string") return part.sessionID;
+  return undefined;
+}
+
+/**
+ * Information about a subtask extracted from a task tool call.
+ * The callID of the task tool becomes the session ID for the subtask.
+ */
+export interface SubtaskInfo {
+  /** Session ID of the subtask (matches the callID of the task tool) */
+  sessionID: string;
+  /** Human-readable description from the task prompt */
+  description: string;
+  /** Agent type (e.g., "task", "explore", "code-reviewer") */
+  agent?: string;
+}
+
+/**
+ * Extract subtask info from a task tool part.
+ * Task tool calls spawn subagents whose session ID matches the tool's callID.
+ */
+function extractSubtaskInfo(event: MinionEvent): SubtaskInfo | undefined {
+  const content = event.content;
+  const properties = content.properties as Record<string, unknown> | undefined;
+  const part = (properties?.part || content.part || content) as Record<
+    string,
+    unknown
+  >;
+
+  // Check if this is a task tool call
+  const partType = part.type as string | undefined;
+  const tool = part.tool as string | undefined;
+  
+  if (partType !== "tool" || (tool !== "task" && tool !== "agent")) {
+    return undefined;
+  }
+
+  // The callID becomes the subtask session ID
+  const callID = (part.callID || part.call_id || part.id) as string | undefined;
+  if (!callID) return undefined;
+
+  // Extract description from the input
+  const state = (part.state || part) as Record<string, unknown>;
+  const input = state.input as Record<string, unknown> | undefined;
+  const description = (input?.description || input?.prompt || "Subtask") as string;
+  const agent = (input?.subagent_type || input?.agent || input?.type) as string | undefined;
+
+  return {
+    sessionID: callID,
+    description: typeof description === "string" ? description : String(description),
+    agent,
+  };
 }
 
 /**
@@ -273,13 +347,16 @@ function extractTextContent(
  * 5. Extracts system events (no messageID) as SystemMessages
  * 6. Handles message.updated events by updating metadata
  * 7. Accumulates delta events by appending to existing text buffers
+ * 8. Recursively aggregates subtask events into nested ChatMessage arrays
  *
  * @param events - Raw events to aggregate
  * @param deltaState - Persistent state for delta accumulation (pass same instance across calls)
+ * @param rootSessionID - Optional root session ID; if not provided, detected from events
  */
 export function aggregateEvents(
   events: MinionEvent[],
-  deltaState?: DeltaState
+  deltaState?: DeltaState,
+  rootSessionID?: string
 ): AggregationResult {
   // Use provided state or create fresh one
   const state = deltaState || createDeltaState();
@@ -296,14 +373,75 @@ export function aggregateEvents(
     (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
   );
 
-  // Separate into chat events and system events
+  // If no root session ID provided, detect it from the most common session ID
+  // or the first event's session ID
+  let detectedRootSessionID = rootSessionID;
+  if (!detectedRootSessionID) {
+    const sessionCounts = new Map<string, number>();
+    for (const event of sortedEvents) {
+      const sid = getSessionID(event);
+      if (sid) {
+        sessionCounts.set(sid, (sessionCounts.get(sid) || 0) + 1);
+      }
+    }
+    // Use the most common session ID as root
+    let maxCount = 0;
+    for (const [sid, count] of Array.from(sessionCounts.entries())) {
+      if (count > maxCount) {
+        maxCount = count;
+        detectedRootSessionID = sid;
+      }
+    }
+  }
+
+  // Collect subtask session IDs from task tool calls
+  // Maps subtask sessionID -> SubtaskInfo
+  const subtaskInfoMap = new Map<string, SubtaskInfo>();
+  for (const event of sortedEvents) {
+    const subtaskInfo = extractSubtaskInfo(event);
+    if (subtaskInfo) {
+      subtaskInfoMap.set(subtaskInfo.sessionID, subtaskInfo);
+    }
+  }
+
+  // Separate events into root session events vs subtask events
+  const rootEvents: MinionEvent[] = [];
+  const subtaskEventsMap = new Map<string, MinionEvent[]>();
+
+  for (const event of sortedEvents) {
+    const eventSessionID = getSessionID(event);
+    
+    // If no session ID, treat as root event
+    if (!eventSessionID) {
+      rootEvents.push(event);
+      continue;
+    }
+
+    // Check if this belongs to a known subtask
+    if (subtaskInfoMap.has(eventSessionID)) {
+      const existing = subtaskEventsMap.get(eventSessionID) || [];
+      existing.push(event);
+      subtaskEventsMap.set(eventSessionID, existing);
+    } else if (!detectedRootSessionID || eventSessionID === detectedRootSessionID) {
+      // Belongs to root session
+      rootEvents.push(event);
+    } else {
+      // Unknown session ID - might be a subtask we don't have info for
+      // Treat as subtask if we have any events for it
+      const existing = subtaskEventsMap.get(eventSessionID) || [];
+      existing.push(event);
+      subtaskEventsMap.set(eventSessionID, existing);
+    }
+  }
+
+  // Process root events to build messages
   const systemMessages: SystemMessage[] = [];
   const chatEventsByMessage = new Map<
     string,
     { events: MinionEvent[]; earliestTimestamp: string }
   >();
 
-  for (const event of sortedEvents) {
+  for (const event of rootEvents) {
     // Skip heartbeats and internal events
     if (shouldSkipEvent(event)) continue;
 
@@ -346,6 +484,7 @@ export function aggregateEvents(
   for (const [messageID, { events: messageEvents, earliestTimestamp }] of messageEntries) {
     const tools: ToolCall[] = [];
     const toolMap = new Map<string, ToolCall>();
+    const subtasks: SubtaskThread[] = [];
     let isStreaming = false;
 
     // Track text and reasoning parts by their partID
@@ -372,6 +511,28 @@ export function aggregateEvents(
           isStreaming = true;
         }
         continue;
+      }
+
+      // Check for subtask info from task tool calls
+      const subtaskInfo = extractSubtaskInfo(event);
+      if (subtaskInfo) {
+        // Get events for this subtask and recursively aggregate
+        const subtaskEvents = subtaskEventsMap.get(subtaskInfo.sessionID) || [];
+        if (subtaskEvents.length > 0) {
+          // Create a separate delta state for the subtask to avoid pollution
+          const subtaskDeltaState = createDeltaState();
+          const subtaskResult = aggregateEvents(
+            subtaskEvents,
+            subtaskDeltaState,
+            subtaskInfo.sessionID
+          );
+          subtasks.push({
+            sessionID: subtaskInfo.sessionID,
+            description: subtaskInfo.description,
+            agent: subtaskInfo.agent,
+            messages: subtaskResult.messages,
+          });
+        }
       }
 
       // Extract text/reasoning content with delta handling
@@ -456,6 +617,7 @@ export function aggregateEvents(
       thinking: thinking || undefined,
       text,
       tools,
+      subtasks,
       isStreaming,
     });
   }

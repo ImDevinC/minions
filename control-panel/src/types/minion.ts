@@ -76,6 +76,21 @@ export interface ToolCall {
 }
 
 /**
+ * A nested conversation thread from a subtask (spawned subagent).
+ * The sessionID links events from the child session to this thread.
+ */
+export interface SubtaskThread {
+  /** Session ID of the subtask (matches callID of the task tool) */
+  sessionID: string;
+  /** Human-readable description of the subtask */
+  description: string;
+  /** Agent type (e.g., "task", "explore", "code-reviewer") */
+  agent?: string;
+  /** Nested messages from the subtask session */
+  messages: ChatMessage[];
+}
+
+/**
  * An aggregated chat message from grouped events.
  * Events with the same messageID are combined into one ChatMessage.
  */
@@ -88,6 +103,8 @@ export interface ChatMessage {
   text: string;
   /** Tool calls in chronological order */
   tools: ToolCall[];
+  /** Nested subtask threads (spawned subagents) */
+  subtasks: SubtaskThread[];
   /** True while message is still receiving streaming events */
   isStreaming: boolean;
 }

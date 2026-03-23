@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   aggregateEvents,
   createDeltaState,
+  getSessionID,
   type DeltaState,
 } from "./event-aggregation";
 import type { MinionEvent } from "@/types/minion";
@@ -14,7 +15,7 @@ function makeTextEvent(
   messageID: string,
   partID: string,
   text: string,
-  opts: { delta?: boolean; timestamp?: string } = {}
+  opts: { delta?: boolean; timestamp?: string; sessionID?: string } = {}
 ): MinionEvent {
   return {
     id,
@@ -22,6 +23,7 @@ function makeTextEvent(
     event_type: "part.updated",
     content: {
       messageID,
+      sessionID: opts.sessionID,
       id: partID,
       type: "text",
       text,
@@ -50,6 +52,45 @@ function makeReasoningEvent(
       type: "reasoning",
       text,
       properties: opts.delta ? { delta: true } : {},
+    },
+  };
+}
+
+/**
+ * Helper to create a task tool event that spawns a subtask.
+ * The callID becomes the session ID for the subtask.
+ */
+function makeTaskToolEvent(
+  id: string,
+  messageID: string,
+  partID: string,
+  callID: string,
+  opts: {
+    timestamp?: string;
+    sessionID?: string;
+    description?: string;
+    agent?: string;
+    status?: string;
+  } = {}
+): MinionEvent {
+  return {
+    id,
+    timestamp: opts.timestamp || new Date().toISOString(),
+    event_type: "part.updated",
+    content: {
+      messageID,
+      sessionID: opts.sessionID,
+      id: partID,
+      type: "tool",
+      tool: "task",
+      callID,
+      state: {
+        status: opts.status || "pending",
+        input: {
+          description: opts.description || "Execute a subtask",
+          subagent_type: opts.agent || "general",
+        },
+      },
     },
   };
 }
@@ -275,6 +316,199 @@ describe("event-aggregation", () => {
 
       expect(result.messages).toHaveLength(1);
       expect(result.messages[0].text).toBe("");
+    });
+  });
+
+  describe("subtask aggregation", () => {
+    it("extracts session ID from events", () => {
+      const event = makeTextEvent("e1", "msg1", "part1", "Hello", {
+        sessionID: "session-123",
+      });
+
+      expect(getSessionID(event)).toBe("session-123");
+    });
+
+    it("groups subtask events by session ID", () => {
+      const rootSessionID = "root-session";
+      const subtaskSessionID = "subtask-session";
+
+      // Parent message with a task tool call
+      const taskToolEvent = makeTaskToolEvent(
+        "e1",
+        "parent-msg",
+        "tool-part",
+        subtaskSessionID,
+        {
+          timestamp: "2024-01-01T00:00:00Z",
+          sessionID: rootSessionID,
+          description: "Find config files",
+          agent: "explore",
+        }
+      );
+
+      // Root session text event
+      const rootTextEvent = makeTextEvent(
+        "e2",
+        "parent-msg",
+        "text-part",
+        "Let me search...",
+        {
+          timestamp: "2024-01-01T00:00:01Z",
+          sessionID: rootSessionID,
+        }
+      );
+
+      // Subtask session events (different session ID)
+      const subtaskTextEvent = makeTextEvent(
+        "e3",
+        "subtask-msg",
+        "subtask-text",
+        "Found 3 files",
+        {
+          timestamp: "2024-01-01T00:00:02Z",
+          sessionID: subtaskSessionID,
+        }
+      );
+
+      const result = aggregateEvents(
+        [taskToolEvent, rootTextEvent, subtaskTextEvent],
+        createDeltaState(),
+        rootSessionID
+      );
+
+      // Should have 1 root message with subtask
+      expect(result.messages).toHaveLength(1);
+      expect(result.messages[0].text).toBe("Let me search...");
+      expect(result.messages[0].subtasks).toHaveLength(1);
+
+      // Subtask should have its own nested message
+      const subtask = result.messages[0].subtasks[0];
+      expect(subtask.sessionID).toBe(subtaskSessionID);
+      expect(subtask.description).toBe("Find config files");
+      expect(subtask.agent).toBe("explore");
+      expect(subtask.messages).toHaveLength(1);
+      expect(subtask.messages[0].text).toBe("Found 3 files");
+    });
+
+    it("recursively aggregates nested subtask messages", () => {
+      const rootSessionID = "root-session";
+      const subtaskSessionID = "subtask-session";
+
+      // Task tool call in parent
+      const taskToolEvent = makeTaskToolEvent(
+        "e1",
+        "parent-msg",
+        "tool-part",
+        subtaskSessionID,
+        {
+          timestamp: "2024-01-01T00:00:00Z",
+          sessionID: rootSessionID,
+          description: "Research task",
+        }
+      );
+
+      // Multiple messages in subtask session
+      const subtaskEvent1 = makeTextEvent(
+        "e2",
+        "subtask-msg-1",
+        "part1",
+        "First subtask message",
+        {
+          timestamp: "2024-01-01T00:00:01Z",
+          sessionID: subtaskSessionID,
+        }
+      );
+
+      const subtaskEvent2 = makeTextEvent(
+        "e3",
+        "subtask-msg-2",
+        "part2",
+        "Second subtask message",
+        {
+          timestamp: "2024-01-01T00:00:02Z",
+          sessionID: subtaskSessionID,
+        }
+      );
+
+      const result = aggregateEvents(
+        [taskToolEvent, subtaskEvent1, subtaskEvent2],
+        createDeltaState(),
+        rootSessionID
+      );
+
+      expect(result.messages).toHaveLength(1);
+      const subtask = result.messages[0].subtasks[0];
+      expect(subtask.messages).toHaveLength(2);
+      expect(subtask.messages[0].text).toBe("First subtask message");
+      expect(subtask.messages[1].text).toBe("Second subtask message");
+    });
+
+    it("handles messages without subtasks", () => {
+      const result = aggregateEvents([
+        makeTextEvent("e1", "msg1", "part1", "Hello", {
+          timestamp: "2024-01-01T00:00:00Z",
+        }),
+      ]);
+
+      expect(result.messages).toHaveLength(1);
+      expect(result.messages[0].subtasks).toHaveLength(0);
+    });
+
+    it("separates events from multiple subtask sessions", () => {
+      const rootSessionID = "root";
+      const subtask1ID = "subtask-1";
+      const subtask2ID = "subtask-2";
+
+      // Two task tool calls
+      const task1 = makeTaskToolEvent("e1", "msg", "tool1", subtask1ID, {
+        timestamp: "2024-01-01T00:00:00Z",
+        sessionID: rootSessionID,
+        description: "Task 1",
+      });
+
+      const task2 = makeTaskToolEvent("e2", "msg", "tool2", subtask2ID, {
+        timestamp: "2024-01-01T00:00:01Z",
+        sessionID: rootSessionID,
+        description: "Task 2",
+      });
+
+      // Events for each subtask
+      const subtask1Event = makeTextEvent(
+        "e3",
+        "subtask1-msg",
+        "part1",
+        "From subtask 1",
+        { timestamp: "2024-01-01T00:00:02Z", sessionID: subtask1ID }
+      );
+
+      const subtask2Event = makeTextEvent(
+        "e4",
+        "subtask2-msg",
+        "part2",
+        "From subtask 2",
+        { timestamp: "2024-01-01T00:00:03Z", sessionID: subtask2ID }
+      );
+
+      const result = aggregateEvents(
+        [task1, task2, subtask1Event, subtask2Event],
+        createDeltaState(),
+        rootSessionID
+      );
+
+      expect(result.messages).toHaveLength(1);
+      expect(result.messages[0].subtasks).toHaveLength(2);
+
+      const subtask1 = result.messages[0].subtasks.find(
+        (s) => s.sessionID === subtask1ID
+      );
+      const subtask2 = result.messages[0].subtasks.find(
+        (s) => s.sessionID === subtask2ID
+      );
+
+      expect(subtask1?.description).toBe("Task 1");
+      expect(subtask1?.messages[0].text).toBe("From subtask 1");
+      expect(subtask2?.description).toBe("Task 2");
+      expect(subtask2?.messages[0].text).toBe("From subtask 2");
     });
   });
 });
