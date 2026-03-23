@@ -1,15 +1,20 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import type { ChatMessage } from "@/types/minion";
 import { ThinkingBlock } from "./thinking-block";
+import { ToolCallCard } from "./tool-call-card";
 
 interface ChatMessageRowProps {
   message: ChatMessage;
+  /** ID of the currently expanded tool card (for accordion behavior) */
+  expandedToolId: string | null;
+  /** Callback when a tool card is toggled */
+  onToolToggle: (toolId: string | null) => void;
 }
 
 /**
@@ -21,7 +26,7 @@ interface ChatMessageRowProps {
  * - Code blocks scroll horizontally (no forced line wrap)
  * - Empty or null content does not render
  */
-export function ChatMessageRow({ message }: ChatMessageRowProps) {
+export function ChatMessageRow({ message, expandedToolId, onToolToggle }: ChatMessageRowProps) {
   // Skip rendering if no meaningful content
   const hasContent = message.text.trim() || message.thinking || message.tools.length > 0 || message.subtasks.length > 0;
   
@@ -52,10 +57,19 @@ export function ChatMessageRow({ message }: ChatMessageRowProps) {
         <MarkdownContent text={message.text} />
       )}
 
-      {/* Tool calls placeholder - will be replaced in component-4 */}
+      {/* Tool calls rendered as expandable cards */}
       {message.tools.length > 0 && (
-        <div className="mt-2 text-xs text-purple-400">
-          {message.tools.length} tool call(s)
+        <div className="mt-2 space-y-1">
+          {message.tools.map((tool) => (
+            <ToolCallCard
+              key={tool.id}
+              tool={tool}
+              isExpanded={expandedToolId === tool.id}
+              onToggle={() => {
+                onToolToggle(expandedToolId === tool.id ? null : tool.id);
+              }}
+            />
+          ))}
         </div>
       )}
 

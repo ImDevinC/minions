@@ -79,3 +79,13 @@ Started: 2026-03-23
 - Replaced placeholder in ChatMessageRow with ThinkingBlock component
 - Files changed: control-panel/src/components/thinking-block.tsx (new), control-panel/src/components/chat-message-row.tsx (import + use ThinkingBlock)
 - **Learnings:** useState(false) for default collapsed; rotate-90 class for arrow animation
+
+## Task - component-4a
+- Implemented ToolCallCard component for compact expandable tool invocation cards
+- Tool icon mapping: read=📖, write/edit=✏️, glob=🔍, grep=🔎, bash=⚙️, task=🤖, webfetch=🌐, fallback=🔧
+- Status badge colors: pending (gray-600), running (blue-600 animate-pulse), completed (green-700), error (red-700)
+- Expanded state shows syntax-highlighted JSON input with oneDark theme
+- Output/error sections render when present
+- Integrated into ChatMessageRow with expandedToolId state managed by ChatView
+- Files changed: control-panel/src/components/tool-call-card.tsx (new), control-panel/src/components/chat-message-row.tsx, control-panel/src/components/chat-view.tsx
+- **Learnings:** Accordion state across messages uses "messageId:toolId" format in parent ChatView; basic expansion works but accordion auto-collapse behavior is task 4b

@@ -61,6 +61,10 @@ interface ChatViewProps {
 export function ChatView({ events }: ChatViewProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
+  
+  // Track which tool card is expanded (for accordion behavior)
+  // Format: "messageId:toolId" to uniquely identify across messages
+  const [expandedToolId, setExpandedToolId] = useState<string | null>(null);
 
   // Persistent delta state for streaming text accumulation
   // This ref persists across renders so delta events properly accumulate
@@ -183,7 +187,19 @@ export function ChatView({ events }: ChatViewProps) {
                 ref={virtualizer.measureElement}
               >
                 {item.type === "chat" ? (
-                  <ChatMessageRow message={item.message} />
+                  <ChatMessageRow
+                    message={item.message}
+                    expandedToolId={
+                      expandedToolId?.startsWith(`${item.message.id}:`)
+                        ? expandedToolId.slice(item.message.id.length + 1)
+                        : null
+                    }
+                    onToolToggle={(toolId) => {
+                      setExpandedToolId(
+                        toolId ? `${item.message.id}:${toolId}` : null
+                      );
+                    }}
+                  />
                 ) : (
                   <SystemMessageRow message={item.message} />
                 )}

@@ -113,7 +113,7 @@
         "Clicking card expands to show full input and output",
         "Render tool input as syntax-highlighted JSON with react-syntax-highlighter (oneDark theme)"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "component-4b",
