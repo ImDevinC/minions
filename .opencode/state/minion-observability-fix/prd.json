@@ -61,7 +61,7 @@
         "Add unit test for HTTP Basic Auth header generation with special characters in password",
         "Verify existing SSE retry logic still works with password auth"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "spawner-1",

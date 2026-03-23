@@ -4,6 +4,7 @@ package streaming
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -69,6 +70,13 @@ type SSEClientConfig struct {
 	Logger *slog.Logger
 }
 
+// connection tracks an active SSE connection for a minion.
+type connection struct {
+	cancel   context.CancelFunc
+	password string
+	podName  string
+}
+
 // SSEClient connects to pod SSE endpoints and handles events.
 type SSEClient struct {
 	podIPProvider PodIPProvider
@@ -78,7 +86,7 @@ type SSEClient struct {
 
 	// Track active connections for cleanup
 	mu          sync.Mutex
-	connections map[uuid.UUID]context.CancelFunc
+	connections map[uuid.UUID]*connection
 }
 
 // NewSSEClient creates a new SSE client.
@@ -95,9 +103,14 @@ func NewSSEClient(podIPProvider PodIPProvider, handler EventHandler, config SSEC
 		handler:       handler,
 		httpClient: &http.Client{
 			Timeout: 0, // no timeout for SSE (long-lived connection)
+			Transport: &http.Transport{
+				MaxIdleConns:        100,
+				MaxConnsPerHost:     50,
+				MaxIdleConnsPerHost: 50,
+			},
 		},
 		config:      config,
-		connections: make(map[uuid.UUID]context.CancelFunc),
+		connections: make(map[uuid.UUID]*connection),
 	}
 }
 
@@ -110,10 +123,14 @@ func (c *SSEClient) Connect(ctx context.Context, minionID uuid.UUID, podName str
 
 	c.mu.Lock()
 	// Cancel any existing connection for this minion
-	if existingCancel, ok := c.connections[minionID]; ok {
-		existingCancel()
+	if existingConn, ok := c.connections[minionID]; ok {
+		existingConn.cancel()
 	}
-	c.connections[minionID] = cancel
+	c.connections[minionID] = &connection{
+		cancel:   cancel,
+		password: password,
+		podName:  podName,
+	}
 	c.mu.Unlock()
 
 	go c.connectWithRetry(connCtx, minionID, podName, password)
@@ -122,8 +139,8 @@ func (c *SSEClient) Connect(ctx context.Context, minionID uuid.UUID, podName str
 // Disconnect stops streaming events for a minion.
 func (c *SSEClient) Disconnect(minionID uuid.UUID) {
 	c.mu.Lock()
-	if cancel, ok := c.connections[minionID]; ok {
-		cancel()
+	if conn, ok := c.connections[minionID]; ok {
+		conn.cancel()
 		delete(c.connections, minionID)
 	}
 	c.mu.Unlock()
@@ -187,7 +204,7 @@ func (c *SSEClient) streamEvents(ctx context.Context, minionID uuid.UUID, podNam
 		return fmt.Errorf("failed to get pod IP: %w", err)
 	}
 
-	url := fmt.Sprintf("http://%s:%d/events", podIP, c.config.PodPort)
+	url := fmt.Sprintf("http://%s:%d/event", podIP, c.config.PodPort)
 	c.config.Logger.Info("connecting to pod SSE endpoint",
 		"minion_id", minionID,
 		"pod_name", podName,
@@ -200,6 +217,11 @@ func (c *SSEClient) streamEvents(ctx context.Context, minionID uuid.UUID, podNam
 	}
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Cache-Control", "no-cache")
+
+	// Add HTTP Basic Auth header with opencode username and per-minion password
+	authString := "opencode:" + password
+	encodedAuth := base64.StdEncoding.EncodeToString([]byte(authString))
+	req.Header.Set("Authorization", "Basic "+encodedAuth)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

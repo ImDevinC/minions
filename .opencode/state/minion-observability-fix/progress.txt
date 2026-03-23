@@ -53,3 +53,18 @@ Started: 2026-03-22
 - All orchestrator tests pass
 - **Learnings**: Interface changes must be applied atomically across interface definition, implementation, mock, and call sites to maintain type safety
 
+## Task - orchestrator-core-1
+- Fixed SSE endpoint path from /events to /event (singular) in orchestrator/internal/streaming/sse.go:207
+- Added connection struct (lines 72-76) to hold cancel, password, and podName
+- Changed SSEClient.connections from map[uuid.UUID]context.CancelFunc to map[uuid.UUID]*connection (line 88)
+- Updated Connect() method (lines 116-132) to store connection struct with password
+- Updated Disconnect() method (lines 137-143) to work with connection struct
+- Updated NewSSEClient() (lines 93-115) with improved HTTP transport settings (MaxIdleConns: 100, MaxConnsPerHost: 50, MaxIdleConnsPerHost: 50)
+- Added encoding/base64 import (line 7)
+- Added HTTP Basic Auth header in streamEvents() (lines 221-224): "Basic " + base64(opencode:password)
+- Added unit test TestSSEClient_HTTPBasicAuthHeader in orchestrator/internal/streaming/sse_test.go (lines 335-429)
+  - Tests simple password, special characters, UUID format, and empty password
+  - Validates Authorization header format and endpoint path (/event not /events)
+- All orchestrator tests pass (streaming, spawner, api, db, k8s, reconciler, watchdog, webhook)
+- **Learnings**: HTTP Basic Auth format is "Basic " + base64("username:password"). The auth header must be set before Do() call. The connection struct pattern allows storing metadata alongside cancel functions for proper cleanup.
+
