@@ -138,3 +138,11 @@ Started: 2026-03-23
 - Replaced placeholder in ChatView with dedicated component import
 - Files changed: control-panel/src/components/system-message-row.tsx (new), control-panel/src/components/chat-view.tsx (import change)
 - **Learnings:** Helper functions for content extraction handle both string and object content shapes cleanly
+
+## Task - streaming-1
+- Real-time streaming updates with debounced event batching
+- Added 16ms debounce buffer in useMinionEvents to batch rapid SSE delta events into single React renders
+- Streaming indicator already existed in ChatMessageRow (shows pulsing blue dot + "streaming" text)
+- isStreaming detection already worked in aggregateEvents (sets true if latest event within 30s)
+- Files changed: control-panel/src/hooks/use-minion-events.ts
+- **Learnings:** Debounce buffer with refs (pendingEventsRef, debounceTimerRef) avoids stale closures; ~16ms matches 60fps for smooth UI

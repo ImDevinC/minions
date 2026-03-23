@@ -192,7 +192,7 @@
         "Streaming indicator shows while message still receiving events",
         "Rapid delta events batch into single React render (~16ms debounce)"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "streaming-2",
