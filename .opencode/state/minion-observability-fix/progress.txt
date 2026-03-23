@@ -26,3 +26,16 @@ Started: 2026-03-22
 - All orchestrator tests pass
 - **Learnings**: Column is TEXT NULL to allow cleanup on completion; OpencodePassword field is non-pointer string (empty string when NULL)
 
+## Task - research-1
+- Located callback handler: HandleCallback in orchestrator/internal/api/minions.go:490-579
+  - Handles completed and failed statuses via h.minions.Complete()
+  - Already idempotent (returns early if minion already terminal)
+  - Will need to add ClearPassword() after line 533 (after Complete succeeds)
+- Located watchdog failure paths:
+  - checkFailedPods (line 206): calls w.minions.MarkFailed() for pod failures (OOMKilled, Evicted)
+  - checkClarificationTimeouts (line 238): calls w.minions.MarkFailed() for timeout
+- Located termination handler: HandleDelete in orchestrator/internal/api/minions.go:414-473
+  - Handles user-initiated deletion via h.minions.Terminate()
+  - Will need to add ClearPassword() after line 432 (after Terminate succeeds)
+- **Learnings**: Three terminal state entry points - callback (completed/failed), watchdog (MarkFailed), and delete (terminated). MarkFailed is called from two watchdog paths.
+
