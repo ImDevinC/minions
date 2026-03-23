@@ -14,3 +14,9 @@ Started: 2026-03-23
 - Skips file watcher noise like `{file: "/path"}` or `{event: "change", file: "..."}`
 - Files changed: control-panel/src/lib/event-aggregation.ts
 - **Learnings:** content is typed as Record<string, unknown>, can safely check typeof + Object.keys()
+
+## Task - filtering-2
+- Added detection for `content.info` being an object in `shouldSkipEvent()`
+- Skips usage/cost metadata events like `{info: {tokens: ..., cost: ...}}`
+- Files changed: control-panel/src/lib/event-aggregation.ts
+- **Learnings:** Check `!== null && typeof === "object" && !Array.isArray()` for plain objects

@@ -22,7 +22,7 @@
         "Verify events like {\"info\":{...tokens, cost...}} are skipped",
         "Verify no regression in existing event rendering"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "filtering-3",

@@ -234,6 +234,16 @@ function shouldSkipEvent(event: MinionEvent): boolean {
     return true;
   }
 
+  // Skip info events: {info: {...tokens, cost...}}
+  // These are usage/cost metadata, not displayable content
+  if (
+    content.info !== null &&
+    typeof content.info === "object" &&
+    !Array.isArray(content.info)
+  ) {
+    return true;
+  }
+
   return false;
 }
 
