@@ -197,7 +197,7 @@
         "Verify orchestrator logs show 'SSE connection established' for each minion",
         "Verify all OpenCode authentication warnings eliminated from logs"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "docs-1",

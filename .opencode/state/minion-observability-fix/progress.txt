@@ -190,3 +190,22 @@ data: <json>
 - Control panel npm run build succeeds - TypeScript compilation passes
 - Build output confirms /api/ws-config removed, /api/minions/[id]/events/stream present
 - **Learnings**: EventSource provides built-in reconnection logic with exponential backoff - no need for manual retry logic. EventSource.onerror is called on connection failures but auto-retries, so manual backoff is redundant. The browser closes EventSource via .close() which triggers the proxy's ReadableStream cleanup. EventSource is simpler than WebSocket for one-way streaming: no need for config fetching, no manual reconnection state machine.
+
+## Task - testing-1
+- Ran all orchestrator Go unit tests: 9 packages passed (api, db, github, k8s, reconciler, spawner, streaming, watchdog, webhook)
+- Verified unit tests include:
+  - TestPasswordMethods (db/minions_test.go): validates StorePassword/ClearPassword idempotency
+  - TestSSEClient_HTTPBasicAuthHeader (streaming/sse_test.go): validates HTTP Basic Auth with special characters, UUID passwords, empty password
+  - TestSpawner password tests (spawner/spawner_test.go): validates password generation, storage, reuse on retry, failure handling
+- Built orchestrator service successfully (go build ./... in orchestrator directory)
+- Built discord-bot service successfully (go build ./... in discord-bot directory)
+- Built control-panel successfully (npm run build):
+  - TypeScript compilation passed
+  - Next.js build produced 7 routes including /api/minions/[id]/events/stream
+  - Confirmed /api/ws-config removed from build output
+- Built Docker images successfully:
+  - ghcr.io/imdevinc/minions/orchestrator:test (multi-stage: golang:1.25-bookworm → distroless/static:nonroot)
+  - ghcr.io/imdevinc/minions/devbox:test (base: golang:1.22-bookworm with OpenCode CLI)
+  - ghcr.io/imdevinc/minions/control-panel:test (multi-stage: node:20-alpine build → node:20-alpine runtime)
+- Files changed: none (validation task only)
+- **Learnings**: All automated tests pass. The implementation is ready for manual E2E validation with live Kubernetes cluster (spawn minion, verify password lifecycle, test reconnection, verify SSE auth). Manual E2E steps in testing-1 require deployed orchestrator and access to DB, which must be performed by human. The automated validation covers: unit tests for all new methods, Go compilation, TypeScript compilation, Next.js build, and Docker image builds.
