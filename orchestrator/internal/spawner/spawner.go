@@ -190,7 +190,10 @@ func (s *Spawner) processMinion(ctx context.Context, m *db.Minion) {
 
 	// spawner-1: Generate and store per-minion password for SSE authentication
 	// Idempotent: reuse existing password if orchestrator crashed between generate and spawn
-	password := m.OpencodePassword
+	password := ""
+	if m.OpencodePassword != nil {
+		password = *m.OpencodePassword
+	}
 	if password == "" {
 		password = uuid.New().String()
 	}
