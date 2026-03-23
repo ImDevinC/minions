@@ -6,6 +6,7 @@ Started: 2026-03-23
 <!-- Consolidate reusable patterns here -->
 - Event content structure: messageID/part info can be at root, in `properties.part`, or in `part` directly - check all locations
 - Use `Array.from(map.values())` instead of iterating `map.values()` directly to avoid TS downlevelIteration issues
+- Delta tracking: use `DeltaState` with both `textByPart` map and `processedEventIds` set to avoid double-counting on re-aggregation
 
 ---
 <!-- Task logs below - APPEND ONLY -->
@@ -28,3 +29,12 @@ Started: 2026-03-23
 - Handles message.updated events for metadata updates
 - Files changed: control-panel/src/lib/event-aggregation.ts (new)
 - **Learnings:** Event content structure varies - messageID can be at root, in properties.part, or part directly
+
+## Task - aggregation-2
+- Implemented delta accumulation for streaming text
+- Added `DeltaState` interface with `textByPart` Map and `processedEventIds` Set
+- Delta events (`properties.delta: true`) append to buffer, non-delta replace
+- Track processed event IDs to avoid double-counting on re-aggregation
+- Added vitest for testing, wrote unit tests for delta/replacement behavior
+- Files changed: control-panel/src/lib/event-aggregation.ts, control-panel/src/lib/event-aggregation.test.ts (new), control-panel/package.json, control-panel/vitest.config.ts (new)
+- **Learnings:** Persistent state across aggregation calls requires tracking both accumulated text AND which events have been processed

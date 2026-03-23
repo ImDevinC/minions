@@ -51,7 +51,7 @@
         "Unit test verifies delta append behavior",
         "Unit test verifies full replacement behavior"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "aggregation-3",

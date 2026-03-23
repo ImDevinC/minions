@@ -3,6 +3,9 @@
  *
  * Groups events by messageID, sorts by timestamp, deduplicates, filters heartbeats,
  * and produces a list of ChatMessages and SystemMessages ready for rendering.
+ *
+ * Delta streaming: Events with `properties.delta` append to existing text buffers.
+ * Non-delta events replace the content entirely.
  */
 
 import type {
@@ -19,6 +22,17 @@ import type {
 export interface AggregationResult {
   messages: ChatMessage[];
   systemMessages: SystemMessage[];
+}
+
+/**
+ * Internal state for delta accumulation.
+ * Tracks accumulated text per partID and which events have been processed.
+ */
+export interface DeltaState {
+  /** Maps partID -> accumulated text content */
+  textByPart: Map<string, string>;
+  /** Set of event IDs that have already been processed (for delta deduplication) */
+  processedEventIds: Set<string>;
 }
 
 /**
@@ -222,10 +236,11 @@ function extractToolCall(
 
 /**
  * Extract text content from a text or reasoning part.
+ * Returns the partID along with the content for delta tracking.
  */
 function extractTextContent(
   event: MinionEvent
-): { type: "text" | "reasoning"; content: string } | undefined {
+): { type: "text" | "reasoning"; content: string; partID: string; isDelta: boolean } | undefined {
   const content = event.content;
   const properties = content.properties as Record<string, unknown> | undefined;
   const part = (properties?.part || content.part || content) as Record<
@@ -236,8 +251,15 @@ function extractTextContent(
   const partType = part.type as string | undefined;
   if (partType !== "text" && partType !== "reasoning") return undefined;
 
+  // Get partID for delta tracking
+  const partID = getPartID(event);
+  if (!partID) return undefined;
+
+  // Check if this is a delta event (appends to existing text)
+  const isDelta = properties?.delta === true || content.delta === true;
+
   const text = (part.text as string) || "";
-  return { type: partType, content: text };
+  return { type: partType, content: text, partID, isDelta };
 }
 
 /**
@@ -250,8 +272,18 @@ function extractTextContent(
  * 4. Groups events by messageID into ChatMessages
  * 5. Extracts system events (no messageID) as SystemMessages
  * 6. Handles message.updated events by updating metadata
+ * 7. Accumulates delta events by appending to existing text buffers
+ *
+ * @param events - Raw events to aggregate
+ * @param deltaState - Persistent state for delta accumulation (pass same instance across calls)
  */
-export function aggregateEvents(events: MinionEvent[]): AggregationResult {
+export function aggregateEvents(
+  events: MinionEvent[],
+  deltaState?: DeltaState
+): AggregationResult {
+  // Use provided state or create fresh one
+  const state = deltaState || createDeltaState();
+
   // Deduplicate events by ID
   const eventMap = new Map<string, MinionEvent>();
   for (const event of events) {
@@ -312,11 +344,14 @@ export function aggregateEvents(events: MinionEvent[]): AggregationResult {
   );
 
   for (const [messageID, { events: messageEvents, earliestTimestamp }] of messageEntries) {
-    let thinking = "";
-    let text = "";
     const tools: ToolCall[] = [];
     const toolMap = new Map<string, ToolCall>();
     let isStreaming = false;
+
+    // Track text and reasoning parts by their partID
+    // We'll use the delta map to accumulate content
+    const textPartIDs: string[] = [];
+    const reasoningPartIDs: string[] = [];
 
     // Sort events within message by timestamp
     const sortedMessageEvents = [...messageEvents].sort(
@@ -339,22 +374,31 @@ export function aggregateEvents(events: MinionEvent[]): AggregationResult {
         continue;
       }
 
-      // Extract text/reasoning content
+      // Extract text/reasoning content with delta handling
       const textContent = extractTextContent(event);
       if (textContent) {
-        if (textContent.type === "reasoning") {
-          // Accumulate reasoning text (separate with newlines if multiple)
-          if (thinking) {
-            thinking += "\n\n" + textContent.content;
-          } else {
-            thinking = textContent.content;
+        const { type, content, partID: textPartID, isDelta } = textContent;
+
+        if (isDelta) {
+          // Delta event: only append if we haven't processed this event before
+          if (!state.processedEventIds.has(event.id)) {
+            const existing = state.textByPart.get(textPartID) || "";
+            state.textByPart.set(textPartID, existing + content);
+            state.processedEventIds.add(event.id);
           }
         } else {
-          // Accumulate text (separate with newlines if multiple parts)
-          if (text) {
-            text += "\n\n" + textContent.content;
-          } else {
-            text = textContent.content;
+          // Full replacement: set content directly (always process)
+          state.textByPart.set(textPartID, content);
+        }
+
+        // Track which parts belong to text vs reasoning
+        if (type === "reasoning") {
+          if (!reasoningPartIDs.includes(textPartID)) {
+            reasoningPartIDs.push(textPartID);
+          }
+        } else {
+          if (!textPartIDs.includes(textPartID)) {
+            textPartIDs.push(textPartID);
           }
         }
         continue;
@@ -378,6 +422,18 @@ export function aggregateEvents(events: MinionEvent[]): AggregationResult {
         }
       }
     }
+
+    // Build final text from accumulated parts (join with double newlines)
+    const text = textPartIDs
+      .map((pid) => state.textByPart.get(pid) || "")
+      .filter((t) => t.length > 0)
+      .join("\n\n");
+
+    // Build final thinking from accumulated reasoning parts
+    const thinking = reasoningPartIDs
+      .map((pid) => state.textByPart.get(pid) || "")
+      .filter((t) => t.length > 0)
+      .join("\n\n");
 
     // Convert tool map to array (preserving insertion order)
     tools.push(...Array.from(toolMap.values()));
@@ -405,4 +461,16 @@ export function aggregateEvents(events: MinionEvent[]): AggregationResult {
   }
 
   return { messages, systemMessages };
+}
+
+/**
+ * Create a new delta state for tracking streaming text accumulation.
+ * Pass the same instance to aggregateEvents across multiple calls
+ * to properly accumulate delta events without double-counting.
+ */
+export function createDeltaState(): DeltaState {
+  return {
+    textByPart: new Map(),
+    processedEventIds: new Set(),
+  };
 }
