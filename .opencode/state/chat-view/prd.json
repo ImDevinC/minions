@@ -124,7 +124,7 @@
         "Only one tool card can be expanded at a time within a ChatMessage",
         "Collapse animation is smooth (CSS transition)"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "component-4c",

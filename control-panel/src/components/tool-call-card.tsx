@@ -113,55 +113,61 @@ export function ToolCallCard({ tool, isExpanded, onToggle }: ToolCallCardProps) 
         </span>
       </button>
 
-      {/* Expanded content - input and output */}
-      {isExpanded && (
-        <div className="border-t border-gray-700">
-          {/* Tool input as syntax-highlighted JSON */}
-          <div className="px-3 py-2 border-b border-gray-700">
-            <div className="text-xs text-gray-500 mb-1">Input</div>
-            <div className="rounded overflow-hidden border border-gray-700">
-              <div className="overflow-x-auto">
-                <SyntaxHighlighter
-                  language="json"
-                  style={oneDark}
-                  customStyle={{
-                    margin: 0,
-                    padding: "0.75rem",
-                    background: "#1a1a2e",
-                    fontSize: "0.75rem",
-                    whiteSpace: "pre",
-                    overflowX: "auto",
-                  }}
-                  wrapLines={false}
-                  wrapLongLines={false}
-                >
-                  {inputJson}
-                </SyntaxHighlighter>
+      {/* Expanded content - input and output with smooth collapse animation */}
+      <div
+        className={`grid transition-[grid-template-rows] duration-200 ease-out ${
+          isExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+        }`}
+      >
+        <div className="overflow-hidden">
+          <div className={`border-t border-gray-700 ${isExpanded ? "opacity-100" : "opacity-0"} transition-opacity duration-200`}>
+            {/* Tool input as syntax-highlighted JSON */}
+            <div className="px-3 py-2 border-b border-gray-700">
+              <div className="text-xs text-gray-500 mb-1">Input</div>
+              <div className="rounded overflow-hidden border border-gray-700">
+                <div className="overflow-x-auto">
+                  <SyntaxHighlighter
+                    language="json"
+                    style={oneDark}
+                    customStyle={{
+                      margin: 0,
+                      padding: "0.75rem",
+                      background: "#1a1a2e",
+                      fontSize: "0.75rem",
+                      whiteSpace: "pre",
+                      overflowX: "auto",
+                    }}
+                    wrapLines={false}
+                    wrapLongLines={false}
+                  >
+                    {inputJson}
+                  </SyntaxHighlighter>
+                </div>
               </div>
             </div>
+
+            {/* Tool output (if present) */}
+            {tool.output && (
+              <div className="px-3 py-2 border-b border-gray-700">
+                <div className="text-xs text-gray-500 mb-1">Output</div>
+                <pre className="text-xs text-gray-300 bg-gray-800/50 rounded p-2 overflow-x-auto whitespace-pre-wrap break-words max-h-64 overflow-y-auto">
+                  {tool.output}
+                </pre>
+              </div>
+            )}
+
+            {/* Error (if present) */}
+            {tool.error && (
+              <div className="px-3 py-2">
+                <div className="text-xs text-red-400 mb-1">Error</div>
+                <pre className="text-xs text-red-300 bg-red-900/20 rounded p-2 overflow-x-auto whitespace-pre-wrap break-words">
+                  {tool.error}
+                </pre>
+              </div>
+            )}
           </div>
-
-          {/* Tool output (if present) */}
-          {tool.output && (
-            <div className="px-3 py-2 border-b border-gray-700">
-              <div className="text-xs text-gray-500 mb-1">Output</div>
-              <pre className="text-xs text-gray-300 bg-gray-800/50 rounded p-2 overflow-x-auto whitespace-pre-wrap break-words max-h-64 overflow-y-auto">
-                {tool.output}
-              </pre>
-            </div>
-          )}
-
-          {/* Error (if present) */}
-          {tool.error && (
-            <div className="px-3 py-2">
-              <div className="text-xs text-red-400 mb-1">Error</div>
-              <pre className="text-xs text-red-300 bg-red-900/20 rounded p-2 overflow-x-auto whitespace-pre-wrap break-words">
-                {tool.error}
-              </pre>
-            </div>
-          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }

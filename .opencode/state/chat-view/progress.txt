@@ -51,6 +51,14 @@ Started: 2026-03-23
 - Files changed: control-panel/src/types/minion.ts (lines 78-93), control-panel/src/lib/event-aggregation.ts, control-panel/src/lib/event-aggregation.test.ts
 - **Learnings:** Task tool `callID` becomes subtask session ID; events filtered by matching sessionID; use separate deltaState per subtask to avoid pollution
 
+## Task - component-4b
+- Added smooth CSS collapse animation to ToolCallCard expand/collapse
+- Accordion behavior already worked (ChatView tracks single expandedToolId globally)
+- Used `grid-template-rows` transition for smooth height animation (grid-rows-[0fr] -> grid-rows-[1fr])
+- Added opacity transition for content fade effect
+- Files changed: control-panel/src/components/tool-call-card.tsx
+- **Learnings:** `grid-template-rows` with `0fr`/`1fr` is the modern CSS way to animate height from 0 to auto smoothly; requires overflow-hidden wrapper
+
 ## Task - component-1
 - Implemented ChatView container component with virtualized list
 - Takes MinionEvent[] prop, aggregates via aggregateEvents() into ChatMessage/SystemMessage
