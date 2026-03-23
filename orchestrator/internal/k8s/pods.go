@@ -396,7 +396,7 @@ func (c *Client) buildEnvVars(params SpawnParams) []corev1.EnvVar {
 		envs = append(envs, corev1.EnvVar{Name: "OPENAI_API_KEY", Value: c.config.OpenAIAPIKey})
 	}
 	// Always set OpenRouter as the base URL for OpenAI-compatible requests
-	envs = append(envs, corev1.EnvVar{Name: "OPENAI_API_BASE", Value: "https://openrouter.ai/api/v1"})
+	envs = append(envs, corev1.EnvVar{Name: "OPENAI_BASE_URL", Value: "https://openrouter.ai/api/v1"})
 
 	return envs
 }

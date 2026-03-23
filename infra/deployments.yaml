@@ -98,7 +98,7 @@ spec:
             # INTERNAL_API_TOKEN
             - secretRef:
                 name: minions-internal-api
-            # OPENAI_API_KEY (passed to devbox pods via OPENAI_API_KEY + OPENAI_API_BASE)
+            # OPENAI_API_KEY (passed to devbox pods via OPENAI_API_KEY + OPENAI_BASE_URL)
             - secretRef:
                 name: minions-llm-keys
             # GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY
