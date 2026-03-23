@@ -640,8 +640,12 @@ export function aggregateEvents(
             state.processedEventIds.add(event.id);
           }
         } else {
-          // Full replacement: set content directly (always process)
-          state.textByPart.set(textPartID, content);
+          // Full replacement: set content directly
+          // But only if content is non-empty or no existing content
+          // (empty content from part.updated shouldn't overwrite accumulated deltas)
+          if (content || !state.textByPart.has(textPartID)) {
+            state.textByPart.set(textPartID, content);
+          }
         }
 
         // Track which parts belong to text vs reasoning

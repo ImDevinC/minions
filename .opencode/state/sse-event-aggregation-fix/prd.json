@@ -94,7 +94,7 @@
         "Text content still displays correctly",
         "No regressions in existing message rendering"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "verification-2",

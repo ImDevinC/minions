@@ -61,3 +61,16 @@ Started: 2026-03-23
 - Uses direct replacement (not deep merge) since tool input is atomic
 - Files changed: control-panel/src/lib/event-aggregation.ts
 - **Learnings:** Tool events arrive in multiple stages: first with empty input {}, then with populated input. Naive merge would overwrite populated input with empty.
+
+## Task - verification-1
+- Verified thinking/reasoning content aggregation through unit tests
+- Added 5 new tests for message.part.delta event handling:
+  - accumulates text delta events from flat event structure
+  - routes reasoning delta events to thinking field
+  - defaults to text when delta arrives before part.updated (race condition)
+  - handles mixed text and reasoning delta streams
+  - deduplicates delta events by event ID
+- Fixed bug: empty text from message.part.updated was overwriting accumulated deltas
+- All 57 tests pass, typecheck passes, build succeeds
+- Files changed: control-panel/src/lib/event-aggregation.ts, control-panel/src/lib/event-aggregation.test.ts
+- **Learnings:** Non-delta events with empty content should not overwrite existing accumulated content
