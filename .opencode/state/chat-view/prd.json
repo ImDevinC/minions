@@ -87,7 +87,7 @@
         "Multiple sequential text parts concatenate cleanly",
         "Empty or null content does not render (no blank bubbles)"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "component-3",

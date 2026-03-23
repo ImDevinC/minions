@@ -60,3 +60,12 @@ Started: 2026-03-23
 - Includes placeholder ChatMessageRow and SystemMessageRow (to be replaced in future tasks)
 - Files changed: control-panel/src/components/chat-view.tsx (new)
 - **Learnings:** Use useRef for DeltaState to persist across renders without triggering re-computation; estimateSize can vary by item type for better virtualization hints
+
+## Task - component-2
+- Implemented ChatMessageRow with react-markdown and react-syntax-highlighter
+- Text renders via ReactMarkdown with remarkGfm plugin for GitHub-flavored markdown
+- Code blocks use SyntaxHighlighter with oneDark theme, horizontal scroll (no wrap)
+- Memoized markdown parsing with useMemo keyed on text content
+- Empty/null content returns null (no blank bubbles)
+- Files changed: control-panel/src/components/chat-message-row.tsx (new), control-panel/src/components/chat-view.tsx (import new component)
+- **Learnings:** react-syntax-highlighter needs wrapLines={false} and wrapLongLines={false} plus whiteSpace: "pre" for horizontal scroll

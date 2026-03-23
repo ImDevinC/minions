@@ -8,41 +8,7 @@ import {
   createDeltaState,
   type DeltaState,
 } from "@/lib/event-aggregation";
-
-/**
- * Placeholder for ChatMessageRow - will be implemented in component-2.
- * Renders a single aggregated ChatMessage (text, tools, subtasks).
- */
-function ChatMessageRow({ message }: { message: ChatMessage }) {
-  return (
-    <div className="py-3 px-4 border-b border-gray-800">
-      <div className="text-xs text-gray-500 mb-1">
-        {new Date(message.timestamp).toLocaleTimeString()}
-        {message.isStreaming && (
-          <span className="ml-2 text-blue-400">● streaming</span>
-        )}
-      </div>
-      {message.thinking && (
-        <div className="text-sm text-gray-500 italic mb-2">
-          [Thinking: {message.thinking.slice(0, 100)}...]
-        </div>
-      )}
-      {message.text && (
-        <div className="text-gray-200 whitespace-pre-wrap">{message.text}</div>
-      )}
-      {message.tools.length > 0 && (
-        <div className="mt-2 text-xs text-purple-400">
-          {message.tools.length} tool call(s)
-        </div>
-      )}
-      {message.subtasks.length > 0 && (
-        <div className="mt-2 text-xs text-cyan-400">
-          {message.subtasks.length} subtask(s)
-        </div>
-      )}
-    </div>
-  );
-}
+import { ChatMessageRow } from "./chat-message-row";
 
 /**
  * Placeholder for SystemMessageRow - will be implemented in component-7.
