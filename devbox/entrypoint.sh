@@ -436,6 +436,9 @@ handle_completion() {
         2)
             # Task timed out
             log "Task timed out after ${TASK_TIMEOUT}s"
+            # Kill OpenCode process to stop any ongoing work
+            # Best-effort: suppress errors (process may have already exited)
+            kill "$OPENCODE_PID" 2>/dev/null || true
             # Check if there's partial work
             if pr_url=$(detect_pr_url 2>/dev/null); then
                 # Agent managed to create PR before timeout - treat as success

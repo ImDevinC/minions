@@ -76,7 +76,7 @@
         "Cleanup is best-effort (errors suppressed, doesn't affect exit code)",
         "Manual verification: devbox kills OpenCode on timeout (check pod logs)"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "cleanup-1",
