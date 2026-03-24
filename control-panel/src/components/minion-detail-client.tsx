@@ -270,11 +270,8 @@ export function MinionDetailClient({ minion }: MinionDetailClientProps) {
 
       {/* Chat view section */}
       <div>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-semibold text-white">
-            Agent Activity ({events.length} events)
-          </h2>
-          <div className="flex items-center gap-2">
+        {(!isTerminalStatus(currentStatus) || connectionError) && (
+          <div className="flex items-center justify-end gap-2 mb-3">
             {/* Connection status indicator */}
             {!isTerminalStatus(currentStatus) && (
               <div className="flex items-center gap-1.5 text-xs">
@@ -292,7 +289,7 @@ export function MinionDetailClient({ minion }: MinionDetailClientProps) {
               <span className="text-xs text-red-400">{connectionError}</span>
             )}
           </div>
-        </div>
+        )}
         <ChatView 
           events={events}
           status={currentStatus}
