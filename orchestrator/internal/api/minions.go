@@ -95,11 +95,19 @@ type ErrorResponse struct {
 // repoRegex validates repo format: owner/repo with optional subgroups for nested repos
 var repoRegex = regexp.MustCompile(`^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+(/[a-zA-Z0-9_.-]+)*$`)
 
+// MaxRequestBodySize is the maximum allowed request body size (1MB).
+const MaxRequestBodySize = 1 << 20 // 1MB
+
+// MaxTaskLength is the maximum allowed task content length (10,000 characters).
+const MaxTaskLength = 10000
+
 // allowedModelPrefixes defines valid model provider prefixes
 var allowedModelPrefixes = []string{"anthropic/", "openai/"}
 
 // HandleCreate handles POST /api/minions.
 func (h *MinionHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, MaxRequestBodySize)
+
 	var req CreateMinionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.writeError(w, http.StatusBadRequest, "invalid request body", "")
@@ -109,6 +117,12 @@ func (h *MinionHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 	// Validate required fields
 	if req.Repo == "" || req.Task == "" || req.DiscordUserID == "" {
 		h.writeError(w, http.StatusBadRequest, "missing required fields: repo, task, discord_user_id", "")
+		return
+	}
+
+	// Validate task length
+	if len(req.Task) > MaxTaskLength {
+		h.writeError(w, http.StatusBadRequest, "task exceeds maximum length of 10,000 characters", "TASK_TOO_LONG")
 		return
 	}
 
@@ -252,26 +266,6 @@ func isAllowedModel(model string) bool {
 		}
 	}
 	return false
-}
-
-// RateLimitError wraps rate limit errors with detail.
-type RateLimitError struct {
-	Type    string // "hourly" or "concurrent"
-	Current int
-	Max     int
-}
-
-func (e *RateLimitError) Error() string {
-	if e.Type == "hourly" {
-		return "rate limit exceeded"
-	}
-	return "concurrent limit exceeded"
-}
-
-// IsRateLimitError checks if an error is a rate limit error.
-func IsRateLimitError(err error) bool {
-	var rle *RateLimitError
-	return errors.As(err, &rle)
 }
 
 // ListMinionResponse is a single minion in the list response.
@@ -548,6 +542,8 @@ type CallbackResponse struct {
 // HandleCallback handles POST /api/minions/{id}/callback.
 // Updates minion with completion data and notifies Discord.
 func (h *MinionHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, MaxRequestBodySize)
+
 	idStr := chi.URLParam(r, "id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
@@ -769,6 +765,8 @@ func (h *MinionHandler) HandleClarification(w http.ResponseWriter, r *http.Reque
 // HandleClarificationAnswer handles PATCH /api/minions/{id}/clarification-answer.
 // Sets the user's answer and transitions the minion back to pending status.
 func (h *MinionHandler) HandleClarificationAnswer(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, MaxRequestBodySize)
+
 	idStr := chi.URLParam(r, "id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
@@ -913,6 +911,7 @@ func parseTimestamp(s string) (time.Time, error) {
 
 // HandleGetByClarificationMessageID handles GET /api/minions/by-clarification/{messageId}.
 // Looks up a minion by its Discord clarification message ID.
+// Includes discord_user_id from the joined users table for reply validation.
 func (h *MinionHandler) HandleGetByClarificationMessageID(w http.ResponseWriter, r *http.Request) {
 	messageID := chi.URLParam(r, "messageId")
 	if messageID == "" {
@@ -940,6 +939,7 @@ func (h *MinionHandler) HandleGetByClarificationMessageID(w http.ResponseWriter,
 		Status                string  `json:"status"`
 		ClarificationQuestion *string `json:"clarification_question,omitempty"`
 		DiscordChannelID      *string `json:"discord_channel_id,omitempty"`
+		DiscordUserID         string  `json:"discord_user_id"`
 	}{
 		ID:                    minion.ID.String(),
 		Repo:                  minion.Repo,
@@ -948,6 +948,7 @@ func (h *MinionHandler) HandleGetByClarificationMessageID(w http.ResponseWriter,
 		Status:                string(minion.Status),
 		ClarificationQuestion: minion.ClarificationQuestion,
 		DiscordChannelID:      minion.DiscordChannelID,
+		DiscordUserID:         minion.OwnerDiscordID,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

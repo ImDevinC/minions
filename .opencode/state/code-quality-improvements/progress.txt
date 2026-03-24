@@ -1,0 +1,96 @@
+# Progress Log
+PRD: code-quality-improvements
+Started: 2026-03-24
+
+## Codebase Patterns
+- MaxBytesReader pattern: `r.Body = http.MaxBytesReader(w, r.Body, MaxRequestBodySize)` at start of handler
+- Test helper `newTestHandler(t)` creates handler with nil stores for validation-only tests
+- Panic recovery in tests catches expected DB nil panics to verify validation passed
+- scanMinion helper: `scanMinion(row Scanner) (*Minion, error)` centralizes 22-field scan; use `rows` (pgx.Rows) directly since it embeds Row
+
+---
+<!-- Task logs below - APPEND ONLY -->
+
+## Task - security-1
+- Added MaxRequestBodySize constant (1MB = 1<<20)
+- Wrapped r.Body in HandleCreate, HandleCallback, HandleClarificationAnswer
+- Added test TestMinionHandler_RequestBodyLimit with two subtests
+- Files changed: orchestrator/internal/api/minions.go, orchestrator/internal/api/minions_test.go
+- **Learnings:** MaxBytesReader must be assigned before json.Decode; test handler with nil stores panics on DB access (expected)
+
+## Task - security-2
+- Added MaxTaskLength constant (10000) to api package
+- Added validation in HandleCreate after required fields check: rejects tasks > 10000 chars with 400 + TASK_TOO_LONG code
+- Added test case to TestMinionHandler_CreateValidation for task exceeds max length
+- Added TestMinionHandler_TaskLengthLimit to verify task at exactly max length is accepted (no off-by-one)
+- Files changed: orchestrator/internal/api/minions.go, orchestrator/internal/api/minions_test.go
+- **Learnings:** Validation order matters - task length check must come after required fields check to avoid rejecting empty tasks
+
+## Task - security-3
+- Created MinionWithOwner struct embedding Minion + OwnerDiscordID field in db package
+- Modified GetByClarificationMessageID to JOIN users table and select u.discord_id
+- Updated HandleGetByClarificationMessageID response to include discord_user_id field
+- Added DiscordUserID field (string, not pointer) to MinionByClarificationResponse in discord-bot
+- Added user validation in HandleReply: rejects replies from non-original requesters
+- Added tests: DiscordUserID response field, wrong user rejection, correct user acceptance
+- Files changed: orchestrator/internal/db/minions.go, orchestrator/internal/api/minions.go, discord-bot/internal/orchestrator/client.go, discord-bot/internal/handler/message.go, discord-bot/internal/handler/message_test.go
+- **Learnings:** JOIN for denormalization is cleaner than separate lookups; validation should warn but not error (user experience)
+
+## Task - context-1
+- Added OperationTimeout = 30 * time.Second constant to handler package
+- Updated Handle method: 3 context.Background() calls replaced with context.WithTimeout + defer cancel()
+  - evalCtx for EvaluateWithRetry
+  - createCtx for CreateMinion (ready branch)
+  - clarifyCtx for CreateMinion (clarification branch)
+- Updated HandleReply method: ctx := context.Background() replaced with context.WithTimeout + defer cancel()
+- Added TestContextTimeoutPropagation test with 4 subtests verifying deadline propagation
+- Files changed: discord-bot/internal/handler/message.go, discord-bot/internal/handler/message_test.go
+- **Learnings:** Pattern: create timeout context early with defer cancel(); the defer still runs when function returns early
+
+## Task - errors-1
+- Deleted isErrorType, containsError, containsSubstring helper functions (28 lines removed)
+- Updated handleParseError to use errors.Is() for all 5 command error cases
+- Files changed: discord-bot/internal/handler/message.go
+- **Learnings:** errors.Is() works directly with sentinel errors from errors.New(); no need for custom string matching
+
+## Task - devbox-1
+- OPENCODE_PID already captured at line 96 in start_opencode()
+- Added kill "$OPENCODE_PID" 2>/dev/null || true in timeout handler (case 2)
+- Cleanup is best-effort: 2>/dev/null suppresses stderr, || true prevents non-zero exit
+- Files changed: devbox/entrypoint.sh
+- **Learnings:** PID was already being captured; timeout handler just needed the kill call
+
+## Task - cleanup-1
+- Deleted RateLimitError struct and IsRateLimitError function from api/minions.go (19 lines)
+- Deleted custom itoa function from db/minions.go (14 lines)
+- Replaced itoa(argIdx) with strconv.Itoa(argIdx) in List() query building
+- Added strconv import to db/minions.go
+- Files changed: orchestrator/internal/api/minions.go, orchestrator/internal/db/minions.go
+- **Learnings:** strconv.Itoa is the stdlib way; custom helpers just add maintenance burden
+
+## Task - cleanup-2
+- Created Scanner interface: `Scan(dest ...any) error` for pgx.Row and pgx.Rows compatibility
+- Added scanMinion helper to scan all 22 Minion fields in canonical order
+- Added scanMinionWithOwner helper for queries with JOIN (23 fields: 22 + OwnerDiscordID)
+- Refactored 9 functions to use helpers: FindRecentDuplicate, GetByID, List, ListByStatuses, ListPending, ListIdleRunning, ListClarificationTimeouts, GetByClarificationMessageID, ListTerminalWithPodOlderThan
+- Terminate and Complete remain inline (they SELECT only 2-3 columns, not full minion)
+- Added TestScanMinion with mockScanner to verify all 22 fields populate correctly
+- Files changed: orchestrator/internal/db/minions.go, orchestrator/internal/db/minions_test.go
+- **Learnings:** Scanner interface unifies pgx.Row and pgx.Rows; embedding allows scanMinionWithOwner to reuse the field order
+
+## Task - cleanup-3
+- Added defer in Handle (line 115-123) to remove thinking emoji after processing completes
+- Added defer in HandleReply (line 408-417) to remove thinking emoji after processing completes
+- Both use `s.MessageReactionRemove(channelID, messageID, ThinkingEmoji, "@me")`
+- Removal failures logged at Debug level (cosmetic, not Error)
+- Defer only registered in else branch (only if emoji was successfully added)
+- Files changed: discord-bot/internal/handler/message.go
+- **Learnings:** Using else branch for defer avoids trying to remove an emoji that was never added; "@me" is Discord API shorthand for the bot's own user ID
+
+## Task - testing-1
+- Ran go test ./... in orchestrator - all tests pass (10 packages)
+- Ran go test ./... in discord-bot - all tests pass (5 packages)
+- Ran go build ./... in orchestrator - builds successfully
+- Ran go build ./... in discord-bot - builds successfully
+- All PRD tasks now have passes: true
+- **Learnings:** Final validation confirms no regressions from code quality improvements

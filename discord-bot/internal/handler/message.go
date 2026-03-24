@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 
@@ -15,6 +16,9 @@ import (
 
 // ThinkingEmoji is the reaction added when processing a command
 const ThinkingEmoji = "🤔"
+
+// OperationTimeout is the maximum duration for orchestrator API calls
+const OperationTimeout = 30 * time.Second
 
 // MinionCreator creates minions via the orchestrator API.
 // Abstraction allows for easy testing.
@@ -106,6 +110,17 @@ func (h *MessageHandler) Handle(s *discordgo.Session, m *discordgo.MessageCreate
 			"message_id", m.ID,
 		)
 		// Continue processing even if reaction fails
+	} else {
+		// Remove thinking emoji when processing completes (success or failure)
+		defer func() {
+			if err := s.MessageReactionRemove(m.ChannelID, m.ID, ThinkingEmoji, "@me"); err != nil {
+				h.logger.Debug("failed to remove thinking reaction",
+					"error", err,
+					"channel_id", m.ChannelID,
+					"message_id", m.ID,
+				)
+			}
+		}()
 	}
 
 	// Strip the mention and parse the command
@@ -124,8 +139,12 @@ func (h *MessageHandler) Handle(s *discordgo.Session, m *discordgo.MessageCreate
 		"message_id", m.ID,
 	)
 
+	// Create timeout context for clarification evaluation
+	evalCtx, evalCancel := context.WithTimeout(context.Background(), OperationTimeout)
+	defer evalCancel()
+
 	// Evaluate clarification first, then create a minion exactly once with the correct initial state.
-	result, err := h.clarification.EvaluateWithRetry(context.Background(), cmd.Repo, cmd.Task)
+	result, err := h.clarification.EvaluateWithRetry(evalCtx, cmd.Repo, cmd.Task)
 	if err != nil {
 		h.logger.Error("clarification LLM failed after retries",
 			"error", err,
@@ -140,8 +159,12 @@ func (h *MessageHandler) Handle(s *discordgo.Session, m *discordgo.MessageCreate
 	}
 
 	if result.Ready {
+		// Create timeout context for minion creation
+		createCtx, createCancel := context.WithTimeout(context.Background(), OperationTimeout)
+		defer createCancel()
+
 		// Create minion in pending state (spawner will pick it up)
-		resp, createErr := h.orchestrator.CreateMinion(context.Background(), orchestrator.CreateMinionRequest{
+		resp, createErr := h.orchestrator.CreateMinion(createCtx, orchestrator.CreateMinionRequest{
 			Repo:             cmd.Repo,
 			Task:             cmd.Task,
 			Model:            cmd.Model,
@@ -197,7 +220,11 @@ func (h *MessageHandler) Handle(s *discordgo.Session, m *discordgo.MessageCreate
 		return
 	}
 
-	resp, createErr := h.orchestrator.CreateMinion(context.Background(), orchestrator.CreateMinionRequest{
+	// Create timeout context for minion creation with clarification
+	clarifyCtx, clarifyCancel := context.WithTimeout(context.Background(), OperationTimeout)
+	defer clarifyCancel()
+
+	resp, createErr := h.orchestrator.CreateMinion(clarifyCtx, orchestrator.CreateMinionRequest{
 		Repo:                   cmd.Repo,
 		Task:                   cmd.Task,
 		Model:                  cmd.Model,
@@ -248,15 +275,15 @@ func (h *MessageHandler) handleParseError(s *discordgo.Session, m *discordgo.Mes
 	// Build a user-friendly error message
 	var msg string
 	switch {
-	case isErrorType(err, command.ErrMissingRepo):
+	case errors.Is(err, command.ErrMissingRepo):
 		msg = "❌ Missing `--repo` flag. Usage: `@minion --repo Owner/Repo <task>`"
-	case isErrorType(err, command.ErrInvalidRepoFormat):
+	case errors.Is(err, command.ErrInvalidRepoFormat):
 		msg = "❌ Invalid repo format. Expected `Owner/Repo` (e.g., `octocat/hello-world`)"
-	case isErrorType(err, command.ErrMissingTask):
+	case errors.Is(err, command.ErrMissingTask):
 		msg = "❌ Missing task description. What should I do?"
-	case isErrorType(err, command.ErrTaskTooLong):
+	case errors.Is(err, command.ErrTaskTooLong):
 		msg = "❌ Task is too long (max 10,000 characters)"
-	case isErrorType(err, command.ErrTaskHasControl):
+	case errors.Is(err, command.ErrTaskHasControl):
 		msg = "❌ Task contains invalid characters"
 	default:
 		msg = "❌ Failed to parse command: " + err.Error()
@@ -303,35 +330,6 @@ func (h *MessageHandler) handleOrchestratorError(s *discordgo.Session, m *discor
 	}
 }
 
-// isErrorType checks if err matches or wraps the target error
-func isErrorType(err, target error) bool {
-	// Check exact match or if err.Error() contains target.Error()
-	// Using string comparison since errors.Is doesn't work for wrapped errors with fmt.Errorf
-	if err == target {
-		return true
-	}
-	if err != nil && target != nil {
-		return containsError(err.Error(), target.Error())
-	}
-	return false
-}
-
-// containsError checks if errMsg contains targetMsg
-func containsError(errMsg, targetMsg string) bool {
-	return len(errMsg) >= len(targetMsg) && (errMsg == targetMsg ||
-		(len(errMsg) > len(targetMsg) && errMsg[:len(targetMsg)] == targetMsg) ||
-		containsSubstring(errMsg, targetMsg))
-}
-
-func containsSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}
-
 // HandleReply processes a Discord message that is a reply to another message.
 // If the replied-to message is a clarification question, it processes the answer.
 func (h *MessageHandler) HandleReply(s *discordgo.Session, m *discordgo.MessageCreate) {
@@ -349,7 +347,10 @@ func (h *MessageHandler) HandleReply(s *discordgo.Session, m *discordgo.MessageC
 		return
 	}
 
-	ctx := context.Background()
+	// Create timeout context for orchestrator calls
+	ctx, cancel := context.WithTimeout(context.Background(), OperationTimeout)
+	defer cancel()
+
 	referencedMsgID := m.MessageReference.MessageID
 
 	// Look up minion by the referenced message ID (could be a clarification question)
@@ -384,6 +385,18 @@ func (h *MessageHandler) HandleReply(s *discordgo.Session, m *discordgo.MessageC
 		return
 	}
 
+	// Validate that the reply is from the original requester
+	if minion.DiscordUserID != m.Author.ID {
+		h.logger.Warn("clarification reply from wrong user",
+			"minion_id", minion.ID,
+			"expected_user", minion.DiscordUserID,
+			"actual_user", m.Author.ID,
+		)
+		msg := "⚠️ Only the original requester can answer clarification questions."
+		_, _ = s.ChannelMessageSendReply(m.ChannelID, msg, m.Reference())
+		return
+	}
+
 	// React with thinking emoji to acknowledge
 	if err := s.MessageReactionAdd(m.ChannelID, m.ID, ThinkingEmoji); err != nil {
 		h.logger.Error("failed to add thinking reaction",
@@ -391,6 +404,17 @@ func (h *MessageHandler) HandleReply(s *discordgo.Session, m *discordgo.MessageC
 			"channel_id", m.ChannelID,
 			"message_id", m.ID,
 		)
+	} else {
+		// Remove thinking emoji when processing completes (success or failure)
+		defer func() {
+			if err := s.MessageReactionRemove(m.ChannelID, m.ID, ThinkingEmoji, "@me"); err != nil {
+				h.logger.Debug("failed to remove thinking reaction",
+					"error", err,
+					"channel_id", m.ChannelID,
+					"message_id", m.ID,
+				)
+			}
+		}()
 	}
 
 	// Get the answer (the content of the reply)

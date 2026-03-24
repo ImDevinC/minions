@@ -231,6 +231,7 @@ type MinionByClarificationResponse struct {
 	Status                string  `json:"status"`
 	ClarificationQuestion *string `json:"clarification_question,omitempty"`
 	DiscordChannelID      *string `json:"discord_channel_id,omitempty"`
+	DiscordUserID         string  `json:"discord_user_id"`
 }
 
 // GetByClarificationMessageID looks up a minion by its Discord clarification message ID.

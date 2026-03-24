@@ -85,6 +85,17 @@ func TestMinionHandler_CreateValidation(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 			wantCode:   "INVALID_REPO",
 		},
+		{
+			name: "task exceeds max length",
+			body: CreateMinionRequest{
+				Repo:          "owner/repo",
+				Task:          string(make([]byte, MaxTaskLength+1)),
+				Model:         "anthropic/claude-sonnet-4-5",
+				DiscordUserID: "123456",
+			},
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "TASK_TOO_LONG",
+		},
 	}
 
 	for _, tt := range tests {
@@ -430,4 +441,100 @@ func TestMinionHandler_ClarificationValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMinionHandler_RequestBodyLimit(t *testing.T) {
+	handler := newTestHandler(t)
+
+	t.Run("rejects body exceeding 1MB", func(t *testing.T) {
+		// Create a body that's just over 1MB
+		largeBody := make([]byte, MaxRequestBodySize+1)
+		for i := range largeBody {
+			largeBody[i] = 'a'
+		}
+
+		req := httptest.NewRequest(http.MethodPost, "/api/minions", bytes.NewReader(largeBody))
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+
+		handler.HandleCreate(rr, req)
+
+		if rr.Code != http.StatusBadRequest {
+			t.Errorf("expected status %d, got %d", http.StatusBadRequest, rr.Code)
+		}
+	})
+
+	t.Run("accepts body under 1MB", func(t *testing.T) {
+		// Create a valid request body under 1MB
+		body := CreateMinionRequest{
+			Repo:          "owner/repo",
+			Task:          "fix the bug",
+			Model:         "anthropic/claude-sonnet-4-5",
+			DiscordUserID: "123456",
+		}
+		bodyBytes, _ := json.Marshal(body)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/minions", bytes.NewReader(bodyBytes))
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+
+		// Handler will panic on DB call since we have no DB - that's expected
+		// A panic means the body was successfully read and validated
+		defer func() {
+			if r := recover(); r == nil {
+				// No panic - check the response
+				if rr.Code == http.StatusBadRequest {
+					var resp ErrorResponse
+					if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+						t.Fatalf("failed to unmarshal response: %v", err)
+					}
+					if resp.Error == "invalid request body" {
+						t.Errorf("valid body was rejected as invalid")
+					}
+				}
+			}
+			// Panic occurred - this means body was accepted and we proceeded to DB ops
+		}()
+
+		handler.HandleCreate(rr, req)
+	})
+}
+
+func TestMinionHandler_TaskLengthLimit(t *testing.T) {
+	handler := newTestHandler(t)
+
+	t.Run("accepts task at exactly max length", func(t *testing.T) {
+		// Task of exactly MaxTaskLength chars should be accepted
+		body := CreateMinionRequest{
+			Repo:          "owner/repo",
+			Task:          string(make([]byte, MaxTaskLength)),
+			Model:         "anthropic/claude-sonnet-4-5",
+			DiscordUserID: "123456",
+		}
+		bodyBytes, _ := json.Marshal(body)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/minions", bytes.NewReader(bodyBytes))
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+
+		// Handler will panic on DB call since we have no DB - that's expected
+		// A panic means the body was successfully read, validated, and task length passed
+		defer func() {
+			if r := recover(); r == nil {
+				// No panic - check we didn't get TASK_TOO_LONG error
+				if rr.Code == http.StatusBadRequest {
+					var resp ErrorResponse
+					if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+						t.Fatalf("failed to unmarshal response: %v", err)
+					}
+					if resp.Code == "TASK_TOO_LONG" {
+						t.Errorf("task at exactly max length was incorrectly rejected")
+					}
+				}
+			}
+			// Panic occurred - validation passed, proceeded to DB ops
+		}()
+
+		handler.HandleCreate(rr, req)
+	})
 }
