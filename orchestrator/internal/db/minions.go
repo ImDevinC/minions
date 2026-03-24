@@ -63,12 +63,15 @@ type Minion struct {
 
 // CreateMinionParams holds parameters for creating a new minion.
 type CreateMinionParams struct {
-	UserID           uuid.UUID
-	Repo             string
-	Task             string
-	Model            string
-	DiscordMessageID string
-	DiscordChannelID string
+	UserID                 uuid.UUID
+	Repo                   string
+	Task                   string
+	Model                  string
+	Status                 MinionStatus
+	ClarificationQuestion  string
+	ClarificationMessageID string
+	DiscordMessageID       string
+	DiscordChannelID       string
 }
 
 // MinionStore handles minion database operations.
@@ -95,7 +98,17 @@ func (s *MinionStore) Create(ctx context.Context, params CreateMinionParams) (*M
 		Repo:   params.Repo,
 		Task:   params.Task,
 		Model:  params.Model,
-		Status: StatusPending,
+		Status: params.Status,
+	}
+
+	if minion.Status == "" {
+		minion.Status = StatusPending
+	}
+	if params.ClarificationQuestion != "" {
+		minion.ClarificationQuestion = &params.ClarificationQuestion
+	}
+	if params.ClarificationMessageID != "" {
+		minion.ClarificationMessageID = &params.ClarificationMessageID
 	}
 
 	if params.DiscordMessageID != "" {
@@ -106,10 +119,11 @@ func (s *MinionStore) Create(ctx context.Context, params CreateMinionParams) (*M
 	}
 
 	err := s.pool.QueryRow(ctx,
-		`INSERT INTO minions (id, user_id, repo, task, model, status, discord_message_id, discord_channel_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		`INSERT INTO minions (id, user_id, repo, task, model, status, clarification_question, clarification_message_id, discord_message_id, discord_channel_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		 RETURNING created_at, last_activity_at`,
 		minion.ID, minion.UserID, minion.Repo, minion.Task, minion.Model, minion.Status,
+		minion.ClarificationQuestion, minion.ClarificationMessageID,
 		minion.DiscordMessageID, minion.DiscordChannelID,
 	).Scan(&minion.CreatedAt, &minion.LastActivityAt)
 
@@ -226,7 +240,17 @@ func (s *MinionStore) CreateOrFindDuplicate(ctx context.Context, params CreateMi
 		Repo:   params.Repo,
 		Task:   params.Task,
 		Model:  params.Model,
-		Status: StatusPending,
+		Status: params.Status,
+	}
+
+	if minion.Status == "" {
+		minion.Status = StatusPending
+	}
+	if params.ClarificationQuestion != "" {
+		minion.ClarificationQuestion = &params.ClarificationQuestion
+	}
+	if params.ClarificationMessageID != "" {
+		minion.ClarificationMessageID = &params.ClarificationMessageID
 	}
 
 	if params.DiscordMessageID != "" {
@@ -237,10 +261,11 @@ func (s *MinionStore) CreateOrFindDuplicate(ctx context.Context, params CreateMi
 	}
 
 	err = tx.QueryRow(ctx,
-		`INSERT INTO minions (id, user_id, repo, task, model, status, discord_message_id, discord_channel_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		`INSERT INTO minions (id, user_id, repo, task, model, status, clarification_question, clarification_message_id, discord_message_id, discord_channel_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		 RETURNING created_at, last_activity_at`,
 		minion.ID, minion.UserID, minion.Repo, minion.Task, minion.Model, minion.Status,
+		minion.ClarificationQuestion, minion.ClarificationMessageID,
 		minion.DiscordMessageID, minion.DiscordChannelID,
 	).Scan(&minion.CreatedAt, &minion.LastActivityAt)
 

@@ -64,13 +64,16 @@ func NewMinionHandler(cfg MinionHandlerConfig) *MinionHandler {
 
 // CreateMinionRequest is the request body for POST /api/minions.
 type CreateMinionRequest struct {
-	Repo             string `json:"repo"`
-	Task             string `json:"task"`
-	Model            string `json:"model"`
-	DiscordMessageID string `json:"discord_message_id"`
-	DiscordChannelID string `json:"discord_channel_id"`
-	DiscordUserID    string `json:"discord_user_id"`
-	DiscordUsername  string `json:"discord_username"`
+	Repo                   string `json:"repo"`
+	Task                   string `json:"task"`
+	Model                  string `json:"model"`
+	InitialStatus          string `json:"initial_status,omitempty"`
+	ClarificationQuestion  string `json:"clarification_question,omitempty"`
+	ClarificationMessageID string `json:"clarification_message_id,omitempty"`
+	DiscordMessageID       string `json:"discord_message_id"`
+	DiscordChannelID       string `json:"discord_channel_id"`
+	DiscordUserID          string `json:"discord_user_id"`
+	DiscordUsername        string `json:"discord_username"`
 }
 
 // CreateMinionResponse is the response body for POST /api/minions.
@@ -126,6 +129,25 @@ func (h *MinionHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate and map initial status
+	initialStatus := db.StatusPending
+	if req.InitialStatus != "" {
+		switch db.MinionStatus(req.InitialStatus) {
+		case db.StatusPending:
+			initialStatus = db.StatusPending
+		case db.StatusAwaitingClarification:
+			initialStatus = db.StatusAwaitingClarification
+		default:
+			h.writeError(w, http.StatusBadRequest, "invalid initial_status: must be pending or awaiting_clarification", "INVALID_STATUS")
+			return
+		}
+	}
+
+	if initialStatus == db.StatusAwaitingClarification && req.ClarificationQuestion == "" {
+		h.writeError(w, http.StatusBadRequest, "clarification_question is required when initial_status is awaiting_clarification", "MISSING_QUESTION")
+		return
+	}
+
 	// Normalize repo (trim whitespace)
 	req.Repo = strings.TrimSpace(req.Repo)
 
@@ -162,12 +184,15 @@ func (h *MinionHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 
 	// Create minion (with duplicate detection)
 	result, err := h.minions.CreateOrFindDuplicate(r.Context(), db.CreateMinionParams{
-		UserID:           user.ID,
-		Repo:             req.Repo,
-		Task:             req.Task,
-		Model:            req.Model,
-		DiscordMessageID: req.DiscordMessageID,
-		DiscordChannelID: req.DiscordChannelID,
+		UserID:                 user.ID,
+		Repo:                   req.Repo,
+		Task:                   req.Task,
+		Model:                  req.Model,
+		Status:                 initialStatus,
+		ClarificationQuestion:  req.ClarificationQuestion,
+		ClarificationMessageID: req.ClarificationMessageID,
+		DiscordMessageID:       req.DiscordMessageID,
+		DiscordChannelID:       req.DiscordChannelID,
 	})
 	if err != nil {
 		h.logger.Error("failed to create minion", "error", err, "user_id", user.ID)

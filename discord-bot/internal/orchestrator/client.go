@@ -20,13 +20,16 @@ var ErrConcurrentLimitExceeded = errors.New("concurrent limit exceeded: maximum 
 
 // CreateMinionRequest is the request body for POST /api/minions.
 type CreateMinionRequest struct {
-	Repo             string `json:"repo"`
-	Task             string `json:"task"`
-	Model            string `json:"model"`
-	DiscordMessageID string `json:"discord_message_id"`
-	DiscordChannelID string `json:"discord_channel_id"`
-	DiscordUserID    string `json:"discord_user_id"`
-	DiscordUsername  string `json:"discord_username"`
+	Repo                   string `json:"repo"`
+	Task                   string `json:"task"`
+	Model                  string `json:"model"`
+	InitialStatus          string `json:"initial_status,omitempty"`
+	ClarificationQuestion  string `json:"clarification_question,omitempty"`
+	ClarificationMessageID string `json:"clarification_message_id,omitempty"`
+	DiscordMessageID       string `json:"discord_message_id"`
+	DiscordChannelID       string `json:"discord_channel_id"`
+	DiscordUserID          string `json:"discord_user_id"`
+	DiscordUsername        string `json:"discord_username"`
 }
 
 // CreateMinionResponse is the response body for POST /api/minions.
