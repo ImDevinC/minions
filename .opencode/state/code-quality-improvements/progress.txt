@@ -6,6 +6,7 @@ Started: 2026-03-24
 - MaxBytesReader pattern: `r.Body = http.MaxBytesReader(w, r.Body, MaxRequestBodySize)` at start of handler
 - Test helper `newTestHandler(t)` creates handler with nil stores for validation-only tests
 - Panic recovery in tests catches expected DB nil panics to verify validation passed
+- scanMinion helper: `scanMinion(row Scanner) (*Minion, error)` centralizes 22-field scan; use `rows` (pgx.Rows) directly since it embeds Row
 
 ---
 <!-- Task logs below - APPEND ONLY -->
@@ -66,3 +67,13 @@ Started: 2026-03-24
 - Added strconv import to db/minions.go
 - Files changed: orchestrator/internal/api/minions.go, orchestrator/internal/db/minions.go
 - **Learnings:** strconv.Itoa is the stdlib way; custom helpers just add maintenance burden
+
+## Task - cleanup-2
+- Created Scanner interface: `Scan(dest ...any) error` for pgx.Row and pgx.Rows compatibility
+- Added scanMinion helper to scan all 22 Minion fields in canonical order
+- Added scanMinionWithOwner helper for queries with JOIN (23 fields: 22 + OwnerDiscordID)
+- Refactored 9 functions to use helpers: FindRecentDuplicate, GetByID, List, ListByStatuses, ListPending, ListIdleRunning, ListClarificationTimeouts, GetByClarificationMessageID, ListTerminalWithPodOlderThan
+- Terminate and Complete remain inline (they SELECT only 2-3 columns, not full minion)
+- Added TestScanMinion with mockScanner to verify all 22 fields populate correctly
+- Files changed: orchestrator/internal/db/minions.go, orchestrator/internal/db/minions_test.go
+- **Learnings:** Scanner interface unifies pgx.Row and pgx.Rows; embedding allows scanMinionWithOwner to reuse the field order

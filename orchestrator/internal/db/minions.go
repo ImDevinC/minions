@@ -24,6 +24,52 @@ type Pool interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 }
 
+// Scanner is satisfied by pgx.Row and pgx.Rows (which embeds Row).
+// Allows scanMinion to work with both single-row and multi-row queries.
+type Scanner interface {
+	Scan(dest ...any) error
+}
+
+// scanMinion scans all 22 Minion fields from a row in canonical order.
+// The SELECT must match: id, user_id, repo, task, model, status,
+// clarification_question, clarification_answer, clarification_message_id,
+// input_tokens, output_tokens, cost_usd, pr_url, error, session_id, pod_name,
+// discord_message_id, discord_channel_id, created_at, started_at, completed_at, last_activity_at
+func scanMinion(row Scanner) (*Minion, error) {
+	m := &Minion{}
+	err := row.Scan(
+		&m.ID, &m.UserID, &m.Repo, &m.Task, &m.Model, &m.Status,
+		&m.ClarificationQuestion, &m.ClarificationAnswer, &m.ClarificationMessageID,
+		&m.InputTokens, &m.OutputTokens, &m.CostUSD,
+		&m.PRURL, &m.Error, &m.SessionID, &m.PodName,
+		&m.DiscordMessageID, &m.DiscordChannelID,
+		&m.CreatedAt, &m.StartedAt, &m.CompletedAt, &m.LastActivityAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// scanMinionWithOwner scans all 22 Minion fields plus OwnerDiscordID (23rd field).
+// Used for queries that JOIN users table for owner validation.
+func scanMinionWithOwner(row Scanner) (*MinionWithOwner, error) {
+	m := &MinionWithOwner{}
+	err := row.Scan(
+		&m.ID, &m.UserID, &m.Repo, &m.Task, &m.Model, &m.Status,
+		&m.ClarificationQuestion, &m.ClarificationAnswer, &m.ClarificationMessageID,
+		&m.InputTokens, &m.OutputTokens, &m.CostUSD,
+		&m.PRURL, &m.Error, &m.SessionID, &m.PodName,
+		&m.DiscordMessageID, &m.DiscordChannelID,
+		&m.CreatedAt, &m.StartedAt, &m.CompletedAt, &m.LastActivityAt,
+		&m.OwnerDiscordID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // MinionStatus represents the lifecycle state of a minion.
 type MinionStatus string
 
@@ -168,8 +214,7 @@ func (s *MinionStore) FindRecentDuplicate(ctx context.Context, tx pgx.Tx, repo, 
 	}
 
 	// Check for existing minion with same repo+task in the duplicate window
-	var minion Minion
-	err = tx.QueryRow(ctx,
+	row := tx.QueryRow(ctx,
 		`SELECT id, user_id, repo, task, model, status,
 		        clarification_question, clarification_answer, clarification_message_id,
 		        input_tokens, output_tokens, cost_usd,
@@ -181,15 +226,9 @@ func (s *MinionStore) FindRecentDuplicate(ctx context.Context, tx pgx.Tx, repo, 
 		 ORDER BY created_at DESC
 		 LIMIT 1`,
 		repo, task, DuplicateWindow.String(),
-	).Scan(
-		&minion.ID, &minion.UserID, &minion.Repo, &minion.Task, &minion.Model, &minion.Status,
-		&minion.ClarificationQuestion, &minion.ClarificationAnswer, &minion.ClarificationMessageID,
-		&minion.InputTokens, &minion.OutputTokens, &minion.CostUSD,
-		&minion.PRURL, &minion.Error, &minion.SessionID, &minion.PodName,
-		&minion.DiscordMessageID, &minion.DiscordChannelID,
-		&minion.CreatedAt, &minion.StartedAt, &minion.CompletedAt, &minion.LastActivityAt,
 	)
 
+	minion, err := scanMinion(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return &FindDuplicateResult{Found: false}, nil
 	}
@@ -197,7 +236,7 @@ func (s *MinionStore) FindRecentDuplicate(ctx context.Context, tx pgx.Tx, repo, 
 		return nil, err
 	}
 
-	return &FindDuplicateResult{Found: true, ExistingMinion: &minion}, nil
+	return &FindDuplicateResult{Found: true, ExistingMinion: minion}, nil
 }
 
 // CreateOrFindDuplicateResult holds the result of CreateOrFindDuplicate.
@@ -286,8 +325,7 @@ func (s *MinionStore) CreateOrFindDuplicate(ctx context.Context, params CreateMi
 
 // GetByID retrieves a minion by ID.
 func (s *MinionStore) GetByID(ctx context.Context, id uuid.UUID) (*Minion, error) {
-	minion := &Minion{}
-	err := s.pool.QueryRow(ctx,
+	row := s.pool.QueryRow(ctx,
 		`SELECT id, user_id, repo, task, model, status,
 		        clarification_question, clarification_answer, clarification_message_id,
 		        input_tokens, output_tokens, cost_usd,
@@ -296,15 +334,9 @@ func (s *MinionStore) GetByID(ctx context.Context, id uuid.UUID) (*Minion, error
 		        created_at, started_at, completed_at, last_activity_at
 		 FROM minions WHERE id = $1`,
 		id,
-	).Scan(
-		&minion.ID, &minion.UserID, &minion.Repo, &minion.Task, &minion.Model, &minion.Status,
-		&minion.ClarificationQuestion, &minion.ClarificationAnswer, &minion.ClarificationMessageID,
-		&minion.InputTokens, &minion.OutputTokens, &minion.CostUSD,
-		&minion.PRURL, &minion.Error, &minion.SessionID, &minion.PodName,
-		&minion.DiscordMessageID, &minion.DiscordChannelID,
-		&minion.CreatedAt, &minion.StartedAt, &minion.CompletedAt, &minion.LastActivityAt,
 	)
 
+	minion, err := scanMinion(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -416,15 +448,7 @@ func (s *MinionStore) List(ctx context.Context, params ListMinionsParams) ([]*Mi
 
 	var minions []*Minion
 	for rows.Next() {
-		m := &Minion{}
-		err := rows.Scan(
-			&m.ID, &m.UserID, &m.Repo, &m.Task, &m.Model, &m.Status,
-			&m.ClarificationQuestion, &m.ClarificationAnswer, &m.ClarificationMessageID,
-			&m.InputTokens, &m.OutputTokens, &m.CostUSD,
-			&m.PRURL, &m.Error, &m.SessionID, &m.PodName,
-			&m.DiscordMessageID, &m.DiscordChannelID,
-			&m.CreatedAt, &m.StartedAt, &m.CompletedAt, &m.LastActivityAt,
-		)
+		m, err := scanMinion(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -699,15 +723,7 @@ func (s *MinionStore) ListByStatuses(ctx context.Context, statuses []MinionStatu
 
 	var minions []*Minion
 	for rows.Next() {
-		m := &Minion{}
-		err := rows.Scan(
-			&m.ID, &m.UserID, &m.Repo, &m.Task, &m.Model, &m.Status,
-			&m.ClarificationQuestion, &m.ClarificationAnswer, &m.ClarificationMessageID,
-			&m.InputTokens, &m.OutputTokens, &m.CostUSD,
-			&m.PRURL, &m.Error, &m.SessionID, &m.PodName,
-			&m.DiscordMessageID, &m.DiscordChannelID,
-			&m.CreatedAt, &m.StartedAt, &m.CompletedAt, &m.LastActivityAt,
-		)
+		m, err := scanMinion(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -742,15 +758,7 @@ func (s *MinionStore) ListPending(ctx context.Context) ([]*Minion, error) {
 
 	var minions []*Minion
 	for rows.Next() {
-		m := &Minion{}
-		err := rows.Scan(
-			&m.ID, &m.UserID, &m.Repo, &m.Task, &m.Model, &m.Status,
-			&m.ClarificationQuestion, &m.ClarificationAnswer, &m.ClarificationMessageID,
-			&m.InputTokens, &m.OutputTokens, &m.CostUSD,
-			&m.PRURL, &m.Error, &m.SessionID, &m.PodName,
-			&m.DiscordMessageID, &m.DiscordChannelID,
-			&m.CreatedAt, &m.StartedAt, &m.CompletedAt, &m.LastActivityAt,
-		)
+		m, err := scanMinion(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -821,15 +829,7 @@ func (s *MinionStore) ListIdleRunning(ctx context.Context, idleThreshold time.Du
 
 	var minions []*Minion
 	for rows.Next() {
-		m := &Minion{}
-		err := rows.Scan(
-			&m.ID, &m.UserID, &m.Repo, &m.Task, &m.Model, &m.Status,
-			&m.ClarificationQuestion, &m.ClarificationAnswer, &m.ClarificationMessageID,
-			&m.InputTokens, &m.OutputTokens, &m.CostUSD,
-			&m.PRURL, &m.Error, &m.SessionID, &m.PodName,
-			&m.DiscordMessageID, &m.DiscordChannelID,
-			&m.CreatedAt, &m.StartedAt, &m.CompletedAt, &m.LastActivityAt,
-		)
+		m, err := scanMinion(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -864,15 +864,7 @@ func (s *MinionStore) ListClarificationTimeouts(ctx context.Context, timeout tim
 
 	var minions []*Minion
 	for rows.Next() {
-		m := &Minion{}
-		err := rows.Scan(
-			&m.ID, &m.UserID, &m.Repo, &m.Task, &m.Model, &m.Status,
-			&m.ClarificationQuestion, &m.ClarificationAnswer, &m.ClarificationMessageID,
-			&m.InputTokens, &m.OutputTokens, &m.CostUSD,
-			&m.PRURL, &m.Error, &m.SessionID, &m.PodName,
-			&m.DiscordMessageID, &m.DiscordChannelID,
-			&m.CreatedAt, &m.StartedAt, &m.CompletedAt, &m.LastActivityAt,
-		)
+		m, err := scanMinion(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -897,8 +889,7 @@ type MinionWithOwner struct {
 // JOINs the users table to include the owner's Discord ID for reply validation.
 // Used for processing replies to clarification questions.
 func (s *MinionStore) GetByClarificationMessageID(ctx context.Context, messageID string) (*MinionWithOwner, error) {
-	m := &MinionWithOwner{}
-	err := s.pool.QueryRow(ctx,
+	row := s.pool.QueryRow(ctx,
 		`SELECT m.id, m.user_id, m.repo, m.task, m.model, m.status,
 		        m.clarification_question, m.clarification_answer, m.clarification_message_id,
 		        m.input_tokens, m.output_tokens, m.cost_usd,
@@ -910,16 +901,9 @@ func (s *MinionStore) GetByClarificationMessageID(ctx context.Context, messageID
 		 JOIN users u ON m.user_id = u.id
 		 WHERE m.clarification_message_id = $1`,
 		messageID,
-	).Scan(
-		&m.ID, &m.UserID, &m.Repo, &m.Task, &m.Model, &m.Status,
-		&m.ClarificationQuestion, &m.ClarificationAnswer, &m.ClarificationMessageID,
-		&m.InputTokens, &m.OutputTokens, &m.CostUSD,
-		&m.PRURL, &m.Error, &m.SessionID, &m.PodName,
-		&m.DiscordMessageID, &m.DiscordChannelID,
-		&m.CreatedAt, &m.StartedAt, &m.CompletedAt, &m.LastActivityAt,
-		&m.OwnerDiscordID,
 	)
 
+	m, err := scanMinionWithOwner(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -963,15 +947,7 @@ func (s *MinionStore) ListTerminalWithPodOlderThan(ctx context.Context, age time
 
 	var minions []*Minion
 	for rows.Next() {
-		m := &Minion{}
-		err := rows.Scan(
-			&m.ID, &m.UserID, &m.Repo, &m.Task, &m.Model, &m.Status,
-			&m.ClarificationQuestion, &m.ClarificationAnswer, &m.ClarificationMessageID,
-			&m.InputTokens, &m.OutputTokens, &m.CostUSD,
-			&m.PRURL, &m.Error, &m.SessionID, &m.PodName,
-			&m.DiscordMessageID, &m.DiscordChannelID,
-			&m.CreatedAt, &m.StartedAt, &m.CompletedAt, &m.LastActivityAt,
-		)
+		m, err := scanMinion(rows)
 		if err != nil {
 			return nil, err
 		}

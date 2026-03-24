@@ -102,7 +102,7 @@
         "Test scanMinion helper correctly populates all 22 fields",
         "Verify Terminate and Complete queries still work correctly (different column sets)"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "cleanup-3",
