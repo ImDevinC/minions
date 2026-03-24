@@ -128,7 +128,7 @@
         "Run go build ./... in orchestrator - builds successfully",
         "Run go build ./... in discord-bot - builds successfully"
       ],
-      "passes": false
+      "passes": true
     }
   ],
   "context": {
