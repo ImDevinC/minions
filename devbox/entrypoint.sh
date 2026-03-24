@@ -265,16 +265,41 @@ is_on_feature_branch() {
 # Uses gh CLI to find PR for current branch
 detect_pr_url() {
     log "Detecting PR URL for current branch"
-    
-    local pr_url
-    pr_url=$(gh pr view HEAD --json url -q '.url' 2>/dev/null || echo "")
-    
-    if [[ -n "$pr_url" ]]; then
-        log "Found PR: ${pr_url}"
+
+    local current_branch
+    current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+    if [[ -z "$current_branch" || "$current_branch" == "HEAD" ]]; then
+        log "Unable to detect current branch for PR lookup"
+        return 1
+    fi
+
+    local pr_url=""
+
+    # Strategy 1: inspect PR associated with the checked-out branch.
+    # `gh pr view HEAD` looks up a branch literally named "HEAD", which fails.
+    pr_url=$(gh pr view --json url -q '.url' 2>/dev/null || echo "")
+    if [[ -n "$pr_url" && "$pr_url" != "null" ]]; then
+        log "Found PR via current branch context: ${pr_url}"
         echo "$pr_url"
         return 0
     fi
-    
+
+    # Strategy 2: inspect PR by explicit branch name.
+    pr_url=$(gh pr view "$current_branch" --json url -q '.url' 2>/dev/null || echo "")
+    if [[ -n "$pr_url" && "$pr_url" != "null" ]]; then
+        log "Found PR via branch lookup (${current_branch}): ${pr_url}"
+        echo "$pr_url"
+        return 0
+    fi
+
+    # Strategy 3: fall back to listing PRs by head branch.
+    pr_url=$(gh pr list --state all --head "$current_branch" --limit 1 --json url -q '.[0].url' 2>/dev/null || echo "")
+    if [[ -n "$pr_url" && "$pr_url" != "null" ]]; then
+        log "Found PR via head-branch search (${current_branch}): ${pr_url}"
+        echo "$pr_url"
+        return 0
+    fi
+
     log "No PR found for current branch"
     return 1
 }
