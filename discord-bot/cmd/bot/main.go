@@ -60,6 +60,16 @@ func main() {
 		os.Exit(1)
 	}
 
+	allowedGuildID := os.Getenv("DISCORD_ALLOWED_GUILD_ID")
+	allowedRoleID := os.Getenv("DISCORD_ALLOWED_ROLE_ID")
+
+	if allowedGuildID != "" {
+		logger.Info("discord command restriction enabled", "allowed_guild_id", allowedGuildID)
+	}
+	if allowedRoleID != "" {
+		logger.Info("discord command role restriction enabled", "allowed_role_id", allowedRoleID)
+	}
+
 	// Create orchestrator client for minion creation + rate limiting
 	orchClient := orchestrator.NewClient(orchestratorURL, apiToken)
 
@@ -89,7 +99,15 @@ func main() {
 	})
 
 	// Add message handler for @minion mentions
-	msgHandler := handler.NewMessageHandler(logger, orchClient, clarifyHandler)
+	msgHandler := handler.NewMessageHandler(
+		logger,
+		orchClient,
+		clarifyHandler,
+		handler.AccessRestrictions{
+			AllowedGuildID: allowedGuildID,
+			AllowedRoleID:  allowedRoleID,
+		},
+	)
 	discord.AddHandler(msgHandler.Handle)
 	// Also handle replies to clarification questions
 	discord.AddHandler(msgHandler.HandleReply)

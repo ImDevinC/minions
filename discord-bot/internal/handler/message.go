@@ -46,17 +46,32 @@ type ClarificationEvaluator interface {
 
 // MessageHandler handles incoming Discord messages
 type MessageHandler struct {
-	logger        *slog.Logger
-	orchestrator  Orchestrator
-	clarification ClarificationEvaluator
+	logger         *slog.Logger
+	orchestrator   Orchestrator
+	clarification  ClarificationEvaluator
+	allowedGuildID string
+	allowedRoleID  string
+}
+
+// AccessRestrictions configures optional Discord command access restrictions.
+type AccessRestrictions struct {
+	AllowedGuildID string
+	AllowedRoleID  string
 }
 
 // NewMessageHandler creates a new message handler
-func NewMessageHandler(logger *slog.Logger, orch Orchestrator, clarification ClarificationEvaluator) *MessageHandler {
+func NewMessageHandler(
+	logger *slog.Logger,
+	orch Orchestrator,
+	clarification ClarificationEvaluator,
+	restrictions AccessRestrictions,
+) *MessageHandler {
 	return &MessageHandler{
-		logger:        logger,
-		orchestrator:  orch,
-		clarification: clarification,
+		logger:         logger,
+		orchestrator:   orch,
+		clarification:  clarification,
+		allowedGuildID: restrictions.AllowedGuildID,
+		allowedRoleID:  restrictions.AllowedRoleID,
 	}
 }
 
@@ -64,6 +79,10 @@ func NewMessageHandler(logger *slog.Logger, orch Orchestrator, clarification Cla
 func (h *MessageHandler) Handle(s *discordgo.Session, m *discordgo.MessageCreate) {
 	// Ignore messages from bots (including ourselves)
 	if m.Author.Bot {
+		return
+	}
+
+	if !h.isCommandAllowed(s, m.Message) {
 		return
 	}
 
@@ -326,6 +345,10 @@ func (h *MessageHandler) HandleReply(s *discordgo.Session, m *discordgo.MessageC
 		return
 	}
 
+	if !h.isCommandAllowed(s, m.Message) {
+		return
+	}
+
 	ctx := context.Background()
 	referencedMsgID := m.MessageReference.MessageID
 
@@ -407,4 +430,75 @@ func (h *MessageHandler) HandleReply(s *discordgo.Session, m *discordgo.MessageC
 	if sendErr != nil {
 		h.logger.Error("failed to send confirmation", "error", sendErr)
 	}
+}
+
+// isCommandAllowed checks optional guild/role restrictions for command execution.
+func (h *MessageHandler) isCommandAllowed(s *discordgo.Session, msg *discordgo.Message) bool {
+	if h.allowedGuildID == "" && h.allowedRoleID == "" {
+		return true
+	}
+
+	if msg.GuildID == "" {
+		h.logger.Info("ignoring command from non-guild context",
+			"author_id", msg.Author.ID,
+			"channel_id", msg.ChannelID,
+		)
+		return false
+	}
+
+	if h.allowedGuildID != "" && msg.GuildID != h.allowedGuildID {
+		h.logger.Info("ignoring command from unauthorized guild",
+			"author_id", msg.Author.ID,
+			"channel_id", msg.ChannelID,
+			"guild_id", msg.GuildID,
+		)
+		return false
+	}
+
+	if h.allowedRoleID == "" {
+		return true
+	}
+
+	roles, err := h.resolveMemberRoles(s, msg)
+	if err != nil {
+		h.logger.Warn("failed to resolve member roles for command authorization",
+			"error", err,
+			"author_id", msg.Author.ID,
+			"guild_id", msg.GuildID,
+		)
+		return false
+	}
+
+	if !hasRole(roles, h.allowedRoleID) {
+		h.logger.Info("ignoring command from user without required role",
+			"author_id", msg.Author.ID,
+			"guild_id", msg.GuildID,
+		)
+		return false
+	}
+
+	return true
+}
+
+func (h *MessageHandler) resolveMemberRoles(s *discordgo.Session, msg *discordgo.Message) ([]string, error) {
+	if msg.Member != nil {
+		return msg.Member.Roles, nil
+	}
+
+	member, err := s.GuildMember(msg.GuildID, msg.Author.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return member.Roles, nil
+}
+
+func hasRole(roleIDs []string, requiredRoleID string) bool {
+	for _, roleID := range roleIDs {
+		if roleID == requiredRoleID {
+			return true
+		}
+	}
+
+	return false
 }
