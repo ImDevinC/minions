@@ -3,7 +3,11 @@ package handler
 import (
 	"context"
 	"errors"
+	"io"
+	"log/slog"
 	"testing"
+
+	"github.com/bwmarrin/discordgo"
 
 	"github.com/anomalyco/minions/discord-bot/internal/clarify"
 	"github.com/anomalyco/minions/discord-bot/internal/orchestrator"
@@ -293,5 +297,69 @@ func TestMockOrchestrator_SetClarificationAnswer_NotFound(t *testing.T) {
 	err := mock.SetClarificationAnswer(context.Background(), "unknown-minion", "some answer")
 	if !errors.Is(err, orchestrator.ErrClarificationNotFound) {
 		t.Errorf("expected ErrClarificationNotFound, got %v", err)
+	}
+}
+
+func TestMessageHandler_IsCommandAllowed_GuildOnlyRestriction(t *testing.T) {
+	h := NewMessageHandler(
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		&mockOrchestrator{},
+		&mockClarificationEvaluator{},
+		AccessRestrictions{AllowedGuildID: "guild-1"},
+	)
+
+	allowedMsg := &discordgo.Message{
+		GuildID:   "guild-1",
+		ChannelID: "channel-1",
+		Author:    &discordgo.User{ID: "user-1"},
+	}
+	if !h.isCommandAllowed(nil, allowedMsg) {
+		t.Fatal("expected command to be allowed for configured guild")
+	}
+
+	wrongGuildMsg := &discordgo.Message{
+		GuildID:   "guild-2",
+		ChannelID: "channel-1",
+		Author:    &discordgo.User{ID: "user-1"},
+	}
+	if h.isCommandAllowed(nil, wrongGuildMsg) {
+		t.Fatal("expected command to be rejected for different guild")
+	}
+
+	directMsg := &discordgo.Message{
+		ChannelID: "dm-channel",
+		Author:    &discordgo.User{ID: "user-1"},
+	}
+	if h.isCommandAllowed(nil, directMsg) {
+		t.Fatal("expected command to be rejected outside guild context")
+	}
+}
+
+func TestMessageHandler_IsCommandAllowed_RoleRestriction(t *testing.T) {
+	h := NewMessageHandler(
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		&mockOrchestrator{},
+		&mockClarificationEvaluator{},
+		AccessRestrictions{AllowedGuildID: "guild-1", AllowedRoleID: "role-admin"},
+	)
+
+	allowedMsg := &discordgo.Message{
+		GuildID:   "guild-1",
+		ChannelID: "channel-1",
+		Author:    &discordgo.User{ID: "user-1"},
+		Member:    &discordgo.Member{Roles: []string{"role-user", "role-admin"}},
+	}
+	if !h.isCommandAllowed(nil, allowedMsg) {
+		t.Fatal("expected command to be allowed for user with required role")
+	}
+
+	missingRoleMsg := &discordgo.Message{
+		GuildID:   "guild-1",
+		ChannelID: "channel-1",
+		Author:    &discordgo.User{ID: "user-1"},
+		Member:    &discordgo.Member{Roles: []string{"role-user"}},
+	}
+	if h.isCommandAllowed(nil, missingRoleMsg) {
+		t.Fatal("expected command to be rejected for user without required role")
 	}
 }

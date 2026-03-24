@@ -200,6 +200,8 @@ Message Content Intent is probably disabled. Go to Bot > Privileged Gateway Inte
 | `ORCHESTRATOR_URL` | URL of orchestrator service |
 | `INTERNAL_API_TOKEN` | Shared secret for service auth |
 | `OPENAI_API_KEY` | API key for clarification LLM (OpenRouter) |
+| `DISCORD_ALLOWED_GUILD_ID` | Optional guild ID restriction for command acceptance |
+| `DISCORD_ALLOWED_ROLE_ID` | Optional role ID restriction for command acceptance |
 
 ### Control Panel
 
