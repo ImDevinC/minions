@@ -110,6 +110,17 @@ func (h *MessageHandler) Handle(s *discordgo.Session, m *discordgo.MessageCreate
 			"message_id", m.ID,
 		)
 		// Continue processing even if reaction fails
+	} else {
+		// Remove thinking emoji when processing completes (success or failure)
+		defer func() {
+			if err := s.MessageReactionRemove(m.ChannelID, m.ID, ThinkingEmoji, "@me"); err != nil {
+				h.logger.Debug("failed to remove thinking reaction",
+					"error", err,
+					"channel_id", m.ChannelID,
+					"message_id", m.ID,
+				)
+			}
+		}()
 	}
 
 	// Strip the mention and parse the command
@@ -393,6 +404,17 @@ func (h *MessageHandler) HandleReply(s *discordgo.Session, m *discordgo.MessageC
 			"channel_id", m.ChannelID,
 			"message_id", m.ID,
 		)
+	} else {
+		// Remove thinking emoji when processing completes (success or failure)
+		defer func() {
+			if err := s.MessageReactionRemove(m.ChannelID, m.ID, ThinkingEmoji, "@me"); err != nil {
+				h.logger.Debug("failed to remove thinking reaction",
+					"error", err,
+					"channel_id", m.ChannelID,
+					"message_id", m.ID,
+				)
+			}
+		}()
 	}
 
 	// Get the answer (the content of the reply)

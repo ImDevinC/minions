@@ -115,7 +115,7 @@
         "Manual verification: thinking emoji removed after successful minion spawn",
         "Manual verification: thinking emoji removed after failed minion spawn"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "testing-1",

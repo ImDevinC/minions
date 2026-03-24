@@ -77,3 +77,12 @@ Started: 2026-03-24
 - Added TestScanMinion with mockScanner to verify all 22 fields populate correctly
 - Files changed: orchestrator/internal/db/minions.go, orchestrator/internal/db/minions_test.go
 - **Learnings:** Scanner interface unifies pgx.Row and pgx.Rows; embedding allows scanMinionWithOwner to reuse the field order
+
+## Task - cleanup-3
+- Added defer in Handle (line 115-123) to remove thinking emoji after processing completes
+- Added defer in HandleReply (line 408-417) to remove thinking emoji after processing completes
+- Both use `s.MessageReactionRemove(channelID, messageID, ThinkingEmoji, "@me")`
+- Removal failures logged at Debug level (cosmetic, not Error)
+- Defer only registered in else branch (only if emoji was successfully added)
+- Files changed: discord-bot/internal/handler/message.go
+- **Learnings:** Using else branch for defer avoids trying to remove an emoji that was never added; "@me" is Discord API shorthand for the bot's own user ID
