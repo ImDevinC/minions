@@ -45,3 +45,9 @@ Started: 2026-03-24
 - Added TestContextTimeoutPropagation test with 4 subtests verifying deadline propagation
 - Files changed: discord-bot/internal/handler/message.go, discord-bot/internal/handler/message_test.go
 - **Learnings:** Pattern: create timeout context early with defer cancel(); the defer still runs when function returns early
+
+## Task - errors-1
+- Deleted isErrorType, containsError, containsSubstring helper functions (28 lines removed)
+- Updated handleParseError to use errors.Is() for all 5 command error cases
+- Files changed: discord-bot/internal/handler/message.go
+- **Learnings:** errors.Is() works directly with sentinel errors from errors.New(); no need for custom string matching

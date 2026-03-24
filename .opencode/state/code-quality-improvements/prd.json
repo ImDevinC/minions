@@ -64,7 +64,7 @@
         "handleParseError uses errors.Is(err, command.ErrMissingRepo) pattern",
         "All error type checks in message.go use standard library functions"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "devbox-1",
