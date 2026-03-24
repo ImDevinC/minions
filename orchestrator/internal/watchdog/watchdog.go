@@ -28,6 +28,10 @@ const (
 	// The PRD says every 10 minutes, but we piggyback on the existing CheckInterval (5 min).
 	// To maintain the 10-min cadence, we track state and skip every other check.
 	ClarificationCheckInterval = 10 * time.Minute
+
+	// TerminalPodCleanupDelay is how long to keep completed/failed/terminated minion pods
+	// before the orchestrator performs cleanup.
+	TerminalPodCleanupDelay = 1 * time.Hour
 )
 
 // MinionQuerier provides read access to minion data for watchdog checks.
@@ -40,12 +44,22 @@ type MinionQuerier interface {
 
 	// MarkFailed marks a minion as failed with the given error message.
 	MarkFailed(ctx context.Context, id uuid.UUID, errorMsg string) error
+
+	// ListTerminalWithPodOlderThan returns terminal minions that still have pod_name set
+	// and were completed before the given age threshold.
+	ListTerminalWithPodOlderThan(ctx context.Context, age time.Duration) ([]*db.Minion, error)
+
+	// ClearPodName clears pod_name for a minion after pod cleanup.
+	ClearPodName(ctx context.Context, id uuid.UUID) error
 }
 
 // PodStatusChecker checks pod health status.
 type PodStatusChecker interface {
 	// ListPods returns all minion pods in the namespace.
 	ListPods(ctx context.Context) ([]k8s.PodInfo, error)
+
+	// TerminatePod deletes a pod by name.
+	TerminatePod(ctx context.Context, podName string) error
 }
 
 // SSEDisconnector handles disconnecting SSE streams from minions.
@@ -129,11 +143,15 @@ func (w *Watchdog) runChecks(ctx context.Context) {
 		w.lastClarificationChk = time.Now()
 	}
 
-	if idleCount > 0 || failedCount > 0 || clarificationTimeoutCount > 0 {
+	// Clean up terminal minion pods that have exceeded retention period.
+	terminalCleanupCount := w.cleanupTerminalPods(ctx)
+
+	if idleCount > 0 || failedCount > 0 || clarificationTimeoutCount > 0 || terminalCleanupCount > 0 {
 		w.logger.Info("watchdog check completed",
 			"idle_minions_alerted", idleCount,
 			"failed_pods_handled", failedCount,
 			"clarification_timeouts", clarificationTimeoutCount,
+			"terminal_pods_cleaned", terminalCleanupCount,
 		)
 	}
 }
@@ -286,4 +304,46 @@ func (w *Watchdog) checkClarificationTimeouts(ctx context.Context) int {
 	}
 
 	return handledCount
+}
+
+// cleanupTerminalPods deletes pods for terminal minions once retention has elapsed.
+func (w *Watchdog) cleanupTerminalPods(ctx context.Context) int {
+	minions, err := w.minions.ListTerminalWithPodOlderThan(ctx, TerminalPodCleanupDelay)
+	if err != nil {
+		w.logger.Error("failed to query terminal minions for pod cleanup", "error", err)
+		return 0
+	}
+
+	cleanedCount := 0
+	for _, m := range minions {
+		if m.PodName == nil || *m.PodName == "" {
+			continue
+		}
+
+		if err := w.pods.TerminatePod(ctx, *m.PodName); err != nil {
+			w.logger.Error("failed to terminate terminal minion pod",
+				"minion_id", m.ID,
+				"pod_name", *m.PodName,
+				"error", err,
+			)
+			continue
+		}
+
+		if err := w.minions.ClearPodName(ctx, m.ID); err != nil {
+			w.logger.Error("failed to clear pod_name after pod cleanup",
+				"minion_id", m.ID,
+				"pod_name", *m.PodName,
+				"error", err,
+			)
+			continue
+		}
+
+		w.logger.Info("cleaned up terminal minion pod",
+			"minion_id", m.ID,
+			"pod_name", *m.PodName,
+		)
+		cleanedCount++
+	}
+
+	return cleanedCount
 }

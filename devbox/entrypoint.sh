@@ -415,8 +415,11 @@ handle_completion() {
                     log "FATAL: Failed to notify orchestrator after ${CALLBACK_MAX_RETRIES} attempts"
                     exit 1
                 fi
-                exit 1
             fi
+            # Timeout is a handled terminal condition for the pod lifecycle.
+            # Exit 0 so Kubernetes marks the pod as Succeeded, then orchestrator
+            # performs delayed cleanup of terminal pods.
+            exit 0
             ;;
         3)
             # OpenCode process died
