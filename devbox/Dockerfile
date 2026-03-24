@@ -1,7 +1,11 @@
 # Devbox image for running minion tasks
-# Built on golang:1.22-bookworm for Go toolchain + Debian-based packages
+# Built on debian:bookworm-slim with explicit Go and Node.js installations
 
-FROM golang:1.22-bookworm AS base
+FROM debian:bookworm-slim AS base
+
+# Build arguments for toolchain versions
+ARG GO_VERSION=1.26.1
+ARG NODE_MAJOR=24
 
 # OCI image labels
 LABEL org.opencontainers.image.source="https://github.com/ImDevinC/minions"
@@ -12,8 +16,28 @@ LABEL org.opencontainers.image.licenses="MIT"
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
+    wget \
+    gnupg \
     jq \
     ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Go
+RUN ARCH=$(dpkg --print-architecture) \
+    && case "$ARCH" in \
+        amd64) GO_ARCH="amd64" ;; \
+        arm64) GO_ARCH="arm64" ;; \
+        *) echo "Unsupported architecture: $ARCH" && exit 1 ;; \
+    esac \
+    && wget -q "https://go.dev/dl/go${GO_VERSION}.linux-${GO_ARCH}.tar.gz" -O /tmp/go.tar.gz \
+    && tar -C /usr/local -xzf /tmp/go.tar.gz \
+    && rm /tmp/go.tar.gz \
+    && ln -s /usr/local/go/bin/go /usr/local/bin/go \
+    && ln -s /usr/local/go/bin/gofmt /usr/local/bin/gofmt
+
+# Install Node.js and npm
+RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - \
+    && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # Install GitHub CLI
@@ -77,6 +101,9 @@ USER minion
 RUN git --version \
     && curl --version | head -n1 \
     && jq --version \
+    && go version \
+    && node --version \
+    && npm --version \
     && gh --version | head -n1 \
     && opencode --version
 
