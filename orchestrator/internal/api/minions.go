@@ -931,6 +931,7 @@ func parseTimestamp(s string) (time.Time, error) {
 
 // HandleGetByClarificationMessageID handles GET /api/minions/by-clarification/{messageId}.
 // Looks up a minion by its Discord clarification message ID.
+// Includes discord_user_id from the joined users table for reply validation.
 func (h *MinionHandler) HandleGetByClarificationMessageID(w http.ResponseWriter, r *http.Request) {
 	messageID := chi.URLParam(r, "messageId")
 	if messageID == "" {
@@ -958,6 +959,7 @@ func (h *MinionHandler) HandleGetByClarificationMessageID(w http.ResponseWriter,
 		Status                string  `json:"status"`
 		ClarificationQuestion *string `json:"clarification_question,omitempty"`
 		DiscordChannelID      *string `json:"discord_channel_id,omitempty"`
+		DiscordUserID         string  `json:"discord_user_id"`
 	}{
 		ID:                    minion.ID.String(),
 		Repo:                  minion.Repo,
@@ -966,6 +968,7 @@ func (h *MinionHandler) HandleGetByClarificationMessageID(w http.ResponseWriter,
 		Status:                string(minion.Status),
 		ClarificationQuestion: minion.ClarificationQuestion,
 		DiscordChannelID:      minion.DiscordChannelID,
+		DiscordUserID:         minion.OwnerDiscordID,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

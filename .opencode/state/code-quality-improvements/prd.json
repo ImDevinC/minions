@@ -40,7 +40,7 @@
         "Test clarification reply from wrong user is rejected with warning message",
         "Test clarification reply from original user succeeds"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "context-1",

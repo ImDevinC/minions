@@ -900,18 +900,29 @@ func (s *MinionStore) ListClarificationTimeouts(ctx context.Context, timeout tim
 	return minions, nil
 }
 
+// MinionWithOwner extends Minion with owner's Discord ID from the joined users table.
+// Used for clarification reply validation.
+type MinionWithOwner struct {
+	Minion
+	OwnerDiscordID string
+}
+
 // GetByClarificationMessageID looks up a minion by its Discord clarification message ID.
+// JOINs the users table to include the owner's Discord ID for reply validation.
 // Used for processing replies to clarification questions.
-func (s *MinionStore) GetByClarificationMessageID(ctx context.Context, messageID string) (*Minion, error) {
-	m := &Minion{}
+func (s *MinionStore) GetByClarificationMessageID(ctx context.Context, messageID string) (*MinionWithOwner, error) {
+	m := &MinionWithOwner{}
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, user_id, repo, task, model, status,
-		        clarification_question, clarification_answer, clarification_message_id,
-		        input_tokens, output_tokens, cost_usd,
-		        pr_url, error, session_id, pod_name,
-		        discord_message_id, discord_channel_id,
-		        created_at, started_at, completed_at, last_activity_at
-		 FROM minions WHERE clarification_message_id = $1`,
+		`SELECT m.id, m.user_id, m.repo, m.task, m.model, m.status,
+		        m.clarification_question, m.clarification_answer, m.clarification_message_id,
+		        m.input_tokens, m.output_tokens, m.cost_usd,
+		        m.pr_url, m.error, m.session_id, m.pod_name,
+		        m.discord_message_id, m.discord_channel_id,
+		        m.created_at, m.started_at, m.completed_at, m.last_activity_at,
+		        u.discord_id
+		 FROM minions m
+		 JOIN users u ON m.user_id = u.id
+		 WHERE m.clarification_message_id = $1`,
 		messageID,
 	).Scan(
 		&m.ID, &m.UserID, &m.Repo, &m.Task, &m.Model, &m.Status,
@@ -920,6 +931,7 @@ func (s *MinionStore) GetByClarificationMessageID(ctx context.Context, messageID
 		&m.PRURL, &m.Error, &m.SessionID, &m.PodName,
 		&m.DiscordMessageID, &m.DiscordChannelID,
 		&m.CreatedAt, &m.StartedAt, &m.CompletedAt, &m.LastActivityAt,
+		&m.OwnerDiscordID,
 	)
 
 	if errors.Is(err, pgx.ErrNoRows) {

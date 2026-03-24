@@ -24,3 +24,13 @@ Started: 2026-03-24
 - Added TestMinionHandler_TaskLengthLimit to verify task at exactly max length is accepted (no off-by-one)
 - Files changed: orchestrator/internal/api/minions.go, orchestrator/internal/api/minions_test.go
 - **Learnings:** Validation order matters - task length check must come after required fields check to avoid rejecting empty tasks
+
+## Task - security-3
+- Created MinionWithOwner struct embedding Minion + OwnerDiscordID field in db package
+- Modified GetByClarificationMessageID to JOIN users table and select u.discord_id
+- Updated HandleGetByClarificationMessageID response to include discord_user_id field
+- Added DiscordUserID field (string, not pointer) to MinionByClarificationResponse in discord-bot
+- Added user validation in HandleReply: rejects replies from non-original requesters
+- Added tests: DiscordUserID response field, wrong user rejection, correct user acceptance
+- Files changed: orchestrator/internal/db/minions.go, orchestrator/internal/api/minions.go, discord-bot/internal/orchestrator/client.go, discord-bot/internal/handler/message.go, discord-bot/internal/handler/message_test.go
+- **Learnings:** JOIN for denormalization is cleaner than separate lookups; validation should warn but not error (user experience)

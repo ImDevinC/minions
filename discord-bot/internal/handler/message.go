@@ -384,6 +384,18 @@ func (h *MessageHandler) HandleReply(s *discordgo.Session, m *discordgo.MessageC
 		return
 	}
 
+	// Validate that the reply is from the original requester
+	if minion.DiscordUserID != m.Author.ID {
+		h.logger.Warn("clarification reply from wrong user",
+			"minion_id", minion.ID,
+			"expected_user", minion.DiscordUserID,
+			"actual_user", m.Author.ID,
+		)
+		msg := "⚠️ Only the original requester can answer clarification questions."
+		_, _ = s.ChannelMessageSendReply(m.ChannelID, msg, m.Reference())
+		return
+	}
+
 	// React with thinking emoji to acknowledge
 	if err := s.MessageReactionAdd(m.ChannelID, m.ID, ThinkingEmoji); err != nil {
 		h.logger.Error("failed to add thinking reaction",

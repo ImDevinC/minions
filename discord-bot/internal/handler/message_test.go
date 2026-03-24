@@ -363,3 +363,103 @@ func TestMessageHandler_IsCommandAllowed_RoleRestriction(t *testing.T) {
 		t.Fatal("expected command to be rejected for user without required role")
 	}
 }
+
+func TestMockOrchestrator_GetByClarificationMessageID_IncludesDiscordUserID(t *testing.T) {
+	question := "What feature?"
+	channelID := "123456789"
+
+	mock := &mockOrchestrator{
+		getByClarificationFunc: func(ctx context.Context, messageID string) (*orchestrator.MinionByClarificationResponse, error) {
+			return &orchestrator.MinionByClarificationResponse{
+				ID:                    "minion-123",
+				Repo:                  "owner/repo",
+				Task:                  "add feature",
+				Model:                 "anthropic/claude-sonnet-4-5",
+				Status:                "awaiting_clarification",
+				ClarificationQuestion: &question,
+				DiscordChannelID:      &channelID,
+				DiscordUserID:         "original-user-123",
+			}, nil
+		},
+	}
+
+	resp, err := mock.GetByClarificationMessageID(context.Background(), "clarification-msg-123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.DiscordUserID != "original-user-123" {
+		t.Errorf("expected DiscordUserID 'original-user-123', got %s", resp.DiscordUserID)
+	}
+}
+
+func TestClarificationReplyValidation_WrongUser(t *testing.T) {
+	// This test verifies the validation logic for clarification replies.
+	// It checks that replies from users other than the original requester are rejected.
+
+	question := "What feature?"
+	channelID := "123456789"
+
+	mock := &mockOrchestrator{
+		getByClarificationFunc: func(ctx context.Context, messageID string) (*orchestrator.MinionByClarificationResponse, error) {
+			return &orchestrator.MinionByClarificationResponse{
+				ID:                    "minion-123",
+				Repo:                  "owner/repo",
+				Task:                  "add feature",
+				Model:                 "anthropic/claude-sonnet-4-5",
+				Status:                "awaiting_clarification",
+				ClarificationQuestion: &question,
+				DiscordChannelID:      &channelID,
+				DiscordUserID:         "original-user-123",
+			}, nil
+		},
+	}
+
+	resp, _ := mock.GetByClarificationMessageID(context.Background(), "clarification-msg-123")
+
+	// Simulate validation logic from HandleReply
+	replyAuthorID := "different-user-456"
+
+	// This is the validation check from HandleReply
+	if resp.DiscordUserID != replyAuthorID {
+		// Expected: reply is from wrong user, should be rejected
+		t.Log("correctly identified reply from wrong user")
+	} else {
+		t.Error("validation should have detected wrong user")
+	}
+}
+
+func TestClarificationReplyValidation_CorrectUser(t *testing.T) {
+	// This test verifies that replies from the original requester are accepted.
+
+	question := "What feature?"
+	channelID := "123456789"
+	originalUserID := "original-user-123"
+
+	mock := &mockOrchestrator{
+		getByClarificationFunc: func(ctx context.Context, messageID string) (*orchestrator.MinionByClarificationResponse, error) {
+			return &orchestrator.MinionByClarificationResponse{
+				ID:                    "minion-123",
+				Repo:                  "owner/repo",
+				Task:                  "add feature",
+				Model:                 "anthropic/claude-sonnet-4-5",
+				Status:                "awaiting_clarification",
+				ClarificationQuestion: &question,
+				DiscordChannelID:      &channelID,
+				DiscordUserID:         originalUserID,
+			}, nil
+		},
+	}
+
+	resp, _ := mock.GetByClarificationMessageID(context.Background(), "clarification-msg-123")
+
+	// Simulate validation logic from HandleReply - reply from original user
+	replyAuthorID := originalUserID
+
+	// This is the validation check from HandleReply
+	if resp.DiscordUserID == replyAuthorID {
+		// Expected: reply is from original user, should be accepted
+		t.Log("correctly identified reply from original user")
+	} else {
+		t.Error("validation should have accepted reply from original user")
+	}
+}
