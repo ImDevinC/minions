@@ -98,6 +98,9 @@ var repoRegex = regexp.MustCompile(`^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+(/[a-zA-Z0-9
 // MaxRequestBodySize is the maximum allowed request body size (1MB).
 const MaxRequestBodySize = 1 << 20 // 1MB
 
+// MaxTaskLength is the maximum allowed task content length (10,000 characters).
+const MaxTaskLength = 10000
+
 // allowedModelPrefixes defines valid model provider prefixes
 var allowedModelPrefixes = []string{"anthropic/", "openai/"}
 
@@ -114,6 +117,12 @@ func (h *MinionHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 	// Validate required fields
 	if req.Repo == "" || req.Task == "" || req.DiscordUserID == "" {
 		h.writeError(w, http.StatusBadRequest, "missing required fields: repo, task, discord_user_id", "")
+		return
+	}
+
+	// Validate task length
+	if len(req.Task) > MaxTaskLength {
+		h.writeError(w, http.StatusBadRequest, "task exceeds maximum length of 10,000 characters", "TASK_TOO_LONG")
 		return
 	}
 

@@ -24,7 +24,7 @@
         "HandleCreate rejects tasks exceeding MaxTaskLength with 400 and code TASK_TOO_LONG",
         "Test HandleCreate rejects task > 10,000 chars with TASK_TOO_LONG"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "security-3",
