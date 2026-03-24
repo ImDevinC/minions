@@ -913,6 +913,62 @@ type SetClarificationAnswerParams struct {
 	Answer string
 }
 
+// ListTerminalWithPodOlderThan returns terminal minions that still have pod_name set
+// and were completed before the provided age threshold.
+// Used by watchdog to perform delayed pod cleanup.
+func (s *MinionStore) ListTerminalWithPodOlderThan(ctx context.Context, age time.Duration) ([]*Minion, error) {
+	query := `SELECT id, user_id, repo, task, model, status,
+		        clarification_question, clarification_answer, clarification_message_id,
+		        input_tokens, output_tokens, cost_usd,
+		        pr_url, error, session_id, pod_name,
+		        discord_message_id, discord_channel_id,
+		        created_at, started_at, completed_at, last_activity_at
+	 FROM minions
+	 WHERE status IN ('completed', 'failed', 'terminated')
+	   AND pod_name IS NOT NULL
+	   AND completed_at IS NOT NULL
+	   AND completed_at < NOW() - $1::interval`
+
+	rows, err := s.pool.Query(ctx, query, age.String())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var minions []*Minion
+	for rows.Next() {
+		m := &Minion{}
+		err := rows.Scan(
+			&m.ID, &m.UserID, &m.Repo, &m.Task, &m.Model, &m.Status,
+			&m.ClarificationQuestion, &m.ClarificationAnswer, &m.ClarificationMessageID,
+			&m.InputTokens, &m.OutputTokens, &m.CostUSD,
+			&m.PRURL, &m.Error, &m.SessionID, &m.PodName,
+			&m.DiscordMessageID, &m.DiscordChannelID,
+			&m.CreatedAt, &m.StartedAt, &m.CompletedAt, &m.LastActivityAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		minions = append(minions, m)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return minions, nil
+}
+
+// ClearPodName clears pod_name for a minion after pod cleanup.
+// This prevents repeated cleanup attempts for already-deleted pods.
+func (s *MinionStore) ClearPodName(ctx context.Context, id uuid.UUID) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE minions SET pod_name = NULL, last_activity_at = NOW() WHERE id = $1`,
+		id,
+	)
+	return err
+}
+
 // SetClarificationAnswer sets the user's answer and transitions to pending (ready to spawn).
 // Only valid from awaiting_clarification status.
 func (s *MinionStore) SetClarificationAnswer(ctx context.Context, params SetClarificationAnswerParams) error {

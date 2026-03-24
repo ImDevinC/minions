@@ -21,9 +21,13 @@ type mockMinionQuerier struct {
 	idleErr                 error
 	clarificationTimeouts   []*db.Minion
 	clarificationTimeoutErr error
+	terminalMinions         []*db.Minion
+	terminalMinionsErr      error
 
 	failedCalls []uuid.UUID
 	failErr     error
+	clearCalls  []uuid.UUID
+	clearErr    error
 	mu          sync.Mutex
 }
 
@@ -48,16 +52,38 @@ func (m *mockMinionQuerier) MarkFailed(_ context.Context, id uuid.UUID, _ string
 	return m.failErr
 }
 
+func (m *mockMinionQuerier) ListTerminalWithPodOlderThan(_ context.Context, _ time.Duration) ([]*db.Minion, error) {
+	if m.terminalMinionsErr != nil {
+		return nil, m.terminalMinionsErr
+	}
+	return m.terminalMinions, nil
+}
+
+func (m *mockMinionQuerier) ClearPodName(_ context.Context, id uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.clearCalls = append(m.clearCalls, id)
+	return m.clearErr
+}
+
 func (m *mockMinionQuerier) getFailedCalls() []uuid.UUID {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return append([]uuid.UUID{}, m.failedCalls...)
 }
 
+func (m *mockMinionQuerier) getClearCalls() []uuid.UUID {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]uuid.UUID{}, m.clearCalls...)
+}
+
 // mockPodStatusChecker is a test mock for PodStatusChecker.
 type mockPodStatusChecker struct {
-	pods []k8s.PodInfo
-	err  error
+	pods           []k8s.PodInfo
+	err            error
+	terminatedPods []string
+	terminateErr   error
 }
 
 func (m *mockPodStatusChecker) ListPods(_ context.Context) ([]k8s.PodInfo, error) {
@@ -65,6 +91,14 @@ func (m *mockPodStatusChecker) ListPods(_ context.Context) ([]k8s.PodInfo, error
 		return nil, m.err
 	}
 	return m.pods, nil
+}
+
+func (m *mockPodStatusChecker) TerminatePod(_ context.Context, podName string) error {
+	if m.terminateErr != nil {
+		return m.terminateErr
+	}
+	m.terminatedPods = append(m.terminatedPods, podName)
+	return nil
 }
 
 // mockSSEDisconnector is a test mock for SSEDisconnector.
@@ -569,4 +603,88 @@ func TestWatchdog_MultipleClarificationTimeouts(t *testing.T) {
 	if len(notifications) != 2 {
 		t.Fatalf("expected 2 notifications, got %d", len(notifications))
 	}
+}
+
+func TestWatchdog_CleanupTerminalPods(t *testing.T) {
+	podName := "minion-pod-1"
+	terminalMinion := &db.Minion{
+		ID:          uuid.New(),
+		Status:      db.StatusCompleted,
+		PodName:     &podName,
+		CompletedAt: ptrTime(time.Now().Add(-2 * time.Hour)),
+	}
+
+	minions := &mockMinionQuerier{terminalMinions: []*db.Minion{terminalMinion}}
+	pods := &mockPodStatusChecker{}
+	notifier := &mockNotifier{}
+	logger := testLogger()
+
+	w := New(minions, pods, &mockSSEDisconnector{}, notifier, logger)
+
+	ctx := context.Background()
+	w.runChecks(ctx)
+
+	if len(pods.terminatedPods) != 1 {
+		t.Fatalf("expected 1 terminated pod, got %d", len(pods.terminatedPods))
+	}
+	if pods.terminatedPods[0] != podName {
+		t.Errorf("expected pod %s to be terminated, got %s", podName, pods.terminatedPods[0])
+	}
+
+	clearCalls := minions.getClearCalls()
+	if len(clearCalls) != 1 {
+		t.Fatalf("expected 1 ClearPodName call, got %d", len(clearCalls))
+	}
+	if clearCalls[0] != terminalMinion.ID {
+		t.Errorf("expected clear call for minion %s, got %s", terminalMinion.ID, clearCalls[0])
+	}
+}
+
+func TestWatchdog_CleanupTerminalPods_PodDeleteError(t *testing.T) {
+	podName := "minion-pod-2"
+	terminalMinion := &db.Minion{
+		ID:      uuid.New(),
+		Status:  db.StatusFailed,
+		PodName: &podName,
+	}
+
+	minions := &mockMinionQuerier{terminalMinions: []*db.Minion{terminalMinion}}
+	pods := &mockPodStatusChecker{terminateErr: errors.New("k8s error")}
+	notifier := &mockNotifier{}
+	logger := testLogger()
+
+	w := New(minions, pods, &mockSSEDisconnector{}, notifier, logger)
+	w.runChecks(context.Background())
+
+	if len(minions.getClearCalls()) != 0 {
+		t.Fatalf("expected 0 ClearPodName calls when pod delete fails")
+	}
+}
+
+func TestWatchdog_CleanupTerminalPods_ClearPodNameError(t *testing.T) {
+	podName := "minion-pod-3"
+	terminalMinion := &db.Minion{
+		ID:      uuid.New(),
+		Status:  db.StatusTerminated,
+		PodName: &podName,
+	}
+
+	minions := &mockMinionQuerier{
+		terminalMinions: []*db.Minion{terminalMinion},
+		clearErr:        errors.New("db error"),
+	}
+	pods := &mockPodStatusChecker{}
+	notifier := &mockNotifier{}
+	logger := testLogger()
+
+	w := New(minions, pods, &mockSSEDisconnector{}, notifier, logger)
+	w.runChecks(context.Background())
+
+	if len(pods.terminatedPods) != 1 {
+		t.Fatalf("expected pod to be terminated even when clear fails")
+	}
+}
+
+func ptrTime(t time.Time) *time.Time {
+	return &t
 }
