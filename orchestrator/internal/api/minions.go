@@ -268,26 +268,6 @@ func isAllowedModel(model string) bool {
 	return false
 }
 
-// RateLimitError wraps rate limit errors with detail.
-type RateLimitError struct {
-	Type    string // "hourly" or "concurrent"
-	Current int
-	Max     int
-}
-
-func (e *RateLimitError) Error() string {
-	if e.Type == "hourly" {
-		return "rate limit exceeded"
-	}
-	return "concurrent limit exceeded"
-}
-
-// IsRateLimitError checks if an error is a rate limit error.
-func IsRateLimitError(err error) bool {
-	var rle *RateLimitError
-	return errors.As(err, &rle)
-}
-
 // ListMinionResponse is a single minion in the list response.
 type ListMinionResponse struct {
 	ID        string  `json:"id"`

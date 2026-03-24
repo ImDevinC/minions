@@ -58,3 +58,11 @@ Started: 2026-03-24
 - Cleanup is best-effort: 2>/dev/null suppresses stderr, || true prevents non-zero exit
 - Files changed: devbox/entrypoint.sh
 - **Learnings:** PID was already being captured; timeout handler just needed the kill call
+
+## Task - cleanup-1
+- Deleted RateLimitError struct and IsRateLimitError function from api/minions.go (19 lines)
+- Deleted custom itoa function from db/minions.go (14 lines)
+- Replaced itoa(argIdx) with strconv.Itoa(argIdx) in List() query building
+- Added strconv import to db/minions.go
+- Files changed: orchestrator/internal/api/minions.go, orchestrator/internal/db/minions.go
+- **Learnings:** strconv.Itoa is the stdlib way; custom helpers just add maintenance burden

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -404,7 +405,7 @@ func (s *MinionStore) List(ctx context.Context, params ListMinionsParams) ([]*Mi
 		argIdx++
 	}
 
-	query += " ORDER BY created_at DESC LIMIT $" + itoa(argIdx)
+	query += " ORDER BY created_at DESC LIMIT $" + strconv.Itoa(argIdx)
 	args = append(args, limit)
 
 	rows, err := s.pool.Query(ctx, query, args...)
@@ -435,21 +436,6 @@ func (s *MinionStore) List(ctx context.Context, params ListMinionsParams) ([]*Mi
 	}
 
 	return minions, nil
-}
-
-// itoa converts int to string without importing strconv (tiny helper).
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var buf [20]byte
-	i := len(buf)
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(buf[i:])
 }
 
 // TerminateResult holds the result of a terminate operation.
