@@ -207,10 +207,19 @@ wait_for_completion() {
         fi
 
         local status_response
-        status_response=$(curl -sf "${SESSION_ENDPOINT}/status" || echo "{}")
+        local session_status="unknown"
 
-        local session_status
-        session_status=$(echo "$status_response" | jq -r --arg id "$SESSION_ID" '.[$id] // "unknown"')
+        # OpenCode returns {} when all sessions are idle.
+        # Treat that as completion when the status endpoint call itself succeeds.
+        if status_response=$(curl -sf "${SESSION_ENDPOINT}/status"); then
+            session_status=$(echo "$status_response" | jq -r --arg id "$SESSION_ID" '
+                if type == "object" and length == 0 then
+                    "idle"
+                else
+                    .[$id] // "unknown"
+                end
+            ')
+        fi
 
         case "$session_status" in
             "idle")
