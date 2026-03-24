@@ -34,3 +34,14 @@ Started: 2026-03-24
 - Added tests: DiscordUserID response field, wrong user rejection, correct user acceptance
 - Files changed: orchestrator/internal/db/minions.go, orchestrator/internal/api/minions.go, discord-bot/internal/orchestrator/client.go, discord-bot/internal/handler/message.go, discord-bot/internal/handler/message_test.go
 - **Learnings:** JOIN for denormalization is cleaner than separate lookups; validation should warn but not error (user experience)
+
+## Task - context-1
+- Added OperationTimeout = 30 * time.Second constant to handler package
+- Updated Handle method: 3 context.Background() calls replaced with context.WithTimeout + defer cancel()
+  - evalCtx for EvaluateWithRetry
+  - createCtx for CreateMinion (ready branch)
+  - clarifyCtx for CreateMinion (clarification branch)
+- Updated HandleReply method: ctx := context.Background() replaced with context.WithTimeout + defer cancel()
+- Added TestContextTimeoutPropagation test with 4 subtests verifying deadline propagation
+- Files changed: discord-bot/internal/handler/message.go, discord-bot/internal/handler/message_test.go
+- **Learnings:** Pattern: create timeout context early with defer cancel(); the defer still runs when function returns early

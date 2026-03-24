@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 
@@ -15,6 +16,9 @@ import (
 
 // ThinkingEmoji is the reaction added when processing a command
 const ThinkingEmoji = "🤔"
+
+// OperationTimeout is the maximum duration for orchestrator API calls
+const OperationTimeout = 30 * time.Second
 
 // MinionCreator creates minions via the orchestrator API.
 // Abstraction allows for easy testing.
@@ -124,8 +128,12 @@ func (h *MessageHandler) Handle(s *discordgo.Session, m *discordgo.MessageCreate
 		"message_id", m.ID,
 	)
 
+	// Create timeout context for clarification evaluation
+	evalCtx, evalCancel := context.WithTimeout(context.Background(), OperationTimeout)
+	defer evalCancel()
+
 	// Evaluate clarification first, then create a minion exactly once with the correct initial state.
-	result, err := h.clarification.EvaluateWithRetry(context.Background(), cmd.Repo, cmd.Task)
+	result, err := h.clarification.EvaluateWithRetry(evalCtx, cmd.Repo, cmd.Task)
 	if err != nil {
 		h.logger.Error("clarification LLM failed after retries",
 			"error", err,
@@ -140,8 +148,12 @@ func (h *MessageHandler) Handle(s *discordgo.Session, m *discordgo.MessageCreate
 	}
 
 	if result.Ready {
+		// Create timeout context for minion creation
+		createCtx, createCancel := context.WithTimeout(context.Background(), OperationTimeout)
+		defer createCancel()
+
 		// Create minion in pending state (spawner will pick it up)
-		resp, createErr := h.orchestrator.CreateMinion(context.Background(), orchestrator.CreateMinionRequest{
+		resp, createErr := h.orchestrator.CreateMinion(createCtx, orchestrator.CreateMinionRequest{
 			Repo:             cmd.Repo,
 			Task:             cmd.Task,
 			Model:            cmd.Model,
@@ -197,7 +209,11 @@ func (h *MessageHandler) Handle(s *discordgo.Session, m *discordgo.MessageCreate
 		return
 	}
 
-	resp, createErr := h.orchestrator.CreateMinion(context.Background(), orchestrator.CreateMinionRequest{
+	// Create timeout context for minion creation with clarification
+	clarifyCtx, clarifyCancel := context.WithTimeout(context.Background(), OperationTimeout)
+	defer clarifyCancel()
+
+	resp, createErr := h.orchestrator.CreateMinion(clarifyCtx, orchestrator.CreateMinionRequest{
 		Repo:                   cmd.Repo,
 		Task:                   cmd.Task,
 		Model:                  cmd.Model,
@@ -349,7 +365,10 @@ func (h *MessageHandler) HandleReply(s *discordgo.Session, m *discordgo.MessageC
 		return
 	}
 
-	ctx := context.Background()
+	// Create timeout context for orchestrator calls
+	ctx, cancel := context.WithTimeout(context.Background(), OperationTimeout)
+	defer cancel()
+
 	referencedMsgID := m.MessageReference.MessageID
 
 	// Look up minion by the referenced message ID (could be a clarification question)

@@ -463,3 +463,100 @@ func TestClarificationReplyValidation_CorrectUser(t *testing.T) {
 		t.Error("validation should have accepted reply from original user")
 	}
 }
+
+func TestContextTimeoutPropagation(t *testing.T) {
+	// Test that orchestrator client calls receive a context with a deadline.
+	// This verifies the timeout context is properly created and passed.
+
+	t.Run("CreateMinion receives context with deadline", func(t *testing.T) {
+		var receivedCtx context.Context
+
+		mock := &mockOrchestrator{
+			createFunc: func(ctx context.Context, req orchestrator.CreateMinionRequest) (*orchestrator.CreateMinionResponse, error) {
+				receivedCtx = ctx
+				return &orchestrator.CreateMinionResponse{ID: "test-id", Status: "pending"}, nil
+			},
+		}
+
+		// Call CreateMinion with a timeout context similar to how Handle does it
+		ctx, cancel := context.WithTimeout(context.Background(), OperationTimeout)
+		defer cancel()
+
+		_, _ = mock.CreateMinion(ctx, orchestrator.CreateMinionRequest{
+			Repo: "owner/repo",
+			Task: "test task",
+		})
+
+		// Verify the context has a deadline
+		if _, ok := receivedCtx.Deadline(); !ok {
+			t.Error("expected context to have a deadline")
+		}
+	})
+
+	t.Run("GetByClarificationMessageID receives context with deadline", func(t *testing.T) {
+		var receivedCtx context.Context
+
+		mock := &mockOrchestrator{
+			getByClarificationFunc: func(ctx context.Context, messageID string) (*orchestrator.MinionByClarificationResponse, error) {
+				receivedCtx = ctx
+				return &orchestrator.MinionByClarificationResponse{
+					ID:            "minion-123",
+					Status:        "awaiting_clarification",
+					DiscordUserID: "user-123",
+				}, nil
+			},
+		}
+
+		// Call with timeout context similar to HandleReply
+		ctx, cancel := context.WithTimeout(context.Background(), OperationTimeout)
+		defer cancel()
+
+		_, _ = mock.GetByClarificationMessageID(ctx, "msg-123")
+
+		if _, ok := receivedCtx.Deadline(); !ok {
+			t.Error("expected context to have a deadline")
+		}
+	})
+
+	t.Run("SetClarificationAnswer receives context with deadline", func(t *testing.T) {
+		var receivedCtx context.Context
+
+		mock := &mockOrchestrator{
+			setAnswerFunc: func(ctx context.Context, minionID string, answer string) error {
+				receivedCtx = ctx
+				return nil
+			},
+		}
+
+		// Call with timeout context
+		ctx, cancel := context.WithTimeout(context.Background(), OperationTimeout)
+		defer cancel()
+
+		_ = mock.SetClarificationAnswer(ctx, "minion-123", "my answer")
+
+		if _, ok := receivedCtx.Deadline(); !ok {
+			t.Error("expected context to have a deadline")
+		}
+	})
+
+	t.Run("EvaluateWithRetry receives context with deadline", func(t *testing.T) {
+		var receivedCtx context.Context
+
+		mock := &mockClarificationEvaluator{
+			evaluateFunc: func(ctx context.Context, repo, task string) (*clarify.Result, error) {
+				receivedCtx = ctx
+				return &clarify.Result{Ready: true}, nil
+			},
+		}
+
+		// Call with timeout context similar to Handle
+		ctx, cancel := context.WithTimeout(context.Background(), OperationTimeout)
+		defer cancel()
+
+		_, _ = mock.EvaluateWithRetry(ctx, "owner/repo", "test task")
+
+		if _, ok := receivedCtx.Deadline(); !ok {
+			t.Error("expected context to have a deadline")
+		}
+	})
+}

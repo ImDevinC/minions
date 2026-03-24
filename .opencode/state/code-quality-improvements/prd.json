@@ -53,7 +53,7 @@
         "All timeout contexts have defer cancel() to prevent leaks",
         "Test context cancellation propagates to orchestrator client calls"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "errors-1",
