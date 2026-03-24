@@ -939,7 +939,11 @@ type SetClarificationAnswerParams struct {
 }
 
 // ListTerminalWithPodOlderThan returns terminal minions that still have pod_name set
-// and were completed before the provided age threshold.
+// and whose terminal timestamp is older than the provided age threshold.
+//
+// Primary timestamp is completed_at. For legacy rows where completed_at is NULL,
+// it falls back to last_activity_at and then created_at so stale terminal pods are
+// still eligible for cleanup.
 // Used by watchdog to perform delayed pod cleanup.
 func (s *MinionStore) ListTerminalWithPodOlderThan(ctx context.Context, age time.Duration) ([]*Minion, error) {
 	query := `SELECT id, user_id, repo, task, model, status,
@@ -951,8 +955,7 @@ func (s *MinionStore) ListTerminalWithPodOlderThan(ctx context.Context, age time
 	 FROM minions
 	 WHERE status IN ('completed', 'failed', 'terminated')
 	   AND pod_name IS NOT NULL
-	   AND completed_at IS NOT NULL
-	   AND completed_at < NOW() - $1::interval`
+	   AND COALESCE(completed_at, last_activity_at, created_at) < NOW() - $1::interval`
 
 	rows, err := s.pool.Query(ctx, query, age.String())
 	if err != nil {
