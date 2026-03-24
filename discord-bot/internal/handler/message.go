@@ -24,14 +24,12 @@ type MinionCreator interface {
 
 // MinionUpdater updates minion state via the orchestrator API.
 type MinionUpdater interface {
-	SetClarification(ctx context.Context, minionID string, req orchestrator.SetClarificationRequest) error
-	MarkFailed(ctx context.Context, minionID string, errorMsg string) error
+	SetClarificationAnswer(ctx context.Context, minionID string, answer string) error
 }
 
 // ClarificationLookup looks up minions by clarification message ID.
 type ClarificationLookup interface {
 	GetByClarificationMessageID(ctx context.Context, messageID string) (*orchestrator.MinionByClarificationResponse, error)
-	SetClarificationAnswer(ctx context.Context, minionID string, answer string) error
 }
 
 // Orchestrator combines minion creation, update, and lookup capabilities.
@@ -107,70 +105,14 @@ func (h *MessageHandler) Handle(s *discordgo.Session, m *discordgo.MessageCreate
 		"message_id", m.ID,
 	)
 
-	// Create minion via orchestrator (enforces rate limits)
-	resp, err := h.orchestrator.CreateMinion(context.Background(), orchestrator.CreateMinionRequest{
-		Repo:             cmd.Repo,
-		Task:             cmd.Task,
-		Model:            cmd.Model,
-		DiscordMessageID: m.ID,
-		DiscordChannelID: m.ChannelID,
-		DiscordUserID:    m.Author.ID,
-		DiscordUsername:  m.Author.Username,
-	})
+	// Evaluate clarification first, then create a minion exactly once with the correct initial state.
+	result, err := h.clarification.EvaluateWithRetry(context.Background(), cmd.Repo, cmd.Task)
 	if err != nil {
-		h.handleOrchestratorError(s, m, err)
-		return
-	}
-
-	if resp.Duplicate {
-		h.logger.Info("duplicate minion detected",
-			"minion_id", resp.ID,
-			"repo", cmd.Repo,
-		)
-		// Reply with link to existing minion
-		msg := "⚠️ A minion is already working on this task. Check the existing one!"
-		_, sendErr := s.ChannelMessageSendReply(m.ChannelID, msg, m.Reference())
-		if sendErr != nil {
-			h.logger.Error("failed to send duplicate reply", "error", sendErr)
-		}
-		return
-	}
-
-	h.logger.Info("minion created",
-		"minion_id", resp.ID,
-		"repo", cmd.Repo,
-		"model", cmd.Model,
-	)
-
-	// Send to clarification LLM
-	h.processClarification(s, m, resp.ID, cmd)
-}
-
-// processClarification evaluates the task with the clarification LLM.
-// If READY, the orchestrator will spawn the pod (happens server-side after minion creation).
-// If a question is needed, posts to Discord and updates minion state.
-// If all retries fail, marks minion as failed.
-func (h *MessageHandler) processClarification(s *discordgo.Session, m *discordgo.MessageCreate, minionID string, cmd *command.Command) {
-	ctx := context.Background()
-
-	result, err := h.clarification.EvaluateWithRetry(ctx, cmd.Repo, cmd.Task)
-	if err != nil {
-		// All retries failed - mark minion as failed
 		h.logger.Error("clarification LLM failed after retries",
 			"error", err,
-			"minion_id", minionID,
+			"repo", cmd.Repo,
 		)
-
-		// Notify orchestrator to mark minion as failed
-		if markErr := h.orchestrator.MarkFailed(ctx, minionID, "Clarification LLM failed after 3 retries"); markErr != nil {
-			h.logger.Error("failed to mark minion as failed",
-				"error", markErr,
-				"minion_id", minionID,
-			)
-		}
-
-		// Notify user
-		msg := "❌ Failed to evaluate task clarity. The minion has been marked as failed. Please try again."
+		msg := "❌ Failed to evaluate task clarity. Please try again."
 		_, sendErr := s.ChannelMessageSendReply(m.ChannelID, msg, m.Reference())
 		if sendErr != nil {
 			h.logger.Error("failed to send failure notification", "error", sendErr)
@@ -179,12 +121,39 @@ func (h *MessageHandler) processClarification(s *discordgo.Session, m *discordgo
 	}
 
 	if result.Ready {
-		h.logger.Info("task is ready, proceeding to spawn",
-			"minion_id", minionID,
+		// Create minion in pending state (spawner will pick it up)
+		resp, createErr := h.orchestrator.CreateMinion(context.Background(), orchestrator.CreateMinionRequest{
+			Repo:             cmd.Repo,
+			Task:             cmd.Task,
+			Model:            cmd.Model,
+			InitialStatus:    "pending",
+			DiscordMessageID: m.ID,
+			DiscordChannelID: m.ChannelID,
+			DiscordUserID:    m.Author.ID,
+			DiscordUsername:  m.Author.Username,
+		})
+		if createErr != nil {
+			h.handleOrchestratorError(s, m, createErr)
+			return
+		}
+
+		if resp.Duplicate {
+			h.logger.Info("duplicate minion detected",
+				"minion_id", resp.ID,
+				"repo", cmd.Repo,
+			)
+			msg := "⚠️ A minion is already working on this task. Check the existing one!"
+			_, sendErr := s.ChannelMessageSendReply(m.ChannelID, msg, m.Reference())
+			if sendErr != nil {
+				h.logger.Error("failed to send duplicate reply", "error", sendErr)
+			}
+			return
+		}
+
+		h.logger.Info("task is ready, minion created",
+			"minion_id", resp.ID,
 			"repo", cmd.Repo,
 		)
-		// Minion is already in "pending" status. The orchestrator's pod spawner
-		// will pick it up and spawn the pod. We just need to confirm to the user.
 		msg := "✅ Task is clear! Your minion is being spawned..."
 		_, sendErr := s.ChannelMessageSendReply(m.ChannelID, msg, m.Reference())
 		if sendErr != nil {
@@ -193,13 +162,7 @@ func (h *MessageHandler) processClarification(s *discordgo.Session, m *discordgo
 		return
 	}
 
-	// Task needs clarification - post question to Discord
-	h.logger.Info("task needs clarification",
-		"minion_id", minionID,
-		"question", result.Question,
-	)
-
-	// Send clarification question as a reply
+	// Task needs clarification - ask question first, then create minion in awaiting_clarification.
 	clarificationMsg, sendErr := s.ChannelMessageSendReply(
 		m.ChannelID,
 		"❓ "+result.Question+"\n\n*Reply to this message with your answer.*",
@@ -208,39 +171,49 @@ func (h *MessageHandler) processClarification(s *discordgo.Session, m *discordgo
 	if sendErr != nil {
 		h.logger.Error("failed to send clarification question",
 			"error", sendErr,
-			"minion_id", minionID,
+			"repo", cmd.Repo,
 		)
-		// Mark minion as failed since we can't get clarification
-		if markErr := h.orchestrator.MarkFailed(ctx, minionID, "Failed to send clarification question to Discord"); markErr != nil {
-			h.logger.Error("failed to mark minion as failed", "error", markErr)
-		}
-		return
-	}
-
-	// Update minion state to awaiting_clarification
-	err = h.orchestrator.SetClarification(ctx, minionID, orchestrator.SetClarificationRequest{
-		Question:         result.Question,
-		DiscordMessageID: clarificationMsg.ID,
-	})
-	if err != nil {
-		h.logger.Error("failed to set clarification state",
-			"error", err,
-			"minion_id", minionID,
-		)
-		// Try to clean up by deleting the clarification message
-		_ = s.ChannelMessageDelete(m.ChannelID, clarificationMsg.ID)
-		// Mark as failed
-		if markErr := h.orchestrator.MarkFailed(ctx, minionID, "Failed to update clarification state"); markErr != nil {
-			h.logger.Error("failed to mark minion as failed", "error", markErr)
-		}
-		// Notify user
-		msg := "❌ Failed to set up clarification. Please try again."
+		msg := "❌ Failed to ask clarification question. Please try again."
 		_, _ = s.ChannelMessageSendReply(m.ChannelID, msg, m.Reference())
 		return
 	}
 
-	h.logger.Info("clarification question posted",
-		"minion_id", minionID,
+	resp, createErr := h.orchestrator.CreateMinion(context.Background(), orchestrator.CreateMinionRequest{
+		Repo:                   cmd.Repo,
+		Task:                   cmd.Task,
+		Model:                  cmd.Model,
+		InitialStatus:          "awaiting_clarification",
+		ClarificationQuestion:  result.Question,
+		ClarificationMessageID: clarificationMsg.ID,
+		DiscordMessageID:       m.ID,
+		DiscordChannelID:       m.ChannelID,
+		DiscordUserID:          m.Author.ID,
+		DiscordUsername:        m.Author.Username,
+	})
+	if createErr != nil {
+		_ = s.ChannelMessageDelete(m.ChannelID, clarificationMsg.ID)
+		h.handleOrchestratorError(s, m, createErr)
+		return
+	}
+
+	if resp.Duplicate {
+		// Clean up question we just posted; existing minion already handles this task.
+		_ = s.ChannelMessageDelete(m.ChannelID, clarificationMsg.ID)
+		h.logger.Info("duplicate minion detected during clarification",
+			"minion_id", resp.ID,
+			"repo", cmd.Repo,
+		)
+		msg := "⚠️ A minion is already working on this task. Check the existing one!"
+		_, sendErr := s.ChannelMessageSendReply(m.ChannelID, msg, m.Reference())
+		if sendErr != nil {
+			h.logger.Error("failed to send duplicate reply", "error", sendErr)
+		}
+		return
+	}
+
+	h.logger.Info("clarification question posted and minion created",
+		"minion_id", resp.ID,
+		"repo", cmd.Repo,
 		"clarification_message_id", clarificationMsg.ID,
 	)
 }
