@@ -95,11 +95,16 @@ type ErrorResponse struct {
 // repoRegex validates repo format: owner/repo with optional subgroups for nested repos
 var repoRegex = regexp.MustCompile(`^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+(/[a-zA-Z0-9_.-]+)*$`)
 
+// MaxRequestBodySize is the maximum allowed request body size (1MB).
+const MaxRequestBodySize = 1 << 20 // 1MB
+
 // allowedModelPrefixes defines valid model provider prefixes
 var allowedModelPrefixes = []string{"anthropic/", "openai/"}
 
 // HandleCreate handles POST /api/minions.
 func (h *MinionHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, MaxRequestBodySize)
+
 	var req CreateMinionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.writeError(w, http.StatusBadRequest, "invalid request body", "")
@@ -548,6 +553,8 @@ type CallbackResponse struct {
 // HandleCallback handles POST /api/minions/{id}/callback.
 // Updates minion with completion data and notifies Discord.
 func (h *MinionHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, MaxRequestBodySize)
+
 	idStr := chi.URLParam(r, "id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
@@ -769,6 +776,8 @@ func (h *MinionHandler) HandleClarification(w http.ResponseWriter, r *http.Reque
 // HandleClarificationAnswer handles PATCH /api/minions/{id}/clarification-answer.
 // Sets the user's answer and transitions the minion back to pending status.
 func (h *MinionHandler) HandleClarificationAnswer(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, MaxRequestBodySize)
+
 	idStr := chi.URLParam(r, "id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {

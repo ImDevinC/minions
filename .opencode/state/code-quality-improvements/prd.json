@@ -1,0 +1,160 @@
+{
+  "prdName": "code-quality-improvements",
+  "tasks": [
+    {
+      "id": "security-1",
+      "category": "security",
+      "description": "Add 1MB request body limits to all API handlers",
+      "steps": [
+        "HandleCreate wraps r.Body with http.MaxBytesReader(w, r.Body, 1<<20)",
+        "HandleCallback wraps r.Body with http.MaxBytesReader",
+        "HandleClarificationAnswer wraps r.Body with http.MaxBytesReader",
+        "Requests exceeding 1MB return 400 Bad Request",
+        "Test HandleCreate rejects body > 1MB with 400",
+        "Test HandleCreate accepts valid body < 1MB (verify no regression)"
+      ],
+      "passes": true
+    },
+    {
+      "id": "security-2",
+      "category": "security",
+      "description": "Add task content length validation at API level",
+      "steps": [
+        "Constant MaxTaskLength = 10000 defined in orchestrator API package",
+        "HandleCreate rejects tasks exceeding MaxTaskLength with 400 and code TASK_TOO_LONG",
+        "Test HandleCreate rejects task > 10,000 chars with TASK_TOO_LONG"
+      ],
+      "passes": false
+    },
+    {
+      "id": "security-3",
+      "category": "security",
+      "description": "Validate clarification replies come from original requester",
+      "steps": [
+        "GetByClarificationMessageID query JOINs users table to include discord_id",
+        "HandleGetByClarificationMessageID response includes discord_user_id field",
+        "MinionByClarificationResponse struct in discord-bot includes DiscordUserID *string field",
+        "HandleReply validates minion.DiscordUserID != nil && *minion.DiscordUserID == m.Author.ID",
+        "Non-matching users receive warning: Only the original requester can answer clarification questions",
+        "Test HandleGetByClarificationMessageID returns discord_user_id from joined user",
+        "Test clarification reply from wrong user is rejected with warning message",
+        "Test clarification reply from original user succeeds"
+      ],
+      "passes": false
+    },
+    {
+      "id": "context-1",
+      "category": "context",
+      "description": "Discord bot handlers use timeout contexts instead of context.Background()",
+      "steps": [
+        "Constant OperationTimeout = 30 * time.Second defined in handler package",
+        "Handle method uses context.WithTimeout(context.Background(), OperationTimeout) for orchestrator calls",
+        "HandleReply method uses timeout context for orchestrator calls",
+        "All timeout contexts have defer cancel() to prevent leaks",
+        "Test context cancellation propagates to orchestrator client calls"
+      ],
+      "passes": false
+    },
+    {
+      "id": "errors-1",
+      "category": "errors",
+      "description": "Error matching uses errors.Is() instead of string comparison",
+      "steps": [
+        "Functions isErrorType, containsError, containsSubstring deleted from message.go",
+        "handleParseError uses errors.Is(err, command.ErrMissingRepo) pattern",
+        "All error type checks in message.go use standard library functions"
+      ],
+      "passes": false
+    },
+    {
+      "id": "devbox-1",
+      "category": "devbox",
+      "description": "Kill OpenCode process on task timeout",
+      "steps": [
+        "OpenCode PID captured when process starts (variable OPENCODE_PID)",
+        "kill $OPENCODE_PID 2>/dev/null || true called when task times out",
+        "Cleanup is best-effort (errors suppressed, doesn't affect exit code)",
+        "Manual verification: devbox kills OpenCode on timeout (check pod logs)"
+      ],
+      "passes": false
+    },
+    {
+      "id": "cleanup-1",
+      "category": "cleanup",
+      "description": "Remove dead code (RateLimitError, custom itoa)",
+      "steps": [
+        "RateLimitError struct deleted from orchestrator/internal/api/minions.go",
+        "IsRateLimitError function deleted",
+        "Custom itoa function deleted from orchestrator/internal/db/minions.go",
+        "All itoa calls replaced with strconv.Itoa() (already imported)"
+      ],
+      "passes": false
+    },
+    {
+      "id": "cleanup-2",
+      "category": "cleanup",
+      "description": "Extract duplicate scan patterns to helper function",
+      "steps": [
+        "scanMinion(row pgx.Row) (*Minion, error) helper function created",
+        "Helper scans all 22 fields in correct order matching SELECT columns",
+        "9 full-minion queries refactored to use helper: FindRecentDuplicate, GetByID, List, ListByStatuses, ListPending, ListIdleRunning, ListClarificationTimeouts, GetByClarificationMessageID, ListTerminalWithPodOlderThan",
+        "Partial-select queries (Terminate, Complete) remain inline (different column sets)",
+        "Test scanMinion helper correctly populates all 22 fields",
+        "Verify Terminate and Complete queries still work correctly (different column sets)"
+      ],
+      "passes": false
+    },
+    {
+      "id": "cleanup-3",
+      "category": "cleanup",
+      "description": "Remove thinking emoji after processing completes",
+      "steps": [
+        "Handle adds defer s.MessageReactionRemove(...) after successful minion creation/clarification",
+        "HandleReply adds defer after successful answer processing",
+        "Emoji removal failures logged at Debug level (cosmetic, not Error)",
+        "Manual verification: thinking emoji removed after successful minion spawn",
+        "Manual verification: thinking emoji removed after failed minion spawn"
+      ],
+      "passes": false
+    },
+    {
+      "id": "testing-1",
+      "category": "testing",
+      "description": "Final validation: all existing tests pass and services build successfully",
+      "steps": [
+        "NOTE: This task should run after all other tasks complete",
+        "Run go test ./... in orchestrator - all tests pass",
+        "Run go test ./... in discord-bot - all tests pass",
+        "Run go build ./... in orchestrator - builds successfully",
+        "Run go build ./... in discord-bot - builds successfully"
+      ],
+      "passes": false
+    }
+  ],
+  "context": {
+    "patterns": [
+      "Request validation: orchestrator/internal/api/minions.go:109-130",
+      "Context usage: orchestrator/internal/api/minions.go:321 uses r.Context() for DB operations",
+      "Error handling: discord-bot/internal/handler/message.go:358 uses errors.Is() for some checks",
+      "Database schema: schema/migrations/002_create_minions_table.sql",
+      "Users schema: schema/migrations/001_create_users_table.sql",
+      "Clarification index: schema/migrations/004_create_indexes.sql"
+    ],
+    "keyFiles": [
+      "orchestrator/internal/api/minions.go",
+      "orchestrator/internal/db/minions.go",
+      "discord-bot/internal/handler/message.go",
+      "discord-bot/internal/orchestrator/client.go",
+      "devbox/entrypoint.sh"
+    ],
+    "nonGoals": [
+      "Connection epoch tracking for SSE",
+      "SSE backoff persistence",
+      "Rate limiting for clarification replies",
+      "Configurable task length per model",
+      "Git credential cleanup trap in devbox",
+      "Metrics for security violations",
+      "Configurable operation timeout"
+    ]
+  }
+}

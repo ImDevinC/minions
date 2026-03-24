@@ -1,0 +1,18 @@
+# Progress Log
+PRD: code-quality-improvements
+Started: 2026-03-24
+
+## Codebase Patterns
+- MaxBytesReader pattern: `r.Body = http.MaxBytesReader(w, r.Body, MaxRequestBodySize)` at start of handler
+- Test helper `newTestHandler(t)` creates handler with nil stores for validation-only tests
+- Panic recovery in tests catches expected DB nil panics to verify validation passed
+
+---
+<!-- Task logs below - APPEND ONLY -->
+
+## Task - security-1
+- Added MaxRequestBodySize constant (1MB = 1<<20)
+- Wrapped r.Body in HandleCreate, HandleCallback, HandleClarificationAnswer
+- Added test TestMinionHandler_RequestBodyLimit with two subtests
+- Files changed: orchestrator/internal/api/minions.go, orchestrator/internal/api/minions_test.go
+- **Learnings:** MaxBytesReader must be assigned before json.Decode; test handler with nil stores panics on DB access (expected)
