@@ -9,6 +9,8 @@ Started: 2026-03-24
 
 **Token combining**: Store granular fields in DB, combine for display. SQL aggregations combine at query time (GetStats), API responses combine in-memory (HandleGet). Pattern: input = input + cache_read; output = output + reasoning + cache_write.
 
+**Frontend formatting helpers**: control-panel uses formatCost()/formatTokens() helpers for consistent display. Cost shows 5 decimals (toFixed(5)), tokens show thousands separators (toLocaleString()).
+
 ---
 <!-- Task logs below - APPEND ONLY -->
 
@@ -102,4 +104,21 @@ Started: 2026-03-24
 - Test validates graceful handling of missing fields (partial events return zero for missing values)
 - Files changed: orchestrator/internal/streaming/sse_test.go:1-11, 417-456
 - **Learnings:** Testdata JSON mirrors real OpenCode SSE event structure for regression testing
+
+## Task - frontend-ui-1
+- Updated formatCost() to always display 5 decimal places: cost.toFixed(5)
+- Updated formatTokens() to display thousands separators: count.toLocaleString()
+- Removed K/M abbreviations in favor of full numbers with commas (e.g., "15,203" instead of "15.2K")
+- Files changed: control-panel/src/components/minion-detail-client.tsx:57-65
+- **Learnings:** Next.js build requires npm install before first build (react-markdown/remark-gfm dependencies were missing from node_modules)
+
+## Task - frontend-ui-2
+- Added useState hooks for currentCost, currentInputTokens, currentOutputTokens to track real-time values
+- Implemented useEffect polling hook that fetches /api/minions/:id every 3 seconds for non-terminal statuses
+- Polling updates cost and token counts in state, triggers re-render for live display
+- Polling automatically stops when currentStatus is 'completed', 'failed', or 'terminated'
+- Cleanup function uses clearInterval to prevent memory leaks
+- Updated JSX to display currentCost/currentInputTokens/currentOutputTokens instead of static props
+- Files changed: control-panel/src/components/minion-detail-client.tsx:80-82, 96-119, 181, 184-185
+- **Learnings:** useEffect dependency array includes currentStatus to re-evaluate polling condition when status changes. Polling stops gracefully when terminal status reached.
 

@@ -119,7 +119,7 @@
         "Ensure cost displays with 5 decimal places using existing formatCost helper or add formatter: cost.toFixed(5)",
         "Ensure token counts display with thousands separators using existing formatTokens helper or add formatter: tokens.toLocaleString()"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "frontend-ui-2",
@@ -131,7 +131,7 @@
         "Polling stops automatically when minion reaches terminal status ('completed', 'failed', 'terminated')",
         "Use clearInterval on cleanup to prevent memory leaks"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "testing-1",
