@@ -101,9 +101,6 @@ const MaxRequestBodySize = 1 << 20 // 1MB
 // MaxTaskLength is the maximum allowed task content length (10,000 characters).
 const MaxTaskLength = 10000
 
-// allowedModelPrefixes defines valid model provider prefixes
-var allowedModelPrefixes = []string{"anthropic/", "openai/"}
-
 // HandleCreate handles POST /api/minions.
 func (h *MinionHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, MaxRequestBodySize)
@@ -129,12 +126,6 @@ func (h *MinionHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 	// Apply default model if not specified
 	if req.Model == "" {
 		req.Model = h.defaultModel
-	}
-
-	// Validate model format
-	if !isAllowedModel(req.Model) {
-		h.writeError(w, http.StatusBadRequest, "invalid model: must be anthropic/* or openai/*", "INVALID_MODEL")
-		return
 	}
 
 	// Validate repo format
@@ -256,16 +247,6 @@ func (h *MinionHandler) writeError(w http.ResponseWriter, status int, message, c
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(ErrorResponse{Error: message, Code: code})
-}
-
-// isAllowedModel checks if a model matches the allowed prefixes
-func isAllowedModel(model string) bool {
-	for _, prefix := range allowedModelPrefixes {
-		if strings.HasPrefix(model, prefix) {
-			return true
-		}
-	}
-	return false
 }
 
 // ListMinionResponse is a single minion in the list response.
