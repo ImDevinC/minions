@@ -122,3 +122,11 @@ Started: 2026-03-24
 - Files changed: control-panel/src/components/minion-detail-client.tsx:80-82, 96-119, 181, 184-185
 - **Learnings:** useEffect dependency array includes currentStatus to re-evaluate polling condition when status changes. Polling stops gracefully when terminal status reached.
 
+## Task - testing-2
+- Verified orchestrator build: `cd orchestrator && go build ./...` exits with code 0
+- Verified control-panel build: `cd control-panel && npm run build` exits with code 0
+- Next.js build output shows successful compilation with type checking and page generation
+- No compilation errors or type mismatches in either codebase
+- Files verified: orchestrator/*, control-panel/*
+- **Learnings:** Build verification confirms all previous token tracking changes compile cleanly without breaking existing code
+

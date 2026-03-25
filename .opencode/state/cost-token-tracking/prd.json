@@ -155,7 +155,7 @@
         "Run: cd control-panel && npm run build (exits with code 0)",
         "No compilation errors or type mismatches"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "testing-3",
