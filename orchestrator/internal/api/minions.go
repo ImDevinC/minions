@@ -265,32 +265,69 @@ type ListMinionResponse struct {
 // HandleList handles GET /api/minions.
 // Query params:
 //   - status: filter by status (pending, running, completed, failed, etc.)
+//   - statuses: comma-separated status filters (overrides status when present)
 //   - limit: max results (default 50, max 200)
+//   - offset: pagination offset (default 0)
 func (h *MinionHandler) HandleList(w http.ResponseWriter, r *http.Request) {
 	params := db.ListMinionsParams{}
 
-	// Parse status filter
-	if statusStr := r.URL.Query().Get("status"); statusStr != "" {
-		status := db.MinionStatus(statusStr)
-		// Validate status is a known value
+	query := r.URL.Query()
+
+	parseStatus := func(raw string) (db.MinionStatus, bool) {
+		status := db.MinionStatus(strings.TrimSpace(raw))
 		switch status {
 		case db.StatusPending, db.StatusAwaitingClarification, db.StatusRunning,
 			db.StatusCompleted, db.StatusFailed, db.StatusTerminated:
-			params.Status = &status
+			return status, true
 		default:
-			h.writeError(w, http.StatusBadRequest, "invalid status value", "INVALID_STATUS")
-			return
+			return "", false
 		}
 	}
 
+	// Parse statuses filter (takes precedence over single status)
+	if statusesStr := query.Get("statuses"); statusesStr != "" {
+		parts := strings.Split(statusesStr, ",")
+		statuses := make([]db.MinionStatus, 0, len(parts))
+		for _, part := range parts {
+			status, ok := parseStatus(part)
+			if !ok {
+				h.writeError(w, http.StatusBadRequest, "invalid status value", "INVALID_STATUS")
+				return
+			}
+			statuses = append(statuses, status)
+		}
+		if len(statuses) == 0 {
+			h.writeError(w, http.StatusBadRequest, "invalid status value", "INVALID_STATUS")
+			return
+		}
+		params.Statuses = statuses
+	} else if statusStr := query.Get("status"); statusStr != "" {
+		status, ok := parseStatus(statusStr)
+		if !ok {
+			h.writeError(w, http.StatusBadRequest, "invalid status value", "INVALID_STATUS")
+			return
+		}
+		params.Status = &status
+	}
+
 	// Parse limit
-	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+	if limitStr := query.Get("limit"); limitStr != "" {
 		limit, err := strconv.Atoi(limitStr)
 		if err != nil || limit < 1 {
 			h.writeError(w, http.StatusBadRequest, "limit must be a positive integer", "INVALID_LIMIT")
 			return
 		}
 		params.Limit = limit
+	}
+
+	// Parse offset
+	if offsetStr := query.Get("offset"); offsetStr != "" {
+		offset, err := strconv.Atoi(offsetStr)
+		if err != nil || offset < 0 {
+			h.writeError(w, http.StatusBadRequest, "offset must be a non-negative integer", "INVALID_OFFSET")
+			return
+		}
+		params.Offset = offset
 	}
 
 	minions, err := h.minions.List(r.Context(), params)

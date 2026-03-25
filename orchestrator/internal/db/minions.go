@@ -406,8 +406,10 @@ var ErrConcurrentLimitExceeded = errors.New("concurrent limit exceeded")
 
 // ListMinionsParams holds parameters for listing minions.
 type ListMinionsParams struct {
-	Status *MinionStatus // optional filter by status
-	Limit  int           // max results, 0 means default (50)
+	Status   *MinionStatus  // optional filter by single status (legacy)
+	Statuses []MinionStatus // optional filter by multiple statuses
+	Limit    int            // max results, 0 means default (50)
+	Offset   int            // pagination offset, 0 means first page
 }
 
 const defaultListLimit = 50
@@ -423,6 +425,11 @@ func (s *MinionStore) List(ctx context.Context, params ListMinionsParams) ([]*Mi
 		limit = maxListLimit
 	}
 
+	offset := params.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
 	// Build query dynamically based on filters
 	query := `SELECT id, user_id, repo, task, model, status,
 		        clarification_question, clarification_answer, clarification_message_id,
@@ -434,15 +441,31 @@ func (s *MinionStore) List(ctx context.Context, params ListMinionsParams) ([]*Mi
 
 	var args []any
 	argIdx := 1
+	statuses := params.Statuses
+	if len(statuses) == 0 && params.Status != nil {
+		statuses = []MinionStatus{*params.Status}
+	}
 
-	if params.Status != nil {
+	if len(statuses) == 1 {
 		query += " WHERE status = $1"
-		args = append(args, *params.Status)
+		args = append(args, statuses[0])
+		argIdx++
+	} else if len(statuses) > 1 {
+		statusStrings := make([]string, len(statuses))
+		for i, status := range statuses {
+			statusStrings[i] = string(status)
+		}
+		query += " WHERE status = ANY($1)"
+		args = append(args, statusStrings)
 		argIdx++
 	}
 
-	query += " ORDER BY created_at DESC LIMIT $" + strconv.Itoa(argIdx)
+	query += " ORDER BY created_at DESC, id DESC"
+	query += " LIMIT $" + strconv.Itoa(argIdx)
 	args = append(args, limit)
+	argIdx++
+	query += " OFFSET $" + strconv.Itoa(argIdx)
+	args = append(args, offset)
 
 	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
