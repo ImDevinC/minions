@@ -2,9 +2,11 @@ package streaming
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -231,6 +233,81 @@ func TestExtractTokenUsage(t *testing.T) {
 			wantOK:    true,
 		},
 		{
+			name: "message.updated with full token details",
+			event: PodEvent{
+				Type: "message.updated",
+				Content: map[string]any{
+					"content": map[string]any{
+						"info": map[string]any{
+							"cost": 0.02954525,
+							"tokens": map[string]any{
+								"input":     float64(1763),
+								"output":    float64(929),
+								"reasoning": float64(793),
+								"cache": map[string]any{
+									"read":  float64(13440),
+									"write": float64(0),
+								},
+							},
+						},
+					},
+				},
+			},
+			wantUsage: TokenUsage{
+				InputTokens:      1763,
+				OutputTokens:     929,
+				ReasoningTokens:  793,
+				CacheReadTokens:  13440,
+				CacheWriteTokens: 0,
+				CostUSD:          0.02954525,
+			},
+			wantOK: true,
+		},
+		{
+			name: "message.updated with partial tokens",
+			event: PodEvent{
+				Type: "message.updated",
+				Content: map[string]any{
+					"content": map[string]any{
+						"info": map[string]any{
+							"cost": 0.001,
+							"tokens": map[string]any{
+								"input":  float64(100),
+								"output": float64(50),
+							},
+						},
+					},
+				},
+			},
+			wantUsage: TokenUsage{
+				InputTokens:  100,
+				OutputTokens: 50,
+				CostUSD:      0.001,
+			},
+			wantOK: true,
+		},
+		{
+			name: "message.updated with missing cost",
+			event: PodEvent{
+				Type: "message.updated",
+				Content: map[string]any{
+					"content": map[string]any{
+						"info": map[string]any{
+							"tokens": map[string]any{
+								"input":  float64(100),
+								"output": float64(50),
+							},
+						},
+					},
+				},
+			},
+			wantUsage: TokenUsage{
+				InputTokens:  100,
+				OutputTokens: 50,
+			},
+			wantOK: true,
+		},
+		{
 			name: "no token usage",
 			event: PodEvent{
 				Type: "message",
@@ -245,18 +322,6 @@ func TestExtractTokenUsage(t *testing.T) {
 			name: "nil content",
 			event: PodEvent{
 				Type: "ping",
-			},
-			wantUsage: TokenUsage{},
-			wantOK:    false,
-		},
-		{
-			name: "zero tokens not reported",
-			event: PodEvent{
-				Type: "token_usage",
-				Content: map[string]any{
-					"input_tokens":  float64(0),
-					"output_tokens": float64(0),
-				},
 			},
 			wantUsage: TokenUsage{},
 			wantOK:    false,
@@ -413,4 +478,44 @@ func TestSSEClient_ReplacesExistingConnection(t *testing.T) {
 	}
 
 	client.Disconnect(minionID)
+}
+
+func TestExtractTokenUsage_MessageUpdated(t *testing.T) {
+	// Load sample event from testdata
+	data, err := os.ReadFile("testdata/message_updated.json")
+	if err != nil {
+		t.Fatalf("failed to read testdata: %v", err)
+	}
+
+	var event PodEvent
+	if err := json.Unmarshal(data, &event); err != nil {
+		t.Fatalf("failed to unmarshal testdata: %v", err)
+	}
+
+	usage, ok := extractTokenUsage(&event)
+	if !ok {
+		t.Fatal("extractTokenUsage() should return true for message.updated event")
+	}
+
+	// Validate cost extraction
+	if usage.CostUSD != 0.02954525 {
+		t.Errorf("expected cost=0.02954525, got %f", usage.CostUSD)
+	}
+
+	// Validate token fields
+	if usage.InputTokens != 1763 {
+		t.Errorf("expected input_tokens=1763, got %d", usage.InputTokens)
+	}
+	if usage.OutputTokens != 929 {
+		t.Errorf("expected output_tokens=929, got %d", usage.OutputTokens)
+	}
+	if usage.ReasoningTokens != 793 {
+		t.Errorf("expected reasoning_tokens=793, got %d", usage.ReasoningTokens)
+	}
+	if usage.CacheReadTokens != 13440 {
+		t.Errorf("expected cache_read_tokens=13440, got %d", usage.CacheReadTokens)
+	}
+	if usage.CacheWriteTokens != 0 {
+		t.Errorf("expected cache_write_tokens=0, got %d", usage.CacheWriteTokens)
+	}
 }

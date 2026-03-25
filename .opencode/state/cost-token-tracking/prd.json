@@ -87,7 +87,7 @@
         "Handle missing or malformed fields gracefully (returns zero values, does not crash)",
         "Create testdata/message_updated.json with sample OpenCode event structure matching real SSE format"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "backend-event-3",
@@ -98,7 +98,7 @@
         "extractTokenUsage() logs debug-level message on successful extraction: \"Extracted tokens: input=%d (cache_read=%d), output=%d (reasoning=%d, cache_write=%d), cost=$%.6f\"",
         "Add warning log if cost field missing but tokens present: \"Token data present but cost missing in event\""
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "backend-event-4",
@@ -108,7 +108,7 @@
         "DBEventHandler.HandleTokenUsage() in orchestrator/internal/streaming/handler.go passes all 6 extracted fields to UpdateTokenUsage()",
         "NoOpEventHandler.HandleTokenUsage() logs all new fields for debugging: input, output, reasoning, cache_read, cache_write, cost"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "frontend-ui-1",
@@ -144,7 +144,7 @@
         "Test validates all token fields extracted correctly: input=1763, output=929, reasoning=793, cache_read=13440, cache_write=0",
         "Test validates graceful handling of missing fields (partial event returns zero for missing values)"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "testing-2",

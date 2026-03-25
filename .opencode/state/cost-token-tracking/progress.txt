@@ -69,3 +69,37 @@ Started: 2026-03-24
 - Added CostUSD float64 field for cost tracking
 - Files changed: orchestrator/internal/streaming/sse.go:43-50
 - **Learnings:** TokenUsage struct mirrors Minion struct granular fields, ready for SSE extraction logic
+
+## Task - backend-event-2
+- Rewrote extractTokenUsage() to parse message.updated events with nested content.content.info structure
+- Safely extracts cost from info.cost using type assertions
+- Extracts tokens from info.tokens.{input,output,reasoning}
+- Extracts cache tokens from nested info.tokens.cache.{read,write} map
+- Handles missing/malformed fields gracefully (zero values, no crash)
+- Preserves backward compatibility with legacy token_usage event format
+- Files changed: orchestrator/internal/streaming/sse.go:334-433
+- **Learnings:** OpenCode sends nested structures; must navigate content.content.info path for message.updated events
+
+## Task - backend-event-3
+- Added debug logging on successful token extraction with all field values
+- Added warning when all extracted values are zero (failed extraction)
+- Added warning when tokens present but cost missing
+- Files changed: orchestrator/internal/streaming/sse.go:320-346
+- **Learnings:** Observability critical for debugging production token tracking issues
+
+## Task - backend-event-4
+- Updated DBEventHandler.HandleTokenUsage() to pass all 6 token fields + cost to UpdateTokenUsage()
+- Updated NoOpEventHandler.HandleTokenUsage() to log all new fields for debugging
+- Updated logging in both handlers to include reasoning_tokens, cache_read_tokens, cache_write_tokens, cost_usd
+- Files changed: orchestrator/internal/streaming/handler.go:92-140, orchestrator/internal/streaming/sse.go:416-430
+- **Learnings:** Event handlers bridge SSE extraction to database persistence; must pass all fields through
+
+## Task - testing-1
+- Created TestExtractTokenUsage_MessageUpdated integration test that loads testdata/message_updated.json
+- Added test cases for message.updated format in TestExtractTokenUsage (full tokens, partial tokens, missing cost)
+- Test validates safe float64 conversion for cost field (0.02954525)
+- Test validates all token fields extracted correctly: input=1763, output=929, reasoning=793, cache_read=13440, cache_write=0
+- Test validates graceful handling of missing fields (partial events return zero for missing values)
+- Files changed: orchestrator/internal/streaming/sse_test.go:1-11, 417-456
+- **Learnings:** Testdata JSON mirrors real OpenCode SSE event structure for regression testing
+
