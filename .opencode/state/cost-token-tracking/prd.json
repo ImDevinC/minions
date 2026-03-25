@@ -42,7 +42,7 @@
         "Update all 11 SELECT queries to include new fields: FindRecentDuplicate, GetByID, List, ListByStatuses, ListPending, ListIdleRunning, ListClarificationTimeouts, ListTerminalWithPodOlderThan, GetByClarificationMessageID, and the 2 queries in GetStats",
         "Update scanMinion() and scanMinionWithOwner() helper functions to scan all new fields in correct order"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "backend-data-3",

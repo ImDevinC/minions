@@ -5,6 +5,8 @@ Started: 2026-03-24
 ## Codebase Patterns
 **Migration pattern**: Simple ALTER TABLE statements for schema changes. Comments on columns for documentation. Explicit down migrations for rollback safety.
 
+**Query field updates**: When adding DB columns, update in order: (1) scanMinion/scanMinionWithOwner helpers (2) all SELECT queries (3) test mock data. Comments document expected field count for easy verification.
+
 ---
 <!-- Task logs below - APPEND ONLY -->
 
@@ -26,3 +28,23 @@ Started: 2026-03-24
 - Expanded UpdateTokenUsageParams to 6 token fields + CostUSD (orchestrator/internal/db/minions.go:791-798)
 - Files changed: orchestrator/internal/db/minions.go
 - **Learnings:** Struct changes must match scanMinion() field count - will address in next task
+
+## Task - backend-data-2
+- Updated scanMinion() to scan 25 fields (added reasoning_tokens, cache_read_tokens, cache_write_tokens)
+- Updated scanMinionWithOwner() to scan 26 fields (25 Minion fields + OwnerDiscordID)
+- Updated UpdateTokenUsage() to atomically increment all 6 token fields plus cost_usd
+- Updated all 11 SELECT queries to include 3 new token fields:
+  - FindRecentDuplicate (orchestrator/internal/db/minions.go:221-227)
+  - GetByID (orchestrator/internal/db/minions.go:332-338)
+  - List (orchestrator/internal/db/minions.go:426-432)
+  - ListByStatuses (orchestrator/internal/db/minions.go:707-713)
+  - ListPending (orchestrator/internal/db/minions.go:746-752)
+  - ListIdleRunning (orchestrator/internal/db/minions.go:821-829)
+  - ListClarificationTimeouts (orchestrator/internal/db/minions.go:856-862)
+  - GetByClarificationMessageID (orchestrator/internal/db/minions.go:900-906)
+  - ListTerminalWithPodOlderThan (orchestrator/internal/db/minions.go:938-944)
+  - GetStats total query (orchestrator/internal/db/minions.go:1080-1089) - combines token fields
+  - GetStats by_model query (orchestrator/internal/db/minions.go:1091-1100) - combines token fields
+- Updated test data in TestScanMinion to include 3 new token fields (orchestrator/internal/db/minions_test.go:124-148)
+- Files changed: orchestrator/internal/db/minions.go, orchestrator/internal/db/minions_test.go
+- **Learnings:** GetStats already implemented token combining in SQL (input+cache_read, output+reasoning+cache_write) per PRD requirements

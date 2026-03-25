@@ -30,17 +30,18 @@ type Scanner interface {
 	Scan(dest ...any) error
 }
 
-// scanMinion scans all 22 Minion fields from a row in canonical order.
+// scanMinion scans all 25 Minion fields from a row in canonical order.
 // The SELECT must match: id, user_id, repo, task, model, status,
 // clarification_question, clarification_answer, clarification_message_id,
-// input_tokens, output_tokens, cost_usd, pr_url, error, session_id, pod_name,
+// input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens, cost_usd,
+// pr_url, error, session_id, pod_name,
 // discord_message_id, discord_channel_id, created_at, started_at, completed_at, last_activity_at
 func scanMinion(row Scanner) (*Minion, error) {
 	m := &Minion{}
 	err := row.Scan(
 		&m.ID, &m.UserID, &m.Repo, &m.Task, &m.Model, &m.Status,
 		&m.ClarificationQuestion, &m.ClarificationAnswer, &m.ClarificationMessageID,
-		&m.InputTokens, &m.OutputTokens, &m.CostUSD,
+		&m.InputTokens, &m.OutputTokens, &m.ReasoningTokens, &m.CacheReadTokens, &m.CacheWriteTokens, &m.CostUSD,
 		&m.PRURL, &m.Error, &m.SessionID, &m.PodName,
 		&m.DiscordMessageID, &m.DiscordChannelID,
 		&m.CreatedAt, &m.StartedAt, &m.CompletedAt, &m.LastActivityAt,
@@ -51,14 +52,14 @@ func scanMinion(row Scanner) (*Minion, error) {
 	return m, nil
 }
 
-// scanMinionWithOwner scans all 22 Minion fields plus OwnerDiscordID (23rd field).
+// scanMinionWithOwner scans all 25 Minion fields plus OwnerDiscordID (26th field).
 // Used for queries that JOIN users table for owner validation.
 func scanMinionWithOwner(row Scanner) (*MinionWithOwner, error) {
 	m := &MinionWithOwner{}
 	err := row.Scan(
 		&m.ID, &m.UserID, &m.Repo, &m.Task, &m.Model, &m.Status,
 		&m.ClarificationQuestion, &m.ClarificationAnswer, &m.ClarificationMessageID,
-		&m.InputTokens, &m.OutputTokens, &m.CostUSD,
+		&m.InputTokens, &m.OutputTokens, &m.ReasoningTokens, &m.CacheReadTokens, &m.CacheWriteTokens, &m.CostUSD,
 		&m.PRURL, &m.Error, &m.SessionID, &m.PodName,
 		&m.DiscordMessageID, &m.DiscordChannelID,
 		&m.CreatedAt, &m.StartedAt, &m.CompletedAt, &m.LastActivityAt,
@@ -220,7 +221,7 @@ func (s *MinionStore) FindRecentDuplicate(ctx context.Context, tx pgx.Tx, repo, 
 	row := tx.QueryRow(ctx,
 		`SELECT id, user_id, repo, task, model, status,
 		        clarification_question, clarification_answer, clarification_message_id,
-		        input_tokens, output_tokens, cost_usd,
+		        input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens, cost_usd,
 		        pr_url, error, session_id, pod_name,
 		        discord_message_id, discord_channel_id,
 		        created_at, started_at, completed_at, last_activity_at
@@ -331,7 +332,7 @@ func (s *MinionStore) GetByID(ctx context.Context, id uuid.UUID) (*Minion, error
 	row := s.pool.QueryRow(ctx,
 		`SELECT id, user_id, repo, task, model, status,
 		        clarification_question, clarification_answer, clarification_message_id,
-		        input_tokens, output_tokens, cost_usd,
+		        input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens, cost_usd,
 		        pr_url, error, session_id, pod_name,
 		        discord_message_id, discord_channel_id,
 		        created_at, started_at, completed_at, last_activity_at
@@ -425,7 +426,7 @@ func (s *MinionStore) List(ctx context.Context, params ListMinionsParams) ([]*Mi
 	// Build query dynamically based on filters
 	query := `SELECT id, user_id, repo, task, model, status,
 		        clarification_question, clarification_answer, clarification_message_id,
-		        input_tokens, output_tokens, cost_usd,
+		        input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens, cost_usd,
 		        pr_url, error, session_id, pod_name,
 		        discord_message_id, discord_channel_id,
 		        created_at, started_at, completed_at, last_activity_at
@@ -706,7 +707,7 @@ func (s *MinionStore) ListByStatuses(ctx context.Context, statuses []MinionStatu
 	// Build query with IN clause
 	query := `SELECT id, user_id, repo, task, model, status,
 		        clarification_question, clarification_answer, clarification_message_id,
-		        input_tokens, output_tokens, cost_usd,
+		        input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens, cost_usd,
 		        pr_url, error, session_id, pod_name,
 		        discord_message_id, discord_channel_id,
 		        created_at, started_at, completed_at, last_activity_at
@@ -745,7 +746,7 @@ func (s *MinionStore) ListByStatuses(ctx context.Context, statuses []MinionStatu
 func (s *MinionStore) ListPending(ctx context.Context) ([]*Minion, error) {
 	query := `SELECT id, user_id, repo, task, model, status,
 		        clarification_question, clarification_answer, clarification_message_id,
-		        input_tokens, output_tokens, cost_usd,
+		        input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens, cost_usd,
 		        pr_url, error, session_id, pod_name,
 		        discord_message_id, discord_channel_id,
 		        created_at, started_at, completed_at, last_activity_at
@@ -808,9 +809,14 @@ func (s *MinionStore) UpdateTokenUsage(ctx context.Context, params UpdateTokenUs
 		`UPDATE minions SET 
 			input_tokens = input_tokens + $1,
 			output_tokens = output_tokens + $2,
+			reasoning_tokens = reasoning_tokens + $3,
+			cache_read_tokens = cache_read_tokens + $4,
+			cache_write_tokens = cache_write_tokens + $5,
+			cost_usd = cost_usd + $6,
 			last_activity_at = NOW()
-		WHERE id = $3`,
-		params.InputTokens, params.OutputTokens, params.ID,
+		WHERE id = $7`,
+		params.InputTokens, params.OutputTokens, params.ReasoningTokens,
+		params.CacheReadTokens, params.CacheWriteTokens, params.CostUSD, params.ID,
 	)
 	return err
 }
@@ -820,7 +826,7 @@ func (s *MinionStore) UpdateTokenUsage(ctx context.Context, params UpdateTokenUs
 func (s *MinionStore) ListIdleRunning(ctx context.Context, idleThreshold time.Duration) ([]*Minion, error) {
 	query := `SELECT id, user_id, repo, task, model, status,
 		        clarification_question, clarification_answer, clarification_message_id,
-		        input_tokens, output_tokens, cost_usd,
+		        input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens, cost_usd,
 		        pr_url, error, session_id, pod_name,
 		        discord_message_id, discord_channel_id,
 		        created_at, started_at, completed_at, last_activity_at
@@ -855,7 +861,7 @@ func (s *MinionStore) ListIdleRunning(ctx context.Context, idleThreshold time.Du
 func (s *MinionStore) ListClarificationTimeouts(ctx context.Context, timeout time.Duration) ([]*Minion, error) {
 	query := `SELECT id, user_id, repo, task, model, status,
 		        clarification_question, clarification_answer, clarification_message_id,
-		        input_tokens, output_tokens, cost_usd,
+		        input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens, cost_usd,
 		        pr_url, error, session_id, pod_name,
 		        discord_message_id, discord_channel_id,
 		        created_at, started_at, completed_at, last_activity_at
@@ -899,7 +905,7 @@ func (s *MinionStore) GetByClarificationMessageID(ctx context.Context, messageID
 	row := s.pool.QueryRow(ctx,
 		`SELECT m.id, m.user_id, m.repo, m.task, m.model, m.status,
 		        m.clarification_question, m.clarification_answer, m.clarification_message_id,
-		        m.input_tokens, m.output_tokens, m.cost_usd,
+		        m.input_tokens, m.output_tokens, m.reasoning_tokens, m.cache_read_tokens, m.cache_write_tokens, m.cost_usd,
 		        m.pr_url, m.error, m.session_id, m.pod_name,
 		        m.discord_message_id, m.discord_channel_id,
 		        m.created_at, m.started_at, m.completed_at, m.last_activity_at,
@@ -937,7 +943,7 @@ type SetClarificationAnswerParams struct {
 func (s *MinionStore) ListTerminalWithPodOlderThan(ctx context.Context, age time.Duration) ([]*Minion, error) {
 	query := `SELECT id, user_id, repo, task, model, status,
 		        clarification_question, clarification_answer, clarification_message_id,
-		        input_tokens, output_tokens, cost_usd,
+		        input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens, cost_usd,
 		        pr_url, error, session_id, pod_name,
 		        discord_message_id, discord_channel_id,
 		        created_at, started_at, completed_at, last_activity_at
@@ -1076,18 +1082,24 @@ func (s *MinionStore) GetStats(ctx context.Context) (*Stats, error) {
 		ByModel: []ModelStats{},
 	}
 
-	// Get totals
+	// Get totals - combine input+cache_read, output+reasoning+cache_write
 	err := s.pool.QueryRow(ctx,
-		`SELECT COALESCE(SUM(cost_usd), 0), COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0)
+		`SELECT COALESCE(SUM(cost_usd), 0), 
+		        COALESCE(SUM(input_tokens + cache_read_tokens), 0), 
+		        COALESCE(SUM(output_tokens + reasoning_tokens + cache_write_tokens), 0)
 		 FROM minions`,
 	).Scan(&stats.TotalCostUSD, &stats.TotalInputTokens, &stats.TotalOutputTokens)
 	if err != nil {
 		return nil, err
 	}
 
-	// Get breakdown by model
+	// Get breakdown by model - combine token fields in aggregation
 	rows, err := s.pool.Query(ctx,
-		`SELECT model, COALESCE(SUM(cost_usd), 0), COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0), COUNT(*)
+		`SELECT model, 
+		        COALESCE(SUM(cost_usd), 0), 
+		        COALESCE(SUM(input_tokens + cache_read_tokens), 0), 
+		        COALESCE(SUM(output_tokens + reasoning_tokens + cache_write_tokens), 0), 
+		        COUNT(*)
 		 FROM minions
 		 GROUP BY model
 		 ORDER BY SUM(cost_usd) DESC`,
