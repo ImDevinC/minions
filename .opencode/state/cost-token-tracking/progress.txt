@@ -1,0 +1,22 @@
+# Progress Log
+PRD: cost-token-tracking
+Started: 2026-03-24
+
+## Codebase Patterns
+**Migration pattern**: Simple ALTER TABLE statements for schema changes. Comments on columns for documentation. Explicit down migrations for rollback safety.
+
+---
+<!-- Task logs below - APPEND ONLY -->
+
+## Task - db-1
+- Created migration 007_add_token_detail_fields.sql
+- Adds 3 BIGINT columns: reasoning_tokens, cache_read_tokens, cache_write_tokens
+- All default to 0, NOT NULL constraint ensures existing rows get zero-initialized
+- Files changed: schema/migrations/007_add_token_detail_fields.sql
+- **Learnings:** PostgreSQL ALTER TABLE with DEFAULT 0 backfills existing rows automatically
+
+## Task - db-2
+- Created rollback migration 007_add_token_detail_fields_down.sql
+- Simple DROP COLUMN statements for all 3 new fields
+- Files changed: schema/migrations/007_add_token_detail_fields_down.sql
+- **Learnings:** No separate up/down directories - down migrations are suffixed with _down.sql
