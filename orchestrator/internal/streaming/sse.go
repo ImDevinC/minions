@@ -361,22 +361,20 @@ func (c *SSEClient) processEvent(ctx context.Context, minionID uuid.UUID, eventT
 // extractTokenUsage attempts to extract token usage from an event.
 // Returns false if no token usage data is present.
 //
-// OpenCode sends token data in message.updated events with nested structure:
+// OpenCode sends token data in message.updated events with structure:
 //
 //	{
 //	  "type": "message.updated",
 //	  "content": {
-//	    "content": {
-//	      "info": {
-//	        "cost": 0.02954525,
-//	        "tokens": {
-//	          "input": 1763,
-//	          "output": 929,
-//	          "reasoning": 793,
-//	          "cache": {
-//	            "read": 13440,
-//	            "write": 0
-//	          }
+//	    "info": {
+//	      "cost": 0.02954525,
+//	      "tokens": {
+//	        "input": 1763,
+//	        "output": 929,
+//	        "reasoning": 793,
+//	        "cache": {
+//	          "read": 13440,
+//	          "write": 0
 //	        }
 //	      }
 //	    }
@@ -390,42 +388,40 @@ func extractTokenUsage(event *PodEvent) (TokenUsage, bool) {
 	var usage TokenUsage
 	extracted := false
 
-	// OpenCode message.updated events: content.content.info path
+	// OpenCode message.updated events: content.info path
 	if event.Type == "message.updated" {
-		// Navigate nested structure: content -> content -> info
-		if content, ok := event.Content["content"].(map[string]any); ok {
-			if info, ok := content["info"].(map[string]any); ok {
-				// Extract cost
-				if cost, ok := info["cost"].(float64); ok {
-					usage.CostUSD = cost
+		// Navigate structure: content -> info
+		if info, ok := event.Content["info"].(map[string]any); ok {
+			// Extract cost
+			if cost, ok := info["cost"].(float64); ok {
+				usage.CostUSD = cost
+				extracted = true
+			}
+
+			// Extract tokens
+			if tokens, ok := info["tokens"].(map[string]any); ok {
+				if input, ok := tokens["input"].(float64); ok {
+					usage.InputTokens = int64(input)
+					extracted = true
+				}
+				if output, ok := tokens["output"].(float64); ok {
+					usage.OutputTokens = int64(output)
+					extracted = true
+				}
+				if reasoning, ok := tokens["reasoning"].(float64); ok {
+					usage.ReasoningTokens = int64(reasoning)
 					extracted = true
 				}
 
-				// Extract tokens
-				if tokens, ok := info["tokens"].(map[string]any); ok {
-					if input, ok := tokens["input"].(float64); ok {
-						usage.InputTokens = int64(input)
+				// Extract cache tokens (nested map)
+				if cache, ok := tokens["cache"].(map[string]any); ok {
+					if read, ok := cache["read"].(float64); ok {
+						usage.CacheReadTokens = int64(read)
 						extracted = true
 					}
-					if output, ok := tokens["output"].(float64); ok {
-						usage.OutputTokens = int64(output)
+					if write, ok := cache["write"].(float64); ok {
+						usage.CacheWriteTokens = int64(write)
 						extracted = true
-					}
-					if reasoning, ok := tokens["reasoning"].(float64); ok {
-						usage.ReasoningTokens = int64(reasoning)
-						extracted = true
-					}
-
-					// Extract cache tokens (nested map)
-					if cache, ok := tokens["cache"].(map[string]any); ok {
-						if read, ok := cache["read"].(float64); ok {
-							usage.CacheReadTokens = int64(read)
-							extracted = true
-						}
-						if write, ok := cache["write"].(float64); ok {
-							usage.CacheWriteTokens = int64(write)
-							extracted = true
-						}
 					}
 				}
 			}

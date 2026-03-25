@@ -1,18 +1,16 @@
 {
   "type": "message.updated",
   "content": {
-    "content": {
-      "info": {
-        "cost": 0.02954525,
-        "tokens": {
-          "input": 1763,
-          "output": 929,
-          "reasoning": 793,
-          "total": 16132,
-          "cache": {
-            "read": 13440,
-            "write": 0
-          }
+    "info": {
+      "cost": 0.02954525,
+      "tokens": {
+        "input": 1763,
+        "output": 929,
+        "reasoning": 793,
+        "total": 16132,
+        "cache": {
+          "read": 13440,
+          "write": 0
         }
       }
     }
