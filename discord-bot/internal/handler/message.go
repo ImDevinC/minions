@@ -467,6 +467,15 @@ func (h *MessageHandler) isCommandAllowed(s *discordgo.Session, msg *discordgo.M
 			"author_id", msg.Author.ID,
 			"channel_id", msg.ChannelID,
 		)
+		// Send "I'm sorry Dave" message for non-guild context
+		_, sendErr := s.ChannelMessageSendReply(
+			msg.ChannelID,
+			"I'm sorry Dave, I'm afraid I can't do that",
+			msg.Reference(),
+		)
+		if sendErr != nil {
+			h.logger.Error("failed to send non-guild context message", "error", sendErr)
+		}
 		return false
 	}
 
@@ -476,6 +485,15 @@ func (h *MessageHandler) isCommandAllowed(s *discordgo.Session, msg *discordgo.M
 			"channel_id", msg.ChannelID,
 			"guild_id", msg.GuildID,
 		)
+		// Send "I'm sorry Dave" message for unauthorized guild
+		_, sendErr := s.ChannelMessageSendReply(
+			msg.ChannelID,
+			"I'm sorry Dave, I'm afraid I can't do that",
+			msg.Reference(),
+		)
+		if sendErr != nil {
+			h.logger.Error("failed to send unauthorized guild message", "error", sendErr)
+		}
 		return false
 	}
 
@@ -490,6 +508,15 @@ func (h *MessageHandler) isCommandAllowed(s *discordgo.Session, msg *discordgo.M
 			"author_id", msg.Author.ID,
 			"guild_id", msg.GuildID,
 		)
+		// Send "I'm sorry Dave" message for role resolution failure
+		_, sendErr := s.ChannelMessageSendReply(
+			msg.ChannelID,
+			"I'm sorry Dave, I'm afraid I can't do that",
+			msg.Reference(),
+		)
+		if sendErr != nil {
+			h.logger.Error("failed to send role resolution failure message", "error", sendErr)
+		}
 		return false
 	}
 
@@ -498,6 +525,15 @@ func (h *MessageHandler) isCommandAllowed(s *discordgo.Session, msg *discordgo.M
 			"author_id", msg.Author.ID,
 			"guild_id", msg.GuildID,
 		)
+		// Send "I'm sorry Dave" message for lack of required role
+		_, sendErr := s.ChannelMessageSendReply(
+			msg.ChannelID,
+			"I'm sorry Dave, I'm afraid I can't do that",
+			msg.Reference(),
+		)
+		if sendErr != nil {
+			h.logger.Error("failed to send role authorization message", "error", sendErr)
+		}
 		return false
 	}
 
