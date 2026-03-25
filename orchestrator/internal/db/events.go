@@ -124,3 +124,40 @@ func (s *EventStore) GetEventsSince(ctx context.Context, minionID uuid.UUID, sin
 
 	return events, nil
 }
+
+// GetLatestSessionError returns the error message from the most recent
+// session.error event for a minion, if any exists. This is used to detect
+// cases where OpenCode failed (e.g., model not found) but the session still
+// transitioned to idle, causing devbox to incorrectly report success.
+//
+// Returns empty string if no session.error events exist.
+func (s *EventStore) GetLatestSessionError(ctx context.Context, minionID uuid.UUID) (string, error) {
+	// Extract error message from JSONB using PostgreSQL JSON operators.
+	// Structure: {"error": {"data": {"message": "..."}, "name": "..."}, "sessionID": "..."}
+	// Try content->'error'->'data'->>'message' first, fallback to content->'error'->>'name'.
+	var errMsg *string
+	err := s.pool.QueryRow(ctx,
+		`SELECT COALESCE(
+			content->'error'->'data'->>'message',
+			content->'error'->>'name'
+		)
+		FROM minion_events
+		WHERE minion_id = $1 AND event_type = 'session.error'
+		ORDER BY timestamp DESC
+		LIMIT 1`,
+		minionID,
+	).Scan(&errMsg)
+
+	if err != nil {
+		// pgx returns no rows error when nothing found
+		if err.Error() == "no rows in result set" {
+			return "", nil
+		}
+		return "", err
+	}
+
+	if errMsg == nil {
+		return "", nil
+	}
+	return *errMsg, nil
+}
