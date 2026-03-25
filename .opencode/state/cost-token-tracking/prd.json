@@ -168,7 +168,7 @@
         "Verify stats page at /stats shows non-zero total cost and tokens after minion completes",
         "Verify cost/tokens update automatically every 3 seconds while minion is running (no manual browser refresh needed)"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "testing-4",
@@ -179,7 +179,7 @@
         "Manual test: Verify warning log appears when extraction returns all zeros (can test by temporarily breaking event structure)",
         "Manual test: Verify orchestrator doesn't crash when SSE event has missing cost or token fields"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "docs-1",

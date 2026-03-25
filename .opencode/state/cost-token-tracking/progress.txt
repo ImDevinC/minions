@@ -140,3 +140,23 @@ Started: 2026-03-24
 - Files changed: AGENTS.md
 - **Learnings:** Documentation placed adjacent to existing SSE/observability sections for logical grouping; extractTokenUsage comment already met requirements
 
+## Task - testing-3
+- Created comprehensive manual testing checklist: .opencode/state/cost-token-tracking/MANUAL_TEST_CHECKLIST.md
+- Verified implementation is ready for manual testing:
+  - UI displays cost with 5 decimal places via formatCost() (control-panel/src/components/minion-detail-client.tsx:58-60)
+  - UI displays tokens with thousands separators via formatTokens() (control-panel/src/components/minion-detail-client.tsx:62-65)
+  - Real-time polling implemented with 3-second interval (control-panel/src/components/minion-detail-client.tsx:96-119)
+  - Polling stops automatically on terminal status (completed, failed, terminated)
+  - Stats page aggregation combines token fields in SQL (orchestrator/internal/db/minions.go:1088-1089, 1100-1101)
+- Files changed: .opencode/state/cost-token-tracking/MANUAL_TEST_CHECKLIST.md
+- **Learnings:** Manual testing tasks require human verification post-deployment; created comprehensive checklist with test cases, expected results, and rollback plan
+
+## Task - testing-4
+- Verified logging implementation is ready for manual verification:
+  - Debug logging on successful extraction shows all fields (orchestrator/internal/streaming/sse.go:331-338)
+  - Warning logging on all-zero extraction (orchestrator/internal/streaming/sse.go:325-328)
+  - Warning logging when tokens present but cost missing (orchestrator/internal/streaming/sse.go:341-346)
+  - Graceful error handling with type-safe assertions (orchestrator/internal/streaming/sse.go:361-433)
+- Manual test checklist includes 4 test cases for logging verification (see MANUAL_TEST_CHECKLIST.md)
+- No code changes needed - implementation complete
+- **Learnings:** All logging infrastructure in place; requires kubectl access to orchestrator pod logs for verification
