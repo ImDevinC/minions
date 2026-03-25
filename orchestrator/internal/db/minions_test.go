@@ -110,7 +110,7 @@ func (m *mockScanner) Scan(dest ...any) error {
 }
 
 func TestScanMinion(t *testing.T) {
-	// Create test data for all 22 fields
+	// Create test data for all 25 fields
 	testID := uuid.New()
 	testUserID := uuid.New()
 	now := time.Now().Truncate(time.Microsecond)
@@ -134,6 +134,9 @@ func TestScanMinion(t *testing.T) {
 			nil,                 // ClarificationMessageID (*string)
 			int64(1000),         // InputTokens
 			int64(500),          // OutputTokens
+			int64(200),          // ReasoningTokens
+			int64(5000),         // CacheReadTokens
+			int64(100),          // CacheWriteTokens
 			float64(0.05),       // CostUSD
 			prURL,               // PRURL (*string)
 			nil,                 // Error (*string)
@@ -153,7 +156,7 @@ func TestScanMinion(t *testing.T) {
 		t.Fatalf("scanMinion failed: %v", err)
 	}
 
-	// Verify all 22 fields
+	// Verify all 25 fields
 	if m.ID != testID {
 		t.Errorf("ID: got %v, want %v", m.ID, testID)
 	}
@@ -186,6 +189,15 @@ func TestScanMinion(t *testing.T) {
 	}
 	if m.OutputTokens != 500 {
 		t.Errorf("OutputTokens: got %v, want %v", m.OutputTokens, 500)
+	}
+	if m.ReasoningTokens != 200 {
+		t.Errorf("ReasoningTokens: got %v, want %v", m.ReasoningTokens, 200)
+	}
+	if m.CacheReadTokens != 5000 {
+		t.Errorf("CacheReadTokens: got %v, want %v", m.CacheReadTokens, 5000)
+	}
+	if m.CacheWriteTokens != 100 {
+		t.Errorf("CacheWriteTokens: got %v, want %v", m.CacheWriteTokens, 100)
 	}
 	if m.CostUSD != 0.05 {
 		t.Errorf("CostUSD: got %v, want %v", m.CostUSD, 0.05)

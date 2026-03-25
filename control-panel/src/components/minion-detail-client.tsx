@@ -54,23 +54,14 @@ export function StatusBadge({ status }: { status: MinionStatus }) {
   );
 }
 
-// Format cost in USD
+// Format cost in USD with 5 decimal places
 function formatCost(costUsd: number): string {
-  if (costUsd < 0.01) {
-    return `$${costUsd.toFixed(4)}`;
-  }
-  return `$${costUsd.toFixed(2)}`;
+  return `$${costUsd.toFixed(5)}`;
 }
 
-// Format token counts
+// Format token counts with thousands separators
 function formatTokens(count: number): string {
-  if (count >= 1_000_000) {
-    return `${(count / 1_000_000).toFixed(1)}M`;
-  }
-  if (count >= 1_000) {
-    return `${(count / 1_000).toFixed(1)}K`;
-  }
-  return count.toString();
+  return count.toLocaleString();
 }
 
 // Check if a minion can be terminated (is in a running state)
@@ -86,6 +77,9 @@ export function MinionDetailClient({ minion }: MinionDetailClientProps) {
   const router = useRouter();
   const [showTerminateModal, setShowTerminateModal] = useState(false);
   const [currentStatus, setCurrentStatus] = useState(minion.status);
+  const [currentCost, setCurrentCost] = useState(minion.cost_usd);
+  const [currentInputTokens, setCurrentInputTokens] = useState(minion.input_tokens);
+  const [currentOutputTokens, setCurrentOutputTokens] = useState(minion.output_tokens);
 
   // Use WebSocket hook for live event updates
   const { events, isConnected, connectionError, isCatchingUp } = useMinionEvents({
@@ -98,6 +92,31 @@ export function MinionDetailClient({ minion }: MinionDetailClientProps) {
   useEffect(() => {
     setCurrentStatus(minion.status);
   }, [minion.status]);
+
+  // Poll for cost and token updates every 3 seconds when minion is running/pending
+  useEffect(() => {
+    // Only poll for non-terminal statuses
+    if (currentStatus === 'completed' || currentStatus === 'failed' || currentStatus === 'terminated') {
+      return;
+    }
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const response = await fetch(`/api/minions/${minion.id}`);
+        if (response.ok) {
+          const data = await response.json();
+          setCurrentCost(data.cost_usd);
+          setCurrentInputTokens(data.input_tokens);
+          setCurrentOutputTokens(data.output_tokens);
+          setCurrentStatus(data.status);
+        }
+      } catch (error) {
+        console.error('Failed to poll minion data:', error);
+      }
+    }, 3000);
+
+    return () => clearInterval(pollInterval);
+  }, [minion.id, currentStatus]);
 
   const handleTerminate = useCallback(async () => {
     const response = await fetch(`/api/minions/${minion.id}/terminate`, {
@@ -159,11 +178,11 @@ export function MinionDetailClient({ minion }: MinionDetailClientProps) {
           {/* Cost and tokens */}
           <div className="text-right">
             <div className="text-2xl font-bold text-green-400">
-              {formatCost(minion.cost_usd)}
+              {formatCost(currentCost)}
             </div>
             <div className="text-xs text-gray-500">
-              {formatTokens(minion.input_tokens)} in /{" "}
-              {formatTokens(minion.output_tokens)} out
+              {formatTokens(currentInputTokens)} in /{" "}
+              {formatTokens(currentOutputTokens)} out
             </div>
           </div>
         </div>

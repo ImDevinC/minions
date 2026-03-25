@@ -42,8 +42,12 @@ type PodEvent struct {
 
 // TokenUsage represents token usage data extracted from events.
 type TokenUsage struct {
-	InputTokens  int64 `json:"input_tokens"`
-	OutputTokens int64 `json:"output_tokens"`
+	InputTokens      int64   `json:"input_tokens"`
+	OutputTokens     int64   `json:"output_tokens"`
+	ReasoningTokens  int64   `json:"reasoning_tokens"`
+	CacheReadTokens  int64   `json:"cache_read_tokens"`
+	CacheWriteTokens int64   `json:"cache_write_tokens"`
+	CostUSD          float64 `json:"cost_usd"`
 }
 
 // EventHandler processes events received from the SSE stream.
@@ -315,6 +319,33 @@ func (c *SSEClient) processEvent(ctx context.Context, minionID uuid.UUID, eventT
 
 	// Extract and accumulate token usage if present
 	if usage, ok := extractTokenUsage(&event); ok {
+		// Check if all values are zero (extraction failed or no data)
+		if usage.CostUSD == 0 && usage.InputTokens == 0 && usage.OutputTokens == 0 &&
+			usage.ReasoningTokens == 0 && usage.CacheReadTokens == 0 && usage.CacheWriteTokens == 0 {
+			c.config.Logger.Warn("failed to extract tokens from event",
+				"event_type", event.Type,
+				"message", "all values zero",
+			)
+		} else {
+			// Log successful extraction
+			c.config.Logger.Debug("extracted tokens",
+				"input", usage.InputTokens,
+				"cache_read", usage.CacheReadTokens,
+				"output", usage.OutputTokens,
+				"reasoning", usage.ReasoningTokens,
+				"cache_write", usage.CacheWriteTokens,
+				"cost", fmt.Sprintf("$%.6f", usage.CostUSD),
+			)
+
+			// Warn if tokens present but cost missing
+			if usage.CostUSD == 0 && (usage.InputTokens > 0 || usage.OutputTokens > 0 || usage.ReasoningTokens > 0 ||
+				usage.CacheReadTokens > 0 || usage.CacheWriteTokens > 0) {
+				c.config.Logger.Warn("token data present but cost missing in event",
+					"event_type", event.Type,
+				)
+			}
+		}
+
 		if err := c.handler.HandleTokenUsage(ctx, minionID, usage); err != nil {
 			c.config.Logger.Error("failed to update token usage",
 				"minion_id", minionID,
@@ -329,12 +360,81 @@ func (c *SSEClient) processEvent(ctx context.Context, minionID uuid.UUID, eventT
 
 // extractTokenUsage attempts to extract token usage from an event.
 // Returns false if no token usage data is present.
+//
+// OpenCode sends token data in message.updated events with nested structure:
+//
+//	{
+//	  "type": "message.updated",
+//	  "content": {
+//	    "content": {
+//	      "info": {
+//	        "cost": 0.02954525,
+//	        "tokens": {
+//	          "input": 1763,
+//	          "output": 929,
+//	          "reasoning": 793,
+//	          "cache": {
+//	            "read": 13440,
+//	            "write": 0
+//	          }
+//	        }
+//	      }
+//	    }
+//	  }
+//	}
 func extractTokenUsage(event *PodEvent) (TokenUsage, bool) {
 	if event.Content == nil {
 		return TokenUsage{}, false
 	}
 
-	// Look for token_usage or usage field in content
+	var usage TokenUsage
+	extracted := false
+
+	// OpenCode message.updated events: content.content.info path
+	if event.Type == "message.updated" {
+		// Navigate nested structure: content -> content -> info
+		if content, ok := event.Content["content"].(map[string]any); ok {
+			if info, ok := content["info"].(map[string]any); ok {
+				// Extract cost
+				if cost, ok := info["cost"].(float64); ok {
+					usage.CostUSD = cost
+					extracted = true
+				}
+
+				// Extract tokens
+				if tokens, ok := info["tokens"].(map[string]any); ok {
+					if input, ok := tokens["input"].(float64); ok {
+						usage.InputTokens = int64(input)
+						extracted = true
+					}
+					if output, ok := tokens["output"].(float64); ok {
+						usage.OutputTokens = int64(output)
+						extracted = true
+					}
+					if reasoning, ok := tokens["reasoning"].(float64); ok {
+						usage.ReasoningTokens = int64(reasoning)
+						extracted = true
+					}
+
+					// Extract cache tokens (nested map)
+					if cache, ok := tokens["cache"].(map[string]any); ok {
+						if read, ok := cache["read"].(float64); ok {
+							usage.CacheReadTokens = int64(read)
+							extracted = true
+						}
+						if write, ok := cache["write"].(float64); ok {
+							usage.CacheWriteTokens = int64(write)
+							extracted = true
+						}
+					}
+				}
+			}
+		}
+
+		return usage, extracted
+	}
+
+	// Legacy format: Look for token_usage or usage field in content
 	var usageData map[string]any
 	if u, ok := event.Content["token_usage"].(map[string]any); ok {
 		usageData = u
@@ -348,20 +448,16 @@ func extractTokenUsage(event *PodEvent) (TokenUsage, bool) {
 		return TokenUsage{}, false
 	}
 
-	var usage TokenUsage
 	if input, ok := usageData["input_tokens"].(float64); ok {
 		usage.InputTokens = int64(input)
+		extracted = true
 	}
 	if output, ok := usageData["output_tokens"].(float64); ok {
 		usage.OutputTokens = int64(output)
+		extracted = true
 	}
 
-	// Only return true if we actually got some token data
-	if usage.InputTokens > 0 || usage.OutputTokens > 0 {
-		return usage, true
-	}
-
-	return TokenUsage{}, false
+	return usage, extracted
 }
 
 // NoOpEventHandler is a stub implementation for testing.
@@ -387,6 +483,10 @@ func (h *NoOpEventHandler) HandleTokenUsage(ctx context.Context, minionID uuid.U
 			"minion_id", minionID,
 			"input_tokens", usage.InputTokens,
 			"output_tokens", usage.OutputTokens,
+			"reasoning_tokens", usage.ReasoningTokens,
+			"cache_read_tokens", usage.CacheReadTokens,
+			"cache_write_tokens", usage.CacheWriteTokens,
+			"cost_usd", usage.CostUSD,
 		)
 	}
 	return nil

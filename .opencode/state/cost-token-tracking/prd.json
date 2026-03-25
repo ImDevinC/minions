@@ -1,0 +1,227 @@
+{
+  "prdName": "cost-token-tracking",
+  "tasks": [
+    {
+      "id": "db-1",
+      "category": "db",
+      "description": "Add token detail fields to database schema with migration",
+      "steps": [
+        "Create migration 007_add_token_detail_fields.sql that adds 3 new columns: reasoning_tokens BIGINT NOT NULL DEFAULT 0, cache_read_tokens BIGINT NOT NULL DEFAULT 0, cache_write_tokens BIGINT NOT NULL DEFAULT 0",
+        "Migration runs successfully against existing database",
+        "Verify all new fields default to 0 (NOT NULL) so existing minions get 0 automatically"
+      ],
+      "passes": true
+    },
+    {
+      "id": "db-2",
+      "category": "db",
+      "description": "Create migration rollback file for safe deployment",
+      "steps": [
+        "Create 007_add_token_detail_fields_down.sql with: ALTER TABLE minions DROP COLUMN reasoning_tokens, DROP COLUMN cache_read_tokens, DROP COLUMN cache_write_tokens",
+        "Verify rollback migration syntax is valid PostgreSQL",
+        "Document rollback strategy matches existing migration patterns (005/006 have explicit up/down)"
+      ],
+      "passes": true
+    },
+    {
+      "id": "backend-data-1",
+      "category": "backend",
+      "description": "Update Minion struct and UpdateTokenUsageParams with new fields",
+      "steps": [
+        "Minion struct in orchestrator/internal/db/minions.go includes ReasoningTokens int64, CacheReadTokens int64, CacheWriteTokens int64 fields",
+        "UpdateTokenUsageParams struct includes 6 fields total: InputTokens, OutputTokens, ReasoningTokens, CacheReadTokens, CacheWriteTokens, CostUSD"
+      ],
+      "passes": true
+    },
+    {
+      "id": "backend-data-2",
+      "category": "backend",
+      "description": "Update all database queries to include new token fields",
+      "steps": [
+        "UpdateTokenUsage() SQL uses atomic increments for all 6 fields: SET input_tokens = input_tokens + $1, output_tokens = output_tokens + $2, reasoning_tokens = reasoning_tokens + $3, cache_read_tokens = cache_read_tokens + $4, cache_write_tokens = cache_write_tokens + $5, cost_usd = cost_usd + $6",
+        "Update all 11 SELECT queries to include new fields: FindRecentDuplicate, GetByID, List, ListByStatuses, ListPending, ListIdleRunning, ListClarificationTimeouts, ListTerminalWithPodOlderThan, GetByClarificationMessageID, and the 2 queries in GetStats",
+        "Update scanMinion() and scanMinionWithOwner() helper functions to scan all new fields in correct order"
+      ],
+      "passes": true
+    },
+    {
+      "id": "backend-data-3",
+      "category": "backend",
+      "description": "Update GetStats() to combine token fields in SQL aggregation",
+      "steps": [
+        "Update GetStats() total query (line 1074) to: SELECT COALESCE(SUM(cost_usd), 0), COALESCE(SUM(input_tokens + cache_read_tokens), 0), COALESCE(SUM(output_tokens + reasoning_tokens + cache_write_tokens), 0)",
+        "Update GetStats() by_model query (line 1083) to: SELECT model, COALESCE(SUM(cost_usd), 0), COALESCE(SUM(input_tokens + cache_read_tokens), 0), COALESCE(SUM(output_tokens + reasoning_tokens + cache_write_tokens), 0), COUNT(*)",
+        "Verify SQL combines token types correctly: input = input + cache_read; output = output + reasoning + cache_write"
+      ],
+      "passes": true
+    },
+    {
+      "id": "backend-api-1",
+      "category": "backend",
+      "description": "Update HandleGet to combine token fields before returning API response",
+      "steps": [
+        "In orchestrator/internal/api/minions.go HandleGet function (line 389), update InputTokens mapping to: InputTokens: minion.InputTokens + minion.CacheReadTokens",
+        "Update OutputTokens mapping to: OutputTokens: minion.OutputTokens + minion.ReasoningTokens + minion.CacheWriteTokens",
+        "Verify GetMinionResponse struct does not need new fields (API returns combined display totals, not granular breakdown)"
+      ],
+      "passes": true
+    },
+    {
+      "id": "backend-event-1",
+      "category": "backend",
+      "description": "Update TokenUsage struct to include new fields",
+      "steps": [
+        "TokenUsage struct in orchestrator/internal/streaming/sse.go includes: ReasoningTokens int64, CacheReadTokens int64, CacheWriteTokens int64, CostUSD float64"
+      ],
+      "passes": true
+    },
+    {
+      "id": "backend-event-2",
+      "category": "backend",
+      "description": "Fix extractTokenUsage() to parse OpenCode message.updated events for tokens and cost",
+      "steps": [
+        "extractTokenUsage() correctly parses message.updated events with nested structure: content := event.Content[\"content\"].(map[string]any); info := content[\"info\"].(map[string]any)",
+        "Extract cost from info.cost using safe type assertion: if cost, ok := info[\"cost\"].(float64); ok { usage.CostUSD = cost }",
+        "Extract tokens from info.tokens.input, .output, .reasoning using safe type assertions",
+        "Extract cache tokens from info.tokens.cache.read and .cache.write (nested map)",
+        "Handle missing or malformed fields gracefully (returns zero values, does not crash)",
+        "Create testdata/message_updated.json with sample OpenCode event structure matching real SSE format"
+      ],
+      "passes": true
+    },
+    {
+      "id": "backend-event-3",
+      "category": "backend",
+      "description": "Add observability logging to token extraction",
+      "steps": [
+        "extractTokenUsage() logs warning when no data extracted (cost=0, all tokens=0): \"Failed to extract tokens from event type=%s: all values zero\"",
+        "extractTokenUsage() logs debug-level message on successful extraction: \"Extracted tokens: input=%d (cache_read=%d), output=%d (reasoning=%d, cache_write=%d), cost=$%.6f\"",
+        "Add warning log if cost field missing but tokens present: \"Token data present but cost missing in event\""
+      ],
+      "passes": true
+    },
+    {
+      "id": "backend-event-4",
+      "category": "backend",
+      "description": "Update event handlers to pass new token fields",
+      "steps": [
+        "DBEventHandler.HandleTokenUsage() in orchestrator/internal/streaming/handler.go passes all 6 extracted fields to UpdateTokenUsage()",
+        "NoOpEventHandler.HandleTokenUsage() logs all new fields for debugging: input, output, reasoning, cache_read, cache_write, cost"
+      ],
+      "passes": true
+    },
+    {
+      "id": "frontend-ui-1",
+      "category": "frontend",
+      "description": "Update minion detail component to display formatted token counts and cost",
+      "steps": [
+        "Verify control-panel/src/components/minion-detail-client.tsx displays input_tokens and output_tokens (no changes needed - backend returns combined totals)",
+        "Ensure cost displays with 5 decimal places using existing formatCost helper or add formatter: cost.toFixed(5)",
+        "Ensure token counts display with thousands separators using existing formatTokens helper or add formatter: tokens.toLocaleString()"
+      ],
+      "passes": true
+    },
+    {
+      "id": "frontend-ui-2",
+      "category": "frontend",
+      "description": "Implement real-time polling for cost updates on minion detail page",
+      "steps": [
+        "Minion detail component adds useEffect hook that polls GET /api/minions/:id every 3 seconds when minion.status is 'running' or 'pending'",
+        "Polling updates displayed cost and token counts in real-time without manual refresh",
+        "Polling stops automatically when minion reaches terminal status ('completed', 'failed', 'terminated')",
+        "Use clearInterval on cleanup to prevent memory leaks"
+      ],
+      "passes": true
+    },
+    {
+      "id": "testing-1",
+      "category": "testing",
+      "description": "Add integration test for token and cost extraction",
+      "steps": [
+        "Create orchestrator/internal/streaming/testdata/message_updated.json with sample OpenCode SSE event matching real format: {\"type\": \"message.updated\", \"content\": {\"content\": {\"info\": {\"cost\": 0.02954525, \"tokens\": {\"input\": 1763, \"output\": 929, \"reasoning\": 793, \"cache\": {\"read\": 13440, \"write\": 0}}}}}}",
+        "Create integration test TestExtractTokenUsage_MessageUpdated in orchestrator/internal/streaming/sse_test.go that loads testdata and validates extraction",
+        "Test validates safe float64 conversion for cost field (0.02954525)",
+        "Test validates all token fields extracted correctly: input=1763, output=929, reasoning=793, cache_read=13440, cache_write=0",
+        "Test validates graceful handling of missing fields (partial event returns zero for missing values)"
+      ],
+      "passes": true
+    },
+    {
+      "id": "testing-2",
+      "category": "testing",
+      "description": "Verify builds complete successfully",
+      "steps": [
+        "Run: cd orchestrator && go build ./... (exits with code 0)",
+        "Run: cd control-panel && npm run build (exits with code 0)",
+        "No compilation errors or type mismatches"
+      ],
+      "passes": true
+    },
+    {
+      "id": "testing-3",
+      "category": "testing",
+      "description": "Manual verification of cost tracking in UI",
+      "steps": [
+        "Manual test: Create a new minion via Discord and navigate to /minions/:id detail page",
+        "Verify cost displays as non-zero (e.g., $0.02954) while minion is running",
+        "Verify input and output token counts display with thousands separators (e.g., 15,203)",
+        "Verify stats page at /stats shows non-zero total cost and tokens after minion completes",
+        "Verify cost/tokens update automatically every 3 seconds while minion is running (no manual browser refresh needed)"
+      ],
+      "passes": true
+    },
+    {
+      "id": "testing-4",
+      "category": "testing",
+      "description": "Manual verification of logging and error handling",
+      "steps": [
+        "Manual test: Check orchestrator logs (kubectl logs) for debug-level token extraction success messages showing extracted values",
+        "Manual test: Verify warning log appears when extraction returns all zeros (can test by temporarily breaking event structure)",
+        "Manual test: Verify orchestrator doesn't crash when SSE event has missing cost or token fields"
+      ],
+      "passes": true
+    },
+    {
+      "id": "docs-1",
+      "category": "docs",
+      "description": "Update documentation for token tracking implementation",
+      "steps": [
+        "Update AGENTS.md minion observability section to document token tracking: database stores 6 fields (input, output, reasoning, cache_read, cache_write, cost), backend combines for display, extraction from SSE content.content.info path",
+        "Add code comment block above extractTokenUsage() explaining OpenCode event structure with example JSON showing nested content.content.info.tokens and .cost paths"
+      ],
+      "passes": true
+    }
+  ],
+  "context": {
+    "patterns": [
+      "Atomic token updates: orchestrator/internal/db/minions.go:UpdateTokenUsage() - Uses PostgreSQL atomic increments to avoid race conditions",
+      "SSE event extraction: orchestrator/internal/streaming/sse.go:extractTokenUsage() - Type-safe extraction with nil checks",
+      "Database scanning: orchestrator/internal/db/minions.go:scanMinion() - Centralized row scanning for consistency",
+      "Stats aggregation: orchestrator/internal/db/minions.go:GetStats() - Server-side SUM() queries combine token types",
+      "API response mapping: orchestrator/internal/api/minions.go:HandleGet() - Combines granular DB fields into display totals",
+      "Near-realtime updates: Control panel minion detail page polls API every 3 seconds for running minions",
+      "Token extraction observability: Debug logging on success, warning logging on failure"
+    ],
+    "keyFiles": [
+      "schema/migrations/007_add_token_detail_fields.sql",
+      "schema/migrations/007_add_token_detail_fields_down.sql",
+      "orchestrator/internal/db/minions.go",
+      "orchestrator/internal/streaming/sse.go",
+      "orchestrator/internal/streaming/handler.go",
+      "orchestrator/internal/api/minions.go",
+      "orchestrator/internal/streaming/testdata/message_updated.json",
+      "control-panel/src/components/minion-detail-client.tsx"
+    ],
+    "nonGoals": [
+      "Cost budgets/limits - Auto-stop minions when costs exceed threshold",
+      "Multi-currency support - Display costs in EUR/GBP/etc",
+      "Cost optimization suggestions - Use prompt caching to reduce cost by X%",
+      "Cost attribution/tagging - Tag minions by project/team for chargeback",
+      "Export to billing systems - Push costs to external accounting tools",
+      "Historical cost trends - Charts showing cost over time",
+      "Per-event cost tracking - Store cost for each individual SSE event",
+      "Expose granular token fields in API - Only return combined display totals (input+cache_read, output+reasoning+cache_write)",
+      "Stats page real-time polling - Only minion detail page polls; stats page shows historical totals"
+    ]
+  }
+}

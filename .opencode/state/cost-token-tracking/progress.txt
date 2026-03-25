@@ -1,0 +1,162 @@
+# Progress Log
+PRD: cost-token-tracking
+Started: 2026-03-24
+
+## Codebase Patterns
+**Migration pattern**: Simple ALTER TABLE statements for schema changes. Comments on columns for documentation. Explicit down migrations for rollback safety.
+
+**Query field updates**: When adding DB columns, update in order: (1) scanMinion/scanMinionWithOwner helpers (2) all SELECT queries (3) test mock data. Comments document expected field count for easy verification.
+
+**Token combining**: Store granular fields in DB, combine for display. SQL aggregations combine at query time (GetStats), API responses combine in-memory (HandleGet). Pattern: input = input + cache_read; output = output + reasoning + cache_write.
+
+**Frontend formatting helpers**: control-panel uses formatCost()/formatTokens() helpers for consistent display. Cost shows 5 decimals (toFixed(5)), tokens show thousands separators (toLocaleString()).
+
+---
+<!-- Task logs below - APPEND ONLY -->
+
+## Task - db-1
+- Created migration 007_add_token_detail_fields.sql
+- Adds 3 BIGINT columns: reasoning_tokens, cache_read_tokens, cache_write_tokens
+- All default to 0, NOT NULL constraint ensures existing rows get zero-initialized
+- Files changed: schema/migrations/007_add_token_detail_fields.sql
+- **Learnings:** PostgreSQL ALTER TABLE with DEFAULT 0 backfills existing rows automatically
+
+## Task - db-2
+- Created rollback migration 007_add_token_detail_fields_down.sql
+- Simple DROP COLUMN statements for all 3 new fields
+- Files changed: schema/migrations/007_add_token_detail_fields_down.sql
+- **Learnings:** No separate up/down directories - down migrations are suffixed with _down.sql
+
+## Task - backend-data-1
+- Added ReasoningTokens, CacheReadTokens, CacheWriteTokens int64 fields to Minion struct (orchestrator/internal/db/minions.go:98-100)
+- Expanded UpdateTokenUsageParams to 6 token fields + CostUSD (orchestrator/internal/db/minions.go:791-798)
+- Files changed: orchestrator/internal/db/minions.go
+- **Learnings:** Struct changes must match scanMinion() field count - will address in next task
+
+## Task - backend-data-2
+- Updated scanMinion() to scan 25 fields (added reasoning_tokens, cache_read_tokens, cache_write_tokens)
+- Updated scanMinionWithOwner() to scan 26 fields (25 Minion fields + OwnerDiscordID)
+- Updated UpdateTokenUsage() to atomically increment all 6 token fields plus cost_usd
+- Updated all 11 SELECT queries to include 3 new token fields:
+  - FindRecentDuplicate (orchestrator/internal/db/minions.go:221-227)
+  - GetByID (orchestrator/internal/db/minions.go:332-338)
+  - List (orchestrator/internal/db/minions.go:426-432)
+  - ListByStatuses (orchestrator/internal/db/minions.go:707-713)
+  - ListPending (orchestrator/internal/db/minions.go:746-752)
+  - ListIdleRunning (orchestrator/internal/db/minions.go:821-829)
+  - ListClarificationTimeouts (orchestrator/internal/db/minions.go:856-862)
+  - GetByClarificationMessageID (orchestrator/internal/db/minions.go:900-906)
+  - ListTerminalWithPodOlderThan (orchestrator/internal/db/minions.go:938-944)
+  - GetStats total query (orchestrator/internal/db/minions.go:1080-1089) - combines token fields
+  - GetStats by_model query (orchestrator/internal/db/minions.go:1091-1100) - combines token fields
+- Updated test data in TestScanMinion to include 3 new token fields (orchestrator/internal/db/minions_test.go:124-148)
+- Files changed: orchestrator/internal/db/minions.go, orchestrator/internal/db/minions_test.go
+- **Learnings:** GetStats already implemented token combining in SQL (input+cache_read, output+reasoning+cache_write) per PRD requirements
+
+## Task - backend-data-3
+- No changes needed - GetStats() already combines token fields in SQL (lines 1088-1089, 1100-1101)
+- Verification confirmed correct implementation from backend-data-2
+- **Learnings:** Task was completed in previous commit, marked as passing
+
+## Task - backend-api-1
+- Updated HandleGet to combine token fields before API response (orchestrator/internal/api/minions.go:399-400)
+- InputTokens now returns: minion.InputTokens + minion.CacheReadTokens
+- OutputTokens now returns: minion.OutputTokens + minion.ReasoningTokens + minion.CacheWriteTokens
+- Verified GetMinionResponse struct needs no changes (only has combined fields, not granular)
+- Files changed: orchestrator/internal/api/minions.go
+- **Learnings:** API layer combines granular DB fields into display totals; GetMinionResponse keeps simple schema
+
+## Task - backend-event-1
+- Added ReasoningTokens, CacheReadTokens, CacheWriteTokens int64 fields to TokenUsage struct
+- Added CostUSD float64 field for cost tracking
+- Files changed: orchestrator/internal/streaming/sse.go:43-50
+- **Learnings:** TokenUsage struct mirrors Minion struct granular fields, ready for SSE extraction logic
+
+## Task - backend-event-2
+- Rewrote extractTokenUsage() to parse message.updated events with nested content.content.info structure
+- Safely extracts cost from info.cost using type assertions
+- Extracts tokens from info.tokens.{input,output,reasoning}
+- Extracts cache tokens from nested info.tokens.cache.{read,write} map
+- Handles missing/malformed fields gracefully (zero values, no crash)
+- Preserves backward compatibility with legacy token_usage event format
+- Files changed: orchestrator/internal/streaming/sse.go:334-433
+- **Learnings:** OpenCode sends nested structures; must navigate content.content.info path for message.updated events
+
+## Task - backend-event-3
+- Added debug logging on successful token extraction with all field values
+- Added warning when all extracted values are zero (failed extraction)
+- Added warning when tokens present but cost missing
+- Files changed: orchestrator/internal/streaming/sse.go:320-346
+- **Learnings:** Observability critical for debugging production token tracking issues
+
+## Task - backend-event-4
+- Updated DBEventHandler.HandleTokenUsage() to pass all 6 token fields + cost to UpdateTokenUsage()
+- Updated NoOpEventHandler.HandleTokenUsage() to log all new fields for debugging
+- Updated logging in both handlers to include reasoning_tokens, cache_read_tokens, cache_write_tokens, cost_usd
+- Files changed: orchestrator/internal/streaming/handler.go:92-140, orchestrator/internal/streaming/sse.go:416-430
+- **Learnings:** Event handlers bridge SSE extraction to database persistence; must pass all fields through
+
+## Task - testing-1
+- Created TestExtractTokenUsage_MessageUpdated integration test that loads testdata/message_updated.json
+- Added test cases for message.updated format in TestExtractTokenUsage (full tokens, partial tokens, missing cost)
+- Test validates safe float64 conversion for cost field (0.02954525)
+- Test validates all token fields extracted correctly: input=1763, output=929, reasoning=793, cache_read=13440, cache_write=0
+- Test validates graceful handling of missing fields (partial events return zero for missing values)
+- Files changed: orchestrator/internal/streaming/sse_test.go:1-11, 417-456
+- **Learnings:** Testdata JSON mirrors real OpenCode SSE event structure for regression testing
+
+## Task - frontend-ui-1
+- Updated formatCost() to always display 5 decimal places: cost.toFixed(5)
+- Updated formatTokens() to display thousands separators: count.toLocaleString()
+- Removed K/M abbreviations in favor of full numbers with commas (e.g., "15,203" instead of "15.2K")
+- Files changed: control-panel/src/components/minion-detail-client.tsx:57-65
+- **Learnings:** Next.js build requires npm install before first build (react-markdown/remark-gfm dependencies were missing from node_modules)
+
+## Task - frontend-ui-2
+- Added useState hooks for currentCost, currentInputTokens, currentOutputTokens to track real-time values
+- Implemented useEffect polling hook that fetches /api/minions/:id every 3 seconds for non-terminal statuses
+- Polling updates cost and token counts in state, triggers re-render for live display
+- Polling automatically stops when currentStatus is 'completed', 'failed', or 'terminated'
+- Cleanup function uses clearInterval to prevent memory leaks
+- Updated JSX to display currentCost/currentInputTokens/currentOutputTokens instead of static props
+- Files changed: control-panel/src/components/minion-detail-client.tsx:80-82, 96-119, 181, 184-185
+- **Learnings:** useEffect dependency array includes currentStatus to re-evaluate polling condition when status changes. Polling stops gracefully when terminal status reached.
+
+## Task - testing-2
+- Verified orchestrator build: `cd orchestrator && go build ./...` exits with code 0
+- Verified control-panel build: `cd control-panel && npm run build` exits with code 0
+- Next.js build output shows successful compilation with type checking and page generation
+- No compilation errors or type mismatches in either codebase
+- Files verified: orchestrator/*, control-panel/*
+- **Learnings:** Build verification confirms all previous token tracking changes compile cleanly without breaking existing code
+
+## Task - docs-1
+- Added "Token and Cost Tracking" section to AGENTS.md under "Minion Observability & Security" (lines 143-197)
+- Documented database schema: 6 token fields (input, output, reasoning, cache_read, cache_write) + cost_usd
+- Documented display combining logic: input total = input + cache_read; output total = output + reasoning + cache_write
+- Documented SSE extraction path: content.content.info with example JSON showing OpenCode event structure
+- Documented real-time polling behavior: 3-second interval, stops on terminal status, cost/token formatting
+- Verified extractTokenUsage() already has comprehensive comment block (lines 361-384 in orchestrator/internal/streaming/sse.go)
+- Files changed: AGENTS.md
+- **Learnings:** Documentation placed adjacent to existing SSE/observability sections for logical grouping; extractTokenUsage comment already met requirements
+
+## Task - testing-3
+- Created comprehensive manual testing checklist: .opencode/state/cost-token-tracking/MANUAL_TEST_CHECKLIST.md
+- Verified implementation is ready for manual testing:
+  - UI displays cost with 5 decimal places via formatCost() (control-panel/src/components/minion-detail-client.tsx:58-60)
+  - UI displays tokens with thousands separators via formatTokens() (control-panel/src/components/minion-detail-client.tsx:62-65)
+  - Real-time polling implemented with 3-second interval (control-panel/src/components/minion-detail-client.tsx:96-119)
+  - Polling stops automatically on terminal status (completed, failed, terminated)
+  - Stats page aggregation combines token fields in SQL (orchestrator/internal/db/minions.go:1088-1089, 1100-1101)
+- Files changed: .opencode/state/cost-token-tracking/MANUAL_TEST_CHECKLIST.md
+- **Learnings:** Manual testing tasks require human verification post-deployment; created comprehensive checklist with test cases, expected results, and rollback plan
+
+## Task - testing-4
+- Verified logging implementation is ready for manual verification:
+  - Debug logging on successful extraction shows all fields (orchestrator/internal/streaming/sse.go:331-338)
+  - Warning logging on all-zero extraction (orchestrator/internal/streaming/sse.go:325-328)
+  - Warning logging when tokens present but cost missing (orchestrator/internal/streaming/sse.go:341-346)
+  - Graceful error handling with type-safe assertions (orchestrator/internal/streaming/sse.go:361-433)
+- Manual test checklist includes 4 test cases for logging verification (see MANUAL_TEST_CHECKLIST.md)
+- No code changes needed - implementation complete
+- **Learnings:** All logging infrastructure in place; requires kubectl access to orchestrator pod logs for verification

@@ -92,9 +92,13 @@ func (h *DBEventHandler) HandleEvent(ctx context.Context, minionID uuid.UUID, ev
 // HandleTokenUsage accumulates token usage in the minion record.
 func (h *DBEventHandler) HandleTokenUsage(ctx context.Context, minionID uuid.UUID, usage TokenUsage) error {
 	params := db.UpdateTokenUsageParams{
-		ID:           minionID,
-		InputTokens:  usage.InputTokens,
-		OutputTokens: usage.OutputTokens,
+		ID:               minionID,
+		InputTokens:      usage.InputTokens,
+		OutputTokens:     usage.OutputTokens,
+		ReasoningTokens:  usage.ReasoningTokens,
+		CacheReadTokens:  usage.CacheReadTokens,
+		CacheWriteTokens: usage.CacheWriteTokens,
+		CostUSD:          usage.CostUSD,
 	}
 
 	if err := h.minionStore.UpdateTokenUsage(ctx, params); err != nil {
@@ -102,6 +106,10 @@ func (h *DBEventHandler) HandleTokenUsage(ctx context.Context, minionID uuid.UUI
 			"minion_id", minionID,
 			"input_tokens", usage.InputTokens,
 			"output_tokens", usage.OutputTokens,
+			"reasoning_tokens", usage.ReasoningTokens,
+			"cache_read_tokens", usage.CacheReadTokens,
+			"cache_write_tokens", usage.CacheWriteTokens,
+			"cost_usd", usage.CostUSD,
 			"error", err,
 		)
 		return err
@@ -111,6 +119,10 @@ func (h *DBEventHandler) HandleTokenUsage(ctx context.Context, minionID uuid.UUI
 		"minion_id", minionID,
 		"input_tokens", usage.InputTokens,
 		"output_tokens", usage.OutputTokens,
+		"reasoning_tokens", usage.ReasoningTokens,
+		"cache_read_tokens", usage.CacheReadTokens,
+		"cache_write_tokens", usage.CacheWriteTokens,
+		"cost_usd", usage.CostUSD,
 	)
 
 	return nil
