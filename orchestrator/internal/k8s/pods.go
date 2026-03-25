@@ -113,8 +113,8 @@ type Config struct {
 	// e.g., "ghcr.io/anomalyco/minions-devbox:latest"
 	DevboxImage string
 
-	// OpenAIAPIKey is passed as env var to devbox for LLM access via OpenAI-compatible providers.
-	OpenAIAPIKey string
+	// OpenRouterAPIKey is passed as env var to devbox for OpenRouter access.
+	OpenRouterAPIKey string
 }
 
 // Client provides Kubernetes operations for minion pods.
@@ -385,18 +385,16 @@ func (c *Client) buildEnvVars(params SpawnParams) []corev1.EnvVar {
 		{Name: "MINION_ID", Value: params.MinionID.String()},
 		{Name: "MINION_REPO", Value: params.Repo},
 		{Name: "MINION_TASK", Value: params.Task},
-		{Name: "MINION_MODEL", Value: params.Model},
+		{Name: "OPENCODE_MODEL", Value: params.Model},
 		{Name: "GITHUB_TOKEN", Value: params.GitHubToken},
 		{Name: "ORCHESTRATOR_URL", Value: params.OrchestratorURL},
 		{Name: "INTERNAL_API_TOKEN", Value: params.InternalAPIToken},
 	}
 
-	// Add OpenAI-compatible API configuration for LLM access
-	if c.config.OpenAIAPIKey != "" {
-		envs = append(envs, corev1.EnvVar{Name: "OPENAI_API_KEY", Value: c.config.OpenAIAPIKey})
+	// Add OpenRouter API key for LLM access
+	if c.config.OpenRouterAPIKey != "" {
+		envs = append(envs, corev1.EnvVar{Name: "OPENROUTER_API_KEY", Value: c.config.OpenRouterAPIKey})
 	}
-	// Always set OpenRouter as the base URL for OpenAI-compatible requests
-	envs = append(envs, corev1.EnvVar{Name: "OPENAI_BASE_URL", Value: "https://openrouter.ai/api/v1"})
 
 	return envs
 }

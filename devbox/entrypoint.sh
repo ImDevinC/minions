@@ -9,8 +9,8 @@
 #   MINION_TASK             - Task description to send to OpenCode
 #   MINION_ID               - Unique minion identifier
 #   ORCHESTRATOR_URL        - Callback URL for the orchestrator
-#   MINION_MODEL            - LLM model to use (e.g., anthropic/claude-sonnet-4-5)
 #   INTERNAL_API_TOKEN      - Token for authenticating with orchestrator
+#   OPENCODE_MODEL          - Model used by OpenCode config (from DEFAULT_MODEL)
 #
 # Optional environment variables:
 #   OPENCODE_PORT           - Port for OpenCode serve (default: 4096)
@@ -56,8 +56,8 @@ validate_env() {
     [[ -z "${MINION_TASK:-}" ]] && missing+=("MINION_TASK")
     [[ -z "${MINION_ID:-}" ]] && missing+=("MINION_ID")
     [[ -z "${ORCHESTRATOR_URL:-}" ]] && missing+=("ORCHESTRATOR_URL")
-    [[ -z "${MINION_MODEL:-}" ]] && missing+=("MINION_MODEL")
     [[ -z "${INTERNAL_API_TOKEN:-}" ]] && missing+=("INTERNAL_API_TOKEN")
+    [[ -z "${OPENCODE_MODEL:-}" ]] && missing+=("OPENCODE_MODEL")
 
     if [[ ${#missing[@]} -gt 0 ]]; then
         die "Missing required environment variables: ${missing[*]}"
@@ -144,23 +144,12 @@ create_session() {
 send_task() {
     log "Sending task to session ${SESSION_ID}"
 
-    # Parse model string "provider/model-id" into providerID and modelID
-    # OpenCode API expects model as object: { providerID: string, modelID: string }
-    local provider_id="${MINION_MODEL%%/*}"
-    local model_id="${MINION_MODEL#*/}"
-
     # Build the message parts using jq for safe JSON construction
     # This prevents shell injection attacks from task content
     local request_body
     request_body=$(jq -n \
-        --arg provider "$provider_id" \
-        --arg model "$model_id" \
         --arg task "$MINION_TASK" \
         '{
-            model: {
-                providerID: $provider,
-                modelID: $model
-            },
             parts: [
                 {
                     type: "text",
