@@ -31,7 +31,7 @@
         "Minion struct in orchestrator/internal/db/minions.go includes ReasoningTokens int64, CacheReadTokens int64, CacheWriteTokens int64 fields",
         "UpdateTokenUsageParams struct includes 6 fields total: InputTokens, OutputTokens, ReasoningTokens, CacheReadTokens, CacheWriteTokens, CostUSD"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "backend-data-2",

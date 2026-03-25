@@ -20,3 +20,9 @@ Started: 2026-03-24
 - Simple DROP COLUMN statements for all 3 new fields
 - Files changed: schema/migrations/007_add_token_detail_fields_down.sql
 - **Learnings:** No separate up/down directories - down migrations are suffixed with _down.sql
+
+## Task - backend-data-1
+- Added ReasoningTokens, CacheReadTokens, CacheWriteTokens int64 fields to Minion struct (orchestrator/internal/db/minions.go:98-100)
+- Expanded UpdateTokenUsageParams to 6 token fields + CostUSD (orchestrator/internal/db/minions.go:791-798)
+- Files changed: orchestrator/internal/db/minions.go
+- **Learnings:** Struct changes must match scanMinion() field count - will address in next task

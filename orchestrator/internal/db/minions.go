@@ -95,6 +95,9 @@ type Minion struct {
 	ClarificationMessageID *string
 	InputTokens            int64
 	OutputTokens           int64
+	ReasoningTokens        int64
+	CacheReadTokens        int64
+	CacheWriteTokens       int64
 	CostUSD                float64
 	PRURL                  *string
 	Error                  *string
@@ -789,9 +792,13 @@ func (s *MinionStore) MarkFailed(ctx context.Context, id uuid.UUID, errorMsg str
 
 // UpdateTokenUsageParams holds parameters for updating token usage.
 type UpdateTokenUsageParams struct {
-	ID           uuid.UUID
-	InputTokens  int64
-	OutputTokens int64
+	ID               uuid.UUID
+	InputTokens      int64
+	OutputTokens     int64
+	ReasoningTokens  int64
+	CacheReadTokens  int64
+	CacheWriteTokens int64
+	CostUSD          float64
 }
 
 // UpdateTokenUsage atomically adds to a minion's token usage counters.
