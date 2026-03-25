@@ -53,7 +53,7 @@
         "Update GetStats() by_model query (line 1083) to: SELECT model, COALESCE(SUM(cost_usd), 0), COALESCE(SUM(input_tokens + cache_read_tokens), 0), COALESCE(SUM(output_tokens + reasoning_tokens + cache_write_tokens), 0), COUNT(*)",
         "Verify SQL combines token types correctly: input = input + cache_read; output = output + reasoning + cache_write"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "backend-api-1",
@@ -64,7 +64,7 @@
         "Update OutputTokens mapping to: OutputTokens: minion.OutputTokens + minion.ReasoningTokens + minion.CacheWriteTokens",
         "Verify GetMinionResponse struct does not need new fields (API returns combined display totals, not granular breakdown)"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "backend-event-1",

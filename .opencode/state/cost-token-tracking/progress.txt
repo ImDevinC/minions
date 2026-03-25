@@ -7,6 +7,8 @@ Started: 2026-03-24
 
 **Query field updates**: When adding DB columns, update in order: (1) scanMinion/scanMinionWithOwner helpers (2) all SELECT queries (3) test mock data. Comments document expected field count for easy verification.
 
+**Token combining**: Store granular fields in DB, combine for display. SQL aggregations combine at query time (GetStats), API responses combine in-memory (HandleGet). Pattern: input = input + cache_read; output = output + reasoning + cache_write.
+
 ---
 <!-- Task logs below - APPEND ONLY -->
 
@@ -48,3 +50,16 @@ Started: 2026-03-24
 - Updated test data in TestScanMinion to include 3 new token fields (orchestrator/internal/db/minions_test.go:124-148)
 - Files changed: orchestrator/internal/db/minions.go, orchestrator/internal/db/minions_test.go
 - **Learnings:** GetStats already implemented token combining in SQL (input+cache_read, output+reasoning+cache_write) per PRD requirements
+
+## Task - backend-data-3
+- No changes needed - GetStats() already combines token fields in SQL (lines 1088-1089, 1100-1101)
+- Verification confirmed correct implementation from backend-data-2
+- **Learnings:** Task was completed in previous commit, marked as passing
+
+## Task - backend-api-1
+- Updated HandleGet to combine token fields before API response (orchestrator/internal/api/minions.go:399-400)
+- InputTokens now returns: minion.InputTokens + minion.CacheReadTokens
+- OutputTokens now returns: minion.OutputTokens + minion.ReasoningTokens + minion.CacheWriteTokens
+- Verified GetMinionResponse struct needs no changes (only has combined fields, not granular)
+- Files changed: orchestrator/internal/api/minions.go
+- **Learnings:** API layer combines granular DB fields into display totals; GetMinionResponse keeps simple schema
