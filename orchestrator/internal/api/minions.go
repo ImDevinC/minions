@@ -550,6 +550,23 @@ func (h *MinionHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// If devbox reports completed but no PR was created, check for session errors.
+	// This catches cases where OpenCode failed (e.g., model not found) but the
+	// session still transitioned to idle, causing devbox to report success.
+	if status == db.StatusCompleted && req.PRURL == nil {
+		if errMsg, err := h.events.GetLatestSessionError(r.Context(), id); err != nil {
+			h.logger.Warn("failed to check for session errors", "error", err, "minion_id", id)
+			// Continue with original status - don't fail the request
+		} else if errMsg != "" {
+			h.logger.Info("overriding completed status due to session errors",
+				"minion_id", id,
+				"error", errMsg,
+			)
+			status = db.StatusFailed
+			req.Error = &errMsg
+		}
+	}
+
 	// Complete the minion
 	result, err := h.minions.Complete(r.Context(), db.CompleteParams{
 		ID:        id,
