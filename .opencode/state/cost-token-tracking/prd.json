@@ -73,7 +73,7 @@
       "steps": [
         "TokenUsage struct in orchestrator/internal/streaming/sse.go includes: ReasoningTokens int64, CacheReadTokens int64, CacheWriteTokens int64, CostUSD float64"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "backend-event-2",

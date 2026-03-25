@@ -63,3 +63,9 @@ Started: 2026-03-24
 - Verified GetMinionResponse struct needs no changes (only has combined fields, not granular)
 - Files changed: orchestrator/internal/api/minions.go
 - **Learnings:** API layer combines granular DB fields into display totals; GetMinionResponse keeps simple schema
+
+## Task - backend-event-1
+- Added ReasoningTokens, CacheReadTokens, CacheWriteTokens int64 fields to TokenUsage struct
+- Added CostUSD float64 field for cost tracking
+- Files changed: orchestrator/internal/streaming/sse.go:43-50
+- **Learnings:** TokenUsage struct mirrors Minion struct granular fields, ready for SSE extraction logic
