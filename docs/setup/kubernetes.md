@@ -126,9 +126,9 @@ Create secrets for all credentials. **Do not commit actual values to git.**
 kubectl create secret generic minions-db -n minions \
   --from-literal=DATABASE_URL='postgres://user:pass@host:5432/minions?sslmode=require'
 
-# LLM API keys (OpenRouter via OpenAI-compatible API)
+# LLM API keys (OpenRouter)
 kubectl create secret generic minions-llm-keys -n minions \
-  --from-literal=OPENAI_API_KEY='sk-or-...'
+  --from-literal=OPENROUTER_API_KEY='sk-or-...'
 
 # GitHub App (use --from-file for PEM key)
 kubectl create secret generic minions-github-app -n minions \
@@ -166,7 +166,7 @@ metadata:
   namespace: minions
 type: Opaque
 stringData:
-  OPENAI_API_KEY: "REPLACE_ME"
+  OPENROUTER_API_KEY: "REPLACE_ME"
 ---
 apiVersion: v1
 kind: Secret
