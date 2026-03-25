@@ -237,17 +237,15 @@ func TestExtractTokenUsage(t *testing.T) {
 			event: PodEvent{
 				Type: "message.updated",
 				Content: map[string]any{
-					"content": map[string]any{
-						"info": map[string]any{
-							"cost": 0.02954525,
-							"tokens": map[string]any{
-								"input":     float64(1763),
-								"output":    float64(929),
-								"reasoning": float64(793),
-								"cache": map[string]any{
-									"read":  float64(13440),
-									"write": float64(0),
-								},
+					"info": map[string]any{
+						"cost": 0.02954525,
+						"tokens": map[string]any{
+							"input":     float64(1763),
+							"output":    float64(929),
+							"reasoning": float64(793),
+							"cache": map[string]any{
+								"read":  float64(13440),
+								"write": float64(0),
 							},
 						},
 					},
@@ -268,13 +266,11 @@ func TestExtractTokenUsage(t *testing.T) {
 			event: PodEvent{
 				Type: "message.updated",
 				Content: map[string]any{
-					"content": map[string]any{
-						"info": map[string]any{
-							"cost": 0.001,
-							"tokens": map[string]any{
-								"input":  float64(100),
-								"output": float64(50),
-							},
+					"info": map[string]any{
+						"cost": 0.001,
+						"tokens": map[string]any{
+							"input":  float64(100),
+							"output": float64(50),
 						},
 					},
 				},
@@ -291,12 +287,10 @@ func TestExtractTokenUsage(t *testing.T) {
 			event: PodEvent{
 				Type: "message.updated",
 				Content: map[string]any{
-					"content": map[string]any{
-						"info": map[string]any{
-							"tokens": map[string]any{
-								"input":  float64(100),
-								"output": float64(50),
-							},
+					"info": map[string]any{
+						"tokens": map[string]any{
+							"input":  float64(100),
+							"output": float64(50),
 						},
 					},
 				},

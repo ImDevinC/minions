@@ -166,23 +166,21 @@ This combining happens in two places:
 
 **SSE Extraction:**
 
-Token and cost data is extracted from OpenCode SSE events via nested path: `content.content.info`
+Token and cost data is extracted from OpenCode SSE events via path: `content.info`
 
 ```json
 {
   "type": "message.updated",
   "content": {
-    "content": {
-      "info": {
-        "cost": 0.02954525,
-        "tokens": {
-          "input": 1763,
-          "output": 929,
-          "reasoning": 793,
-          "cache": {
-            "read": 13440,
-            "write": 0
-          }
+    "info": {
+      "cost": 0.02954525,
+      "tokens": {
+        "input": 1763,
+        "output": 929,
+        "reasoning": 793,
+        "cache": {
+          "read": 13440,
+          "write": 0
         }
       }
     }
