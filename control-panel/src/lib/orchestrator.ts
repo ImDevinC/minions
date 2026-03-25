@@ -52,18 +52,25 @@ async function fetchOrchestrator<T>(
 
 export interface ListMinionsParams {
   status?: string;
+  statuses?: string[];
   limit?: number;
+  offset?: number;
 }
 
 export async function listMinions(
   params: ListMinionsParams = {}
 ): Promise<MinionSummary[]> {
   const searchParams = new URLSearchParams();
-  if (params.status) {
+  if (params.statuses && params.statuses.length > 0) {
+    searchParams.set("statuses", params.statuses.join(","));
+  } else if (params.status) {
     searchParams.set("status", params.status);
   }
   if (params.limit) {
     searchParams.set("limit", params.limit.toString());
+  }
+  if (params.offset !== undefined) {
+    searchParams.set("offset", params.offset.toString());
   }
 
   const query = searchParams.toString();
