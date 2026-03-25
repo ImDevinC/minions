@@ -189,7 +189,7 @@
         "Update AGENTS.md minion observability section to document token tracking: database stores 6 fields (input, output, reasoning, cache_read, cache_write, cost), backend combines for display, extraction from SSE content.content.info path",
         "Add code comment block above extractTokenUsage() explaining OpenCode event structure with example JSON showing nested content.content.info.tokens and .cost paths"
       ],
-      "passes": false
+      "passes": true
     }
   ],
   "context": {

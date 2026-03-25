@@ -130,3 +130,13 @@ Started: 2026-03-24
 - Files verified: orchestrator/*, control-panel/*
 - **Learnings:** Build verification confirms all previous token tracking changes compile cleanly without breaking existing code
 
+## Task - docs-1
+- Added "Token and Cost Tracking" section to AGENTS.md under "Minion Observability & Security" (lines 143-197)
+- Documented database schema: 6 token fields (input, output, reasoning, cache_read, cache_write) + cost_usd
+- Documented display combining logic: input total = input + cache_read; output total = output + reasoning + cache_write
+- Documented SSE extraction path: content.content.info with example JSON showing OpenCode event structure
+- Documented real-time polling behavior: 3-second interval, stops on terminal status, cost/token formatting
+- Verified extractTokenUsage() already has comprehensive comment block (lines 361-384 in orchestrator/internal/streaming/sse.go)
+- Files changed: AGENTS.md
+- **Learnings:** Documentation placed adjacent to existing SSE/observability sections for logical grouping; extractTokenUsage comment already met requirements
+

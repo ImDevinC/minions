@@ -140,6 +140,62 @@ kubectl exec <pod-name> -n minions -- netstat -tlnp | grep 4096
 kubectl logs -n minions <orchestrator-pod> | grep "SSE connection established\|Failed to connect SSE"
 ```
 
+#### Token and Cost Tracking
+
+The orchestrator tracks granular token usage and API costs for each minion task.
+
+**Data Model:**
+
+The database stores 6 token fields per minion:
+- `input_tokens`: User prompt tokens
+- `output_tokens`: Assistant response tokens
+- `reasoning_tokens`: Extended thinking tokens (Claude models)
+- `cache_read_tokens`: Prompt cache hits
+- `cache_write_tokens`: Prompt cache writes
+- `cost_usd`: Total USD cost for all API calls
+
+**Display Totals:**
+
+Backend combines granular fields for UI display:
+- **Input Total** = `input_tokens` + `cache_read_tokens`
+- **Output Total** = `output_tokens` + `reasoning_tokens` + `cache_write_tokens`
+
+This combining happens in two places:
+1. **Stats aggregation** (orchestrator/internal/db/minions.go:GetStats) - SQL SUM() queries combine at query time
+2. **API responses** (orchestrator/internal/api/minions.go:HandleGet) - In-memory combination before JSON serialization
+
+**SSE Extraction:**
+
+Token and cost data is extracted from OpenCode SSE events via nested path: `content.content.info`
+
+```json
+{
+  "type": "message.updated",
+  "content": {
+    "content": {
+      "info": {
+        "cost": 0.02954525,
+        "tokens": {
+          "input": 1763,
+          "output": 929,
+          "reasoning": 793,
+          "cache": {
+            "read": 13440,
+            "write": 0
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+Implementation: orchestrator/internal/streaming/sse.go:extractTokenUsage() uses type-safe assertions with graceful nil handling.
+
+**Real-time Updates:**
+
+The control panel minion detail page polls `GET /api/minions/:id` every 3 seconds while minion status is `running` or `pending`. Polling stops automatically when terminal status is reached. Cost displays with 5 decimal places, tokens display with thousands separators.
+
 #### Deployment Notes
 
 **Observability Loss During Redeploy:**
