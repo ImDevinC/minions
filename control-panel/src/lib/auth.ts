@@ -4,6 +4,15 @@ import DiscordProvider from "next-auth/providers/discord";
 // Build OAuth scopes at module load time (restart required for changes)
 // When guild restriction is enabled, we need guilds + guilds.members.read to verify membership
 const DISCORD_ALLOWED_GUILD_ID = process.env.DISCORD_ALLOWED_GUILD_ID;
+const DISCORD_ALLOWED_ROLE_ID = process.env.DISCORD_ALLOWED_ROLE_ID;
+
+// Warn about invalid configuration at module load time
+if (DISCORD_ALLOWED_ROLE_ID && !DISCORD_ALLOWED_GUILD_ID) {
+  console.warn(
+    "[auth] DISCORD_ALLOWED_ROLE_ID is set but DISCORD_ALLOWED_GUILD_ID is not. " +
+      "Role restriction will be ignored and any Discord user can log in."
+  );
+}
 
 const DISCORD_API_BASE = "https://discord.com/api/v10";
 const DISCORD_API_TIMEOUT_MS = 5000;
@@ -104,6 +113,36 @@ async function fetchGuildMember(
 }
 
 /**
+ * Verify that a user has the required role in the guild.
+ * Returns true if role check passes or is not configured.
+ */
+function verifyRoleMembership(member: DiscordGuildMember): boolean {
+  if (!DISCORD_ALLOWED_ROLE_ID) {
+    // No role restriction configured, allow all guild members
+    return true;
+  }
+
+  // Handle null/undefined roles gracefully (treat as empty array)
+  const roles = member.roles ?? [];
+
+  if (roles.length === 0) {
+    console.info(
+      `[auth] User denied access: no roles in guild, required role ${DISCORD_ALLOWED_ROLE_ID}`
+    );
+    return false;
+  }
+
+  if (!roles.includes(DISCORD_ALLOWED_ROLE_ID)) {
+    console.info(
+      `[auth] User denied access: does not have required role ${DISCORD_ALLOWED_ROLE_ID}`
+    );
+    return false;
+  }
+
+  return true;
+}
+
+/**
  * Verify that a user is a member of the allowed guild.
  * Returns true if the user is authorized, false otherwise.
  */
@@ -124,7 +163,8 @@ async function verifyGuildMembership(account: Account): Promise<boolean> {
   );
 
   if (result.success) {
-    return true;
+    // Guild membership verified, now check role if configured
+    return verifyRoleMembership(result.member!);
   }
 
   // Log appropriately based on error type

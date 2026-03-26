@@ -66,7 +66,7 @@
         "Role check is skipped if DISCORD_ALLOWED_ROLE_ID is not set",
         "Role-only config (ROLE_ID without GUILD_ID) logs warning and skips restriction (any user can log in)"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "auth-4",

@@ -37,3 +37,12 @@ Started: 2026-03-25
 - Non-members (404) logged at Info level, API errors at Error level
 - Files changed: control-panel/src/lib/auth.ts
 - **Learnings:** NextAuth signIn callback returning false triggers redirect to /auth/error?error=AccessDenied automatically
+
+## Task - auth-3
+- Added DISCORD_ALLOWED_ROLE_ID env var with warning when set without DISCORD_ALLOWED_GUILD_ID
+- Created `verifyRoleMembership(member)` function that checks member.roles array
+- Handles null/undefined roles via nullish coalescing (`member.roles ?? []`)
+- Users with empty roles array denied when role restriction enabled
+- Integrated into `verifyGuildMembership()` - role check runs after successful guild check
+- Files changed: control-panel/src/lib/auth.ts
+- **Learnings:** Discord guild member API returns `roles` as string array of role IDs; use `Array.includes()` for lookup
