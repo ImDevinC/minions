@@ -205,8 +205,10 @@ export const authOptions: AuthOptions = {
   ],
   callbacks: {
     async signIn({ account }) {
-      // Verify guild membership when restriction is enabled
-      // Returns false to redirect to /auth/error?error=AccessDenied
+      // Verify guild membership when restriction is enabled.
+      // Returns false to redirect to /auth/error?error=AccessDenied.
+      // Note: Users with existing sessions won't hit this until they re-login,
+      // at which point they'll see the new OAuth consent with guild scopes.
       if (!account) {
         console.error("[auth] No account in signIn callback");
         return false;

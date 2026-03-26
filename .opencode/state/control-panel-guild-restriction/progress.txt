@@ -46,3 +46,12 @@ Started: 2026-03-25
 - Integrated into `verifyGuildMembership()` - role check runs after successful guild check
 - Files changed: control-panel/src/lib/auth.ts
 - **Learnings:** Discord guild member API returns `roles` as string array of role IDs; use `Array.includes()` for lookup
+
+## Task - auth-4
+- Verified backward compatibility with no env vars set
+- Verified: `verifyGuildMembership()` returns true when `DISCORD_ALLOWED_GUILD_ID` not set
+- Verified: `buildDiscordScopes()` only adds guild scopes when restriction enabled
+- Verified: session callback structure unchanged from main branch
+- Added code comment documenting that existing sessions won't be checked until re-login
+- Files changed: control-panel/src/lib/auth.ts (comment only)
+- **Learnings:** NextAuth signIn callback only runs on new logins, not existing session validation; users with old JWTs keep access until session expires

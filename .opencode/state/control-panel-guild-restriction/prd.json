@@ -79,7 +79,7 @@
         "No breaking changes to existing NextAuth session structure",
         "Sessions created before restriction enabled will fail on next login (expected, documented)"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "config-1",
