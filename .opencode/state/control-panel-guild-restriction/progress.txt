@@ -79,3 +79,10 @@ Started: 2026-03-25
 - Documented restart requirement, new OAuth consent warning, and role-without-guild warning
 - Files changed: docs/setup/discord-app.md
 - **Learnings:** Discord's `guilds.members.read` scope requires the application's bot to be a member of the guild, not just the OAuth application being authorized
+
+## Task - docs-2
+- Added DISCORD_ALLOWED_GUILD_ID and DISCORD_ALLOWED_ROLE_ID to Control Panel env var table
+- Added note about restart requirement when changing guild/role restrictions
+- Role ID description notes it requires guild ID to be set
+- Files changed: README.md
+- **Learnings:** Keeping env var table format consistent across all sections (Required: Yes/No, concise descriptions)

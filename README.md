@@ -147,6 +147,10 @@ docker build -t minions-devbox:latest devbox/
 | `DISCORD_CLIENT_SECRET` | Yes | Discord OAuth client secret |
 | `ORCHESTRATOR_URL` | Yes | Orchestrator API URL |
 | `INTERNAL_API_TOKEN` | Yes | Shared secret for API auth |
+| `DISCORD_ALLOWED_GUILD_ID` | No | Restrict login to members of this guild ID |
+| `DISCORD_ALLOWED_ROLE_ID` | No | Restrict login to users with this role ID (requires guild ID) |
+
+> **Note:** Adding or changing `DISCORD_ALLOWED_GUILD_ID` or `DISCORD_ALLOWED_ROLE_ID` requires restarting the control panel because OAuth scopes are configured at startup.
 
 ## License
 

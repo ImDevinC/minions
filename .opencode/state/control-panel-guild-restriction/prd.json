@@ -130,7 +130,7 @@
         "Both vars documented as optional with clear descriptions",
         "README.md notes control panel restart required when adding guild/role restrictions"
       ],
-      "passes": false
+      "passes": true
     }
   ],
   "context": {
