@@ -55,3 +55,9 @@ Started: 2026-03-25
 - Added code comment documenting that existing sessions won't be checked until re-login
 - Files changed: control-panel/src/lib/auth.ts (comment only)
 - **Learnings:** NextAuth signIn callback only runs on new logins, not existing session validation; users with old JWTs keep access until session expires
+
+## Task - config-1
+- Added DISCORD_ALLOWED_GUILD_ID and DISCORD_ALLOWED_ROLE_ID to .env.example
+- Documented as optional with restart requirement note
+- Files changed: control-panel/.env.example
+- **Learnings:** .env.example cannot be read directly via tool, use bash cat or copy to temp file

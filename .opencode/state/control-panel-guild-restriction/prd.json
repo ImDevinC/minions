@@ -91,7 +91,7 @@
         "Both env vars documented as optional",
         ".env.example notes that control panel must be restarted for scope changes to take effect"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "infra-1",
