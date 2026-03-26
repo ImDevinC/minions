@@ -1,0 +1,88 @@
+# Progress Log
+PRD: control-panel-guild-restriction
+Started: 2026-03-25
+
+## Codebase Patterns
+- NextAuth type extensions: use `declare module "next-auth/jwt"` for JWT interface augmentation
+- Discord API calls: use AbortController with setTimeout for timeout, check X-RateLimit-Remaining headers
+
+---
+<!-- Task logs below - APPEND ONLY -->
+
+## Task - types-1
+- Extended JWT interface in next-auth.d.ts with `accessToken?: string` field
+- Files changed: control-panel/src/types/next-auth.d.ts
+- **Learnings:** NextAuth JWT types require importing and augmenting "next-auth/jwt" module separately from "next-auth"
+
+## Task - auth-0
+- Persisted Discord `account.access_token` to `token.accessToken` in jwt callback
+- Session callback intentionally does NOT expose accessToken (security: server-side only)
+- Files changed: control-panel/src/lib/auth.ts
+- **Learnings:** NextAuth account object has `access_token` (snake_case) from OAuth provider
+
+## Task - auth-1
+- Added conditional OAuth scopes: `guilds` + `guilds.members.read` when DISCORD_ALLOWED_GUILD_ID is set
+- Scopes computed at module load time via `buildDiscordScopes()` helper
+- Added `authorization.params.scope` to DiscordProvider config
+- Files changed: control-panel/src/lib/auth.ts
+- **Learnings:** DiscordProvider accepts `authorization: { params: { scope: string } }` to override default scopes
+
+## Task - auth-2
+- Added signIn callback that calls `verifyGuildMembership(account)`
+- Created `fetchGuildMember()` helper with:
+  - 5-second timeout via AbortController
+  - Rate limit retry (429 -> 1s delay -> retry once)
+  - X-RateLimit-Remaining < 10 warning logs
+  - Fail-closed on 5xx/timeout/network errors
+- Non-members (404) logged at Info level, API errors at Error level
+- Files changed: control-panel/src/lib/auth.ts
+- **Learnings:** NextAuth signIn callback returning false triggers redirect to /auth/error?error=AccessDenied automatically
+
+## Task - auth-3
+- Added DISCORD_ALLOWED_ROLE_ID env var with warning when set without DISCORD_ALLOWED_GUILD_ID
+- Created `verifyRoleMembership(member)` function that checks member.roles array
+- Handles null/undefined roles via nullish coalescing (`member.roles ?? []`)
+- Users with empty roles array denied when role restriction enabled
+- Integrated into `verifyGuildMembership()` - role check runs after successful guild check
+- Files changed: control-panel/src/lib/auth.ts
+- **Learnings:** Discord guild member API returns `roles` as string array of role IDs; use `Array.includes()` for lookup
+
+## Task - auth-4
+- Verified backward compatibility with no env vars set
+- Verified: `verifyGuildMembership()` returns true when `DISCORD_ALLOWED_GUILD_ID` not set
+- Verified: `buildDiscordScopes()` only adds guild scopes when restriction enabled
+- Verified: session callback structure unchanged from main branch
+- Added code comment documenting that existing sessions won't be checked until re-login
+- Files changed: control-panel/src/lib/auth.ts (comment only)
+- **Learnings:** NextAuth signIn callback only runs on new logins, not existing session validation; users with old JWTs keep access until session expires
+
+## Task - config-1
+- Added DISCORD_ALLOWED_GUILD_ID and DISCORD_ALLOWED_ROLE_ID to .env.example
+- Documented as optional with restart requirement note
+- Files changed: control-panel/.env.example
+- **Learnings:** .env.example cannot be read directly via tool, use bash cat or copy to temp file
+
+## Task - infra-1
+- Created minions-control-panel secret (didn't exist before, deployment had it as optional)
+- Added NEXTAUTH_SECRET, NEXTAUTH_URL, DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET (core NextAuth fields)
+- Added DISCORD_ALLOWED_GUILD_ID and DISCORD_ALLOWED_ROLE_ID as commented-out optional fields
+- Each field has description comment explaining purpose and requirements
+- Verified deployment already uses envFrom with minions-control-panel secret (lines 318-322)
+- Files changed: infra/secrets.yaml
+- **Learnings:** The control-panel deployment already referenced minions-control-panel with `optional: true`, so adding the actual secret just makes previously-optional fields available
+
+## Task - docs-1
+- Documented `guilds` and `guilds.members.read` OAuth scopes in "Additional Scopes for Guild Restriction" section
+- Added "Guild Restriction" section with Prerequisites explaining bot must be in guild
+- Added troubleshooting sections for 403 Forbidden and AccessDenied errors
+- Added control panel guild restriction env vars to Configuration Reference table
+- Documented restart requirement, new OAuth consent warning, and role-without-guild warning
+- Files changed: docs/setup/discord-app.md
+- **Learnings:** Discord's `guilds.members.read` scope requires the application's bot to be a member of the guild, not just the OAuth application being authorized
+
+## Task - docs-2
+- Added DISCORD_ALLOWED_GUILD_ID and DISCORD_ALLOWED_ROLE_ID to Control Panel env var table
+- Added note about restart requirement when changing guild/role restrictions
+- Role ID description notes it requires guild ID to be set
+- Files changed: README.md
+- **Learnings:** Keeping env var table format consistent across all sections (Required: Yes/No, concise descriptions)

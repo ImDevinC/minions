@@ -107,7 +107,18 @@ NextAuth's Discord provider requests these scopes by default:
 | `identify` | Get user ID and username |
 | `email` | Get user's email (optional, for display) |
 
-No additional scopes needed. The control panel doesn't post as the user or access their servers.
+No additional scopes needed for basic operation. The control panel doesn't post as the user or access their servers.
+
+#### Additional Scopes for Guild Restriction
+
+When `DISCORD_ALLOWED_GUILD_ID` is set, the control panel requests additional scopes to verify guild membership:
+
+| Scope | Why |
+|-------|-----|
+| `guilds` | List user's guilds (not actually used, but Discord requires it) |
+| `guilds.members.read` | Check if user is a member of the allowed guild |
+
+These scopes are automatically added when guild restriction is enabled. See [Guild Restriction](#guild-restriction) for setup details.
 
 ## Add Bot to Your Server
 
@@ -190,6 +201,24 @@ Don't enable "Require OAuth2 Code Grant" in bot settings. It's for advanced flow
 
 Message Content Intent is probably disabled. Go to Bot > Privileged Gateway Intents and enable it.
 
+### Guild Restriction: 403 Forbidden
+
+The control panel failed to verify guild membership. Common causes:
+
+1. **Bot not in guild**: The Discord application's bot must be a member of the guild for `guilds.members.read` to work. Add the bot using the invite URL from [Add Bot to Your Server](#add-bot-to-your-server).
+
+2. **Wrong guild ID**: Double-check `DISCORD_ALLOWED_GUILD_ID` matches your server. Right-click server name > Copy Server ID (requires Developer Mode).
+
+3. **User not in guild**: The user trying to log in isn't a member of the allowed guild. This is expected behavior (they're denied access).
+
+### Guild Restriction: AccessDenied
+
+User was denied access to the control panel. Check the control panel logs for details:
+
+- "User not a member of allowed guild" - User isn't in the Discord server
+- "User does not have required role" - User is in server but missing the required role
+- "Discord API error" - Temporary Discord API issue; user should retry
+
 ## Configuration Reference
 
 ### Discord Bot Service
@@ -211,6 +240,45 @@ Message Content Intent is probably disabled. Go to Bot > Privileged Gateway Inte
 | `DISCORD_CLIENT_SECRET` | OAuth2 client secret |
 | `NEXTAUTH_SECRET` | Random string for session encryption |
 | `NEXTAUTH_URL` | Public URL of the control panel |
+| `DISCORD_ALLOWED_GUILD_ID` | Optional: restrict login to members of this guild |
+| `DISCORD_ALLOWED_ROLE_ID` | Optional: restrict login to members with this role (requires `DISCORD_ALLOWED_GUILD_ID`) |
+
+## Guild Restriction
+
+You can restrict control panel access to members of a specific Discord server (guild), and optionally require a specific role.
+
+### Prerequisites
+
+Before enabling guild restriction:
+
+1. **The Discord application's bot must be a member of the guild**. The `guilds.members.read` OAuth scope requires bot membership to verify user roles.
+   - Verify: Open your Discord server > Server Settings > Members > search for your bot name
+   - If the bot isn't listed, use the bot invite URL from [Add Bot to Your Server](#add-bot-to-your-server)
+
+2. **Get your Guild ID**:
+   - Enable Developer Mode in Discord: User Settings > App Settings > Advanced > Developer Mode
+   - Right-click your server name > Copy Server ID
+
+3. **Get your Role ID** (optional):
+   - Server Settings > Roles > right-click the role > Copy Role ID
+
+### Configuration
+
+Set these environment variables for the control panel:
+
+```bash
+# Restrict to guild members
+export DISCORD_ALLOWED_GUILD_ID="123456789012345678"
+
+# Optional: also require a specific role
+export DISCORD_ALLOWED_ROLE_ID="987654321098765432"
+```
+
+**Important notes:**
+
+- **Restart required**: The control panel must be restarted after changing these values. OAuth scopes are determined at startup.
+- **Existing users see new consent**: Users who previously logged in will see a new OAuth consent screen requesting the `guilds.members.read` scope.
+- **Role without guild is ignored**: Setting `DISCORD_ALLOWED_ROLE_ID` without `DISCORD_ALLOWED_GUILD_ID` has no effect (any Discord user can log in). The control panel logs a warning at startup.
 
 ## Security Notes
 

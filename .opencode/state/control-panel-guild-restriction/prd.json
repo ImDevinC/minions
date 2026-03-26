@@ -1,0 +1,159 @@
+{
+  "prdName": "control-panel-guild-restriction",
+  "tasks": [
+    {
+      "id": "types-1",
+      "category": "auth",
+      "description": "Extend NextAuth types for access_token in JWT",
+      "steps": [
+        "Add JWT interface extension to control-panel/src/types/next-auth.d.ts",
+        "JWT interface includes accessToken?: string field",
+        "TypeScript compiler accepts token.accessToken in callbacks without errors"
+      ],
+      "passes": true
+    },
+    {
+      "id": "auth-0",
+      "category": "auth",
+      "description": "Persist Discord access_token to JWT for API calls",
+      "steps": [
+        "In jwt callback, persist account.access_token to token.accessToken on initial sign in",
+        "Token contains accessToken field available in signIn callback",
+        "Access token is not exposed to client session (security)"
+      ],
+      "passes": true
+    },
+    {
+      "id": "auth-1",
+      "category": "auth",
+      "description": "Add conditional OAuth scopes based on env var configuration",
+      "steps": [
+        "When DISCORD_ALLOWED_GUILD_ID is set, OAuth consent includes 'guilds' scope",
+        "When DISCORD_ALLOWED_GUILD_ID is set, OAuth consent includes 'guilds.members.read' scope",
+        "When neither env var is set, no additional OAuth scopes are requested",
+        "Scopes are added to DiscordProvider authorization params dynamically",
+        "Scopes are read from process.env at module load time (restart required for changes)"
+      ],
+      "passes": true
+    },
+    {
+      "id": "auth-2",
+      "category": "auth",
+      "description": "Add signIn callback to verify guild membership",
+      "steps": [
+        "signIn callback returns true when user is authorized (member of guild)",
+        "signIn callback returns false when user is unauthorized (triggers redirect to /auth/error?error=AccessDenied)",
+        "When DISCORD_ALLOWED_GUILD_ID is set, call Discord API GET /users/@me/guilds/{guild_id}/member",
+        "Non-members (404 response) are denied with AccessDenied",
+        "API errors (5xx) deny login (fail-closed)",
+        "Discord API fetch has 5-second timeout configured",
+        "Timeout errors are caught and logged as Error level, trigger AccessDenied",
+        "Rate limited (429) retries once with 1-second delay then denies",
+        "When X-RateLimit-Remaining < 10, log warning with remaining count",
+        "Error scenarios logged appropriately (Info for access denied, Error for API failures)"
+      ],
+      "passes": true
+    },
+    {
+      "id": "auth-3",
+      "category": "auth",
+      "description": "Add role verification within guild member check",
+      "steps": [
+        "When DISCORD_ALLOWED_ROLE_ID is set (with guild ID), verify user has that role",
+        "Users in guild without required role are denied access",
+        "Users with empty roles array (no roles in guild) are denied when role restriction is enabled",
+        "Role check handles null/undefined roles field gracefully (treat as empty array)",
+        "Role check is skipped if DISCORD_ALLOWED_ROLE_ID is not set",
+        "Role-only config (ROLE_ID without GUILD_ID) logs warning and skips restriction (any user can log in)"
+      ],
+      "passes": true
+    },
+    {
+      "id": "auth-4",
+      "category": "auth",
+      "description": "Verify backward compatibility with no env vars",
+      "steps": [
+        "When neither DISCORD_ALLOWED_GUILD_ID nor DISCORD_ALLOWED_ROLE_ID is set, any Discord user can log in",
+        "No additional OAuth scopes requested when restriction disabled",
+        "Existing deployments work without configuration changes",
+        "No breaking changes to existing NextAuth session structure",
+        "Sessions created before restriction enabled will fail on next login (expected, documented)"
+      ],
+      "passes": true
+    },
+    {
+      "id": "config-1",
+      "category": "config",
+      "description": "Add env vars to control-panel configuration files",
+      "steps": [
+        "control-panel/.env.example contains DISCORD_ALLOWED_GUILD_ID with description",
+        "control-panel/.env.example contains DISCORD_ALLOWED_ROLE_ID with description",
+        "Both env vars documented as optional",
+        ".env.example notes that control panel must be restarted for scope changes to take effect"
+      ],
+      "passes": true
+    },
+    {
+      "id": "infra-1",
+      "category": "infra",
+      "description": "Add env vars to Kubernetes secret template",
+      "steps": [
+        "infra/secrets.yaml minions-control-panel secret has DISCORD_ALLOWED_GUILD_ID with description and REPLACE_ME placeholder",
+        "infra/secrets.yaml minions-control-panel secret has DISCORD_ALLOWED_ROLE_ID with description and REPLACE_ME placeholder",
+        "Deployment already uses envFrom to load all secret keys (verify no explicit env: entries needed)"
+      ],
+      "passes": true
+    },
+    {
+      "id": "docs-1",
+      "category": "docs",
+      "description": "Document OAuth scope requirements in discord-app setup",
+      "steps": [
+        "docs/setup/discord-app.md documents the guilds and guilds.members.read OAuth scopes",
+        "docs/setup/discord-app.md has 'Prerequisites for Guild Restriction' section",
+        "Prerequisites section explains bot must be in guild for guilds.members.read to work",
+        "Prerequisites section explains how to verify bot membership (check Members list in Discord)",
+        "docs/setup/discord-app.md has troubleshooting section for 403 Forbidden errors",
+        "docs/setup/discord-app.md documents restart requirement when enabling restrictions",
+        "docs/setup/discord-app.md warns existing users will see new OAuth consent screen when restrictions enabled",
+        "docs/setup/discord-app.md warns DISCORD_ALLOWED_ROLE_ID is ignored without DISCORD_ALLOWED_GUILD_ID"
+      ],
+      "passes": true
+    },
+    {
+      "id": "docs-2",
+      "category": "docs",
+      "description": "Update README with control panel env var documentation",
+      "steps": [
+        "README.md Control Panel env var table includes DISCORD_ALLOWED_GUILD_ID",
+        "README.md Control Panel env var table includes DISCORD_ALLOWED_ROLE_ID",
+        "Both vars documented as optional with clear descriptions",
+        "README.md notes control panel restart required when adding guild/role restrictions"
+      ],
+      "passes": true
+    }
+  ],
+  "context": {
+    "patterns": [
+      "Guild/role checking: discord-bot/internal/handler/message.go:459-564 (isCommandAllowed)",
+      "NextAuth configuration: control-panel/src/lib/auth.ts (jwt and session callbacks)"
+    ],
+    "keyFiles": [
+      "control-panel/src/lib/auth.ts",
+      "control-panel/src/types/next-auth.d.ts",
+      "control-panel/src/app/auth/error/page.tsx",
+      "docs/setup/discord-app.md",
+      "infra/deployments.yaml",
+      "infra/secrets.yaml",
+      "control-panel/.env.example",
+      "README.md"
+    ],
+    "nonGoals": [
+      "Multiple allowed guilds",
+      "Multiple allowed roles",
+      "Session invalidation on role removal",
+      "Access token refresh",
+      "Audit logging of denied logins"
+    ]
+  }
+}
