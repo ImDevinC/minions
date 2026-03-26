@@ -4,6 +4,7 @@ Started: 2026-03-25
 
 ## Codebase Patterns
 - NextAuth type extensions: use `declare module "next-auth/jwt"` for JWT interface augmentation
+- Discord API calls: use AbortController with setTimeout for timeout, check X-RateLimit-Remaining headers
 
 ---
 <!-- Task logs below - APPEND ONLY -->
@@ -25,3 +26,14 @@ Started: 2026-03-25
 - Added `authorization.params.scope` to DiscordProvider config
 - Files changed: control-panel/src/lib/auth.ts
 - **Learnings:** DiscordProvider accepts `authorization: { params: { scope: string } }` to override default scopes
+
+## Task - auth-2
+- Added signIn callback that calls `verifyGuildMembership(account)`
+- Created `fetchGuildMember()` helper with:
+  - 5-second timeout via AbortController
+  - Rate limit retry (429 -> 1s delay -> retry once)
+  - X-RateLimit-Remaining < 10 warning logs
+  - Fail-closed on 5xx/timeout/network errors
+- Non-members (404) logged at Info level, API errors at Error level
+- Files changed: control-panel/src/lib/auth.ts
+- **Learnings:** NextAuth signIn callback returning false triggers redirect to /auth/error?error=AccessDenied automatically
