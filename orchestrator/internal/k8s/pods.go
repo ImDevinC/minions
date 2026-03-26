@@ -18,6 +18,12 @@ import (
 // Namespace for all minion pods.
 const Namespace = "minions"
 
+// TaskConfigMapKey is the key used to store the task content in the ConfigMap.
+const TaskConfigMapKey = "task.txt"
+
+// TaskMountPath is where the task ConfigMap is mounted in the pod.
+const TaskMountPath = "/task"
+
 // Retry configuration for pod creation.
 const (
 	// MaxRetries is the number of retry attempts for pod creation (total attempts = MaxRetries + 1).
@@ -144,7 +150,59 @@ func NewClient(cfg Config, logger *slog.Logger) (*Client, error) {
 	}, nil
 }
 
+// taskConfigMapName returns the ConfigMap name for a minion's task.
+func taskConfigMapName(minionID string) string {
+	return fmt.Sprintf("minion-task-%s", minionID)
+}
+
+// createTaskConfigMap creates a ConfigMap containing the task content.
+// Returns the created ConfigMap or an error.
+func (c *Client) createTaskConfigMap(ctx context.Context, minionID, task string) (*corev1.ConfigMap, error) {
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      taskConfigMapName(minionID),
+			Namespace: Namespace,
+			Labels: map[string]string{
+				"app":       "minion-devbox",
+				"minion-id": minionID,
+			},
+		},
+		Data: map[string]string{
+			TaskConfigMapKey: task,
+		},
+	}
+
+	created, err := c.clientset.CoreV1().ConfigMaps(Namespace).Create(ctx, cm, metav1.CreateOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create task ConfigMap: %w", err)
+	}
+
+	c.logger.Info("created task ConfigMap",
+		"configmap_name", created.Name,
+		"minion_id", minionID,
+	)
+
+	return created, nil
+}
+
+// deleteTaskConfigMap deletes the task ConfigMap for a minion.
+// Returns nil if ConfigMap doesn't exist (idempotent).
+func (c *Client) deleteTaskConfigMap(ctx context.Context, minionID string) error {
+	cmName := taskConfigMapName(minionID)
+	err := c.clientset.CoreV1().ConfigMaps(Namespace).Delete(ctx, cmName, metav1.DeleteOptions{})
+	if err != nil {
+		// Treat as success if not found (already deleted)
+		c.logger.Warn("failed to delete task ConfigMap (may not exist)", "configmap_name", cmName, "error", err)
+		return nil
+	}
+
+	c.logger.Info("deleted task ConfigMap", "configmap_name", cmName, "minion_id", minionID)
+	return nil
+}
+
 // SpawnPod creates a new pod for a minion task with security constraints.
+// It first creates a ConfigMap containing the task, then creates the pod
+// with the ConfigMap mounted as a volume.
 //
 // Security context enforces:
 //   - runAsNonRoot: true (pod must run as non-root user)
@@ -152,7 +210,14 @@ func NewClient(cfg Config, logger *slog.Logger) (*Client, error) {
 //   - All capabilities dropped
 //   - Read-only root filesystem
 func (c *Client) SpawnPod(ctx context.Context, params SpawnParams) (string, error) {
-	podName := fmt.Sprintf("minion-%s", params.MinionID.String())
+	minionIDStr := params.MinionID.String()
+	podName := fmt.Sprintf("minion-%s", minionIDStr)
+
+	// Create ConfigMap with task content first
+	_, err := c.createTaskConfigMap(ctx, minionIDStr, params.Task)
+	if err != nil {
+		return "", err
+	}
 
 	// Non-root UID (matches devbox Dockerfile user)
 	nonRootUID := int64(1000)
@@ -166,7 +231,7 @@ func (c *Client) SpawnPod(ctx context.Context, params SpawnParams) (string, erro
 			Namespace: Namespace,
 			Labels: map[string]string{
 				"app":       "minion-devbox",
-				"minion-id": params.MinionID.String(),
+				"minion-id": minionIDStr,
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -196,10 +261,12 @@ func (c *Client) SpawnPod(ctx context.Context, params SpawnParams) (string, erro
 					},
 					Env: c.buildEnvVars(params),
 					// Writable temp directories for git clone, opencode work, etc.
+					// Task is mounted read-only from ConfigMap.
 					VolumeMounts: []corev1.VolumeMount{
 						{Name: "workspace", MountPath: "/workspace"},
 						{Name: "tmp", MountPath: "/tmp"},
 						{Name: "home", MountPath: "/home/minion"},
+						{Name: "task", MountPath: TaskMountPath, ReadOnly: true},
 					},
 				},
 			},
@@ -222,12 +289,28 @@ func (c *Client) SpawnPod(ctx context.Context, params SpawnParams) (string, erro
 						EmptyDir: &corev1.EmptyDirVolumeSource{},
 					},
 				},
+				{
+					Name: "task",
+					VolumeSource: corev1.VolumeSource{
+						ConfigMap: &corev1.ConfigMapVolumeSource{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: taskConfigMapName(minionIDStr),
+							},
+						},
+					},
+				},
 			},
 		},
 	}
 
 	created, err := c.clientset.CoreV1().Pods(Namespace).Create(ctx, pod, metav1.CreateOptions{})
 	if err != nil {
+		// Rollback: delete the ConfigMap since pod creation failed
+		c.logger.Warn("pod creation failed, rolling back ConfigMap",
+			"minion_id", minionIDStr,
+			"error", err,
+		)
+		_ = c.deleteTaskConfigMap(ctx, minionIDStr)
 		return "", fmt.Errorf("failed to create pod: %w", err)
 	}
 
@@ -380,11 +463,11 @@ func isPodReady(pod *corev1.Pod) bool {
 }
 
 // buildEnvVars constructs environment variables for the devbox container.
+// Note: Task content is passed via ConfigMap volume mount, not environment variable.
 func (c *Client) buildEnvVars(params SpawnParams) []corev1.EnvVar {
 	envs := []corev1.EnvVar{
 		{Name: "MINION_ID", Value: params.MinionID.String()},
 		{Name: "MINION_REPO", Value: params.Repo},
-		{Name: "MINION_TASK", Value: params.Task},
 		{Name: "OPENCODE_MODEL", Value: params.Model},
 		{Name: "GITHUB_TOKEN", Value: params.GitHubToken},
 		{Name: "ORCHESTRATOR_URL", Value: params.OrchestratorURL},
@@ -399,19 +482,31 @@ func (c *Client) buildEnvVars(params SpawnParams) []corev1.EnvVar {
 	return envs
 }
 
-// TerminatePod deletes a pod by name.
-// Returns nil if pod doesn't exist (idempotent).
+// TerminatePod deletes a pod and its associated task ConfigMap by minion ID.
+// Returns nil if pod/ConfigMap doesn't exist (idempotent).
 func (c *Client) TerminatePod(ctx context.Context, podName string) error {
+	// Extract minion ID from pod name (format: "minion-<uuid>")
+	minionID := ""
+	if len(podName) > 7 && podName[:7] == "minion-" {
+		minionID = podName[7:]
+	}
+
+	// Delete the pod
 	err := c.clientset.CoreV1().Pods(Namespace).Delete(ctx, podName, metav1.DeleteOptions{})
 	if err != nil {
 		// Check if pod doesn't exist (already deleted)
 		// k8s.io/apimachinery/pkg/api/errors provides IsNotFound
 		// but we'll just log and return nil for idempotency
 		c.logger.Warn("failed to delete pod (may not exist)", "pod_name", podName, "error", err)
-		return nil // Idempotent: treat as success
+	} else {
+		c.logger.Info("terminated pod", "pod_name", podName)
 	}
 
-	c.logger.Info("terminated pod", "pod_name", podName)
+	// Delete the associated ConfigMap if we have the minion ID
+	if minionID != "" {
+		_ = c.deleteTaskConfigMap(ctx, minionID)
+	}
+
 	return nil
 }
 

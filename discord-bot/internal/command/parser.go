@@ -10,7 +10,7 @@ import (
 
 // Command validation limits
 const (
-	MaxTaskLength = 10000
+	MaxTaskLength = 1 << 20 // 1MB
 )
 
 // Sentinel errors for validation failures
@@ -18,7 +18,7 @@ var (
 	ErrMissingRepo       = errors.New("missing required --repo flag")
 	ErrInvalidRepoFormat = errors.New("invalid repo format: expected Owner/Repo")
 	ErrMissingTask       = errors.New("missing task description")
-	ErrTaskTooLong       = errors.New("task exceeds maximum length of 10000 characters")
+	ErrTaskTooLong       = errors.New("task exceeds maximum length of 1MB")
 	ErrTaskHasControl    = errors.New("task contains invalid control characters")
 )
 
