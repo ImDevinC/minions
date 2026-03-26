@@ -34,7 +34,7 @@
         "Scopes are added to DiscordProvider authorization params dynamically",
         "Scopes are read from process.env at module load time (restart required for changes)"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "auth-2",

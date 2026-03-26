@@ -18,3 +18,10 @@ Started: 2026-03-25
 - Session callback intentionally does NOT expose accessToken (security: server-side only)
 - Files changed: control-panel/src/lib/auth.ts
 - **Learnings:** NextAuth account object has `access_token` (snake_case) from OAuth provider
+
+## Task - auth-1
+- Added conditional OAuth scopes: `guilds` + `guilds.members.read` when DISCORD_ALLOWED_GUILD_ID is set
+- Scopes computed at module load time via `buildDiscordScopes()` helper
+- Added `authorization.params.scope` to DiscordProvider config
+- Files changed: control-panel/src/lib/auth.ts
+- **Learnings:** DiscordProvider accepts `authorization: { params: { scope: string } }` to override default scopes
