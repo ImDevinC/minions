@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/anomalyco/minions/orchestrator/internal/k8s"
@@ -89,7 +90,7 @@ func TestMinionHandler_CreateValidation(t *testing.T) {
 			name: "task exceeds max length",
 			body: CreateMinionRequest{
 				Repo:          "owner/repo",
-				Task:          string(make([]byte, MaxTaskLength+1)),
+				Task:          strings.Repeat("a", MaxTaskLength+1),
 				Model:         "anthropic/claude-sonnet-4-5",
 				DiscordUserID: "123456",
 			},
@@ -507,7 +508,7 @@ func TestMinionHandler_TaskLengthLimit(t *testing.T) {
 		// Task of exactly MaxTaskLength chars should be accepted
 		body := CreateMinionRequest{
 			Repo:          "owner/repo",
-			Task:          string(make([]byte, MaxTaskLength)),
+			Task:          strings.Repeat("a", MaxTaskLength),
 			Model:         "anthropic/claude-sonnet-4-5",
 			DiscordUserID: "123456",
 		}

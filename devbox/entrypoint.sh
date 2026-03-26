@@ -6,11 +6,13 @@
 # Required environment variables:
 #   GITHUB_TOKEN            - GitHub token for cloning and API access
 #   MINION_REPO             - Repository to clone (owner/repo format)
-#   MINION_TASK             - Task description to send to OpenCode
 #   MINION_ID               - Unique minion identifier
 #   ORCHESTRATOR_URL        - Callback URL for the orchestrator
 #   INTERNAL_API_TOKEN      - Token for authenticating with orchestrator
 #   OPENCODE_MODEL          - Model used by OpenCode config (from DEFAULT_MODEL)
+#
+# Required mounted files:
+#   /task/task.txt          - Task description to send to OpenCode (via ConfigMap)
 #
 # Optional environment variables:
 #   OPENCODE_PORT           - Port for OpenCode serve (default: 4096)
@@ -29,6 +31,7 @@ SESSION_ENDPOINT="${OPENCODE_BASE}/session"
 HEALTH_TIMEOUT=60
 HEALTH_INTERVAL=2
 TASK_TIMEOUT="${TASK_TIMEOUT:-1800}"  # 30 minutes default
+TASK_FILE="/task/task.txt"
 
 # Logging helpers
 log() {
@@ -53,7 +56,6 @@ validate_env() {
     local missing=()
     [[ -z "${GITHUB_TOKEN:-}" ]] && missing+=("GITHUB_TOKEN")
     [[ -z "${MINION_REPO:-}" ]] && missing+=("MINION_REPO")
-    [[ -z "${MINION_TASK:-}" ]] && missing+=("MINION_TASK")
     [[ -z "${MINION_ID:-}" ]] && missing+=("MINION_ID")
     [[ -z "${ORCHESTRATOR_URL:-}" ]] && missing+=("ORCHESTRATOR_URL")
     [[ -z "${INTERNAL_API_TOKEN:-}" ]] && missing+=("INTERNAL_API_TOKEN")
@@ -61,6 +63,11 @@ validate_env() {
 
     if [[ ${#missing[@]} -gt 0 ]]; then
         die "Missing required environment variables: ${missing[*]}"
+    fi
+
+    # Validate task file exists
+    if [[ ! -f "$TASK_FILE" ]]; then
+        die "Task file not found: ${TASK_FILE}"
     fi
 }
 
@@ -144,11 +151,15 @@ create_session() {
 send_task() {
     log "Sending task to session ${SESSION_ID}"
 
+    # Read task content from mounted ConfigMap file
+    local task_content
+    task_content=$(cat "$TASK_FILE")
+
     # Build the message parts using jq for safe JSON construction
     # This prevents shell injection attacks from task content
     local request_body
     request_body=$(jq -n \
-        --arg task "$MINION_TASK" \
+        --arg task "$task_content" \
         '{
             parts: [
                 {

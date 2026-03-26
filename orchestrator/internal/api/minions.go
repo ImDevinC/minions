@@ -95,11 +95,12 @@ type ErrorResponse struct {
 // repoRegex validates repo format: owner/repo with optional subgroups for nested repos
 var repoRegex = regexp.MustCompile(`^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+(/[a-zA-Z0-9_.-]+)*$`)
 
-// MaxRequestBodySize is the maximum allowed request body size (1MB).
-const MaxRequestBodySize = 1 << 20 // 1MB
+// MaxRequestBodySize is the maximum allowed request body size (2MB).
+// Slightly larger than MaxTaskLength to account for JSON overhead.
+const MaxRequestBodySize = 2 << 20 // 2MB
 
-// MaxTaskLength is the maximum allowed task content length (10,000 characters).
-const MaxTaskLength = 10000
+// MaxTaskLength is the maximum allowed task content length (1MB).
+const MaxTaskLength = 1 << 20 // 1MB
 
 // HandleCreate handles POST /api/minions.
 func (h *MinionHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
@@ -119,7 +120,7 @@ func (h *MinionHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 
 	// Validate task length
 	if len(req.Task) > MaxTaskLength {
-		h.writeError(w, http.StatusBadRequest, "task exceeds maximum length of 10,000 characters", "TASK_TOO_LONG")
+		h.writeError(w, http.StatusBadRequest, "task exceeds maximum length of 1MB", "TASK_TOO_LONG")
 		return
 	}
 
