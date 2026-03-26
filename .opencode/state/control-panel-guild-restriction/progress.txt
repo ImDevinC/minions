@@ -1,0 +1,20 @@
+# Progress Log
+PRD: control-panel-guild-restriction
+Started: 2026-03-25
+
+## Codebase Patterns
+- NextAuth type extensions: use `declare module "next-auth/jwt"` for JWT interface augmentation
+
+---
+<!-- Task logs below - APPEND ONLY -->
+
+## Task - types-1
+- Extended JWT interface in next-auth.d.ts with `accessToken?: string` field
+- Files changed: control-panel/src/types/next-auth.d.ts
+- **Learnings:** NextAuth JWT types require importing and augmenting "next-auth/jwt" module separately from "next-auth"
+
+## Task - auth-0
+- Persisted Discord `account.access_token` to `token.accessToken` in jwt callback
+- Session callback intentionally does NOT expose accessToken (security: server-side only)
+- Files changed: control-panel/src/lib/auth.ts
+- **Learnings:** NextAuth account object has `access_token` (snake_case) from OAuth provider

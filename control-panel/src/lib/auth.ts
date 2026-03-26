@@ -17,9 +17,11 @@ export const authOptions: AuthOptions = {
       return session;
     },
     async jwt({ token, account }) {
-      // Persist the discord id to the token on initial sign in
+      // Persist discord id and access_token to token on initial sign in
+      // access_token is needed for Discord API calls (guild/role verification)
       if (account) {
         token.sub = account.providerAccountId;
+        token.accessToken = account.access_token;
       }
       return token;
     },
