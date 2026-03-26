@@ -70,3 +70,12 @@ Started: 2026-03-25
 - Verified deployment already uses envFrom with minions-control-panel secret (lines 318-322)
 - Files changed: infra/secrets.yaml
 - **Learnings:** The control-panel deployment already referenced minions-control-panel with `optional: true`, so adding the actual secret just makes previously-optional fields available
+
+## Task - docs-1
+- Documented `guilds` and `guilds.members.read` OAuth scopes in "Additional Scopes for Guild Restriction" section
+- Added "Guild Restriction" section with Prerequisites explaining bot must be in guild
+- Added troubleshooting sections for 403 Forbidden and AccessDenied errors
+- Added control panel guild restriction env vars to Configuration Reference table
+- Documented restart requirement, new OAuth consent warning, and role-without-guild warning
+- Files changed: docs/setup/discord-app.md
+- **Learnings:** Discord's `guilds.members.read` scope requires the application's bot to be a member of the guild, not just the OAuth application being authorized

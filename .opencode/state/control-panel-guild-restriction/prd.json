@@ -118,7 +118,7 @@
         "docs/setup/discord-app.md warns existing users will see new OAuth consent screen when restrictions enabled",
         "docs/setup/discord-app.md warns DISCORD_ALLOWED_ROLE_ID is ignored without DISCORD_ALLOWED_GUILD_ID"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "docs-2",
