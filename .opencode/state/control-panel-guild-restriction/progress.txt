@@ -61,3 +61,12 @@ Started: 2026-03-25
 - Documented as optional with restart requirement note
 - Files changed: control-panel/.env.example
 - **Learnings:** .env.example cannot be read directly via tool, use bash cat or copy to temp file
+
+## Task - infra-1
+- Created minions-control-panel secret (didn't exist before, deployment had it as optional)
+- Added NEXTAUTH_SECRET, NEXTAUTH_URL, DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET (core NextAuth fields)
+- Added DISCORD_ALLOWED_GUILD_ID and DISCORD_ALLOWED_ROLE_ID as commented-out optional fields
+- Each field has description comment explaining purpose and requirements
+- Verified deployment already uses envFrom with minions-control-panel secret (lines 318-322)
+- Files changed: infra/secrets.yaml
+- **Learnings:** The control-panel deployment already referenced minions-control-panel with `optional: true`, so adding the actual secret just makes previously-optional fields available
