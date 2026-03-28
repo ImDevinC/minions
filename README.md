@@ -83,6 +83,7 @@ export DISCORD_BOT_TOKEN="your-discord-bot-token"
 export ORCHESTRATOR_URL="http://localhost:8080"
 export INTERNAL_API_TOKEN="your-secret-token"
 export OPENROUTER_API_KEY="sk-or-..."
+export OPENROUTER_CLARIFICATION_MODEL="anthropic/claude-sonnet-4"
 # Optional restrictions (single guild and role)
 # export DISCORD_ALLOWED_GUILD_ID="123456789012345678"
 # export DISCORD_ALLOWED_ROLE_ID="987654321098765432"
@@ -134,6 +135,7 @@ docker build -t minions-devbox:latest devbox/
 | `ORCHESTRATOR_URL` | Yes | Orchestrator API URL |
 | `INTERNAL_API_TOKEN` | Yes | Shared secret for API auth |
 | `OPENROUTER_API_KEY` | Yes | For clarification LLM calls (OpenRouter) |
+| `OPENROUTER_CLARIFICATION_MODEL` | Yes | Model name used for clarification checks |
 | `DISCORD_ALLOWED_GUILD_ID` | No | Restrict commands to a specific guild ID |
 | `DISCORD_ALLOWED_ROLE_ID` | No | Restrict commands to users with a specific role ID |
 

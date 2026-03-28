@@ -60,6 +60,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// OPENROUTER_CLARIFICATION_MODEL is required for clarification LLM model selection
+	clarificationModel := os.Getenv("OPENROUTER_CLARIFICATION_MODEL")
+	if clarificationModel == "" {
+		logger.Error("OPENROUTER_CLARIFICATION_MODEL environment variable is required")
+		os.Exit(1)
+	}
+
 	allowedGuildID := os.Getenv("DISCORD_ALLOWED_GUILD_ID")
 	allowedRoleID := os.Getenv("DISCORD_ALLOWED_ROLE_ID")
 
@@ -74,7 +81,7 @@ func main() {
 	orchClient := orchestrator.NewClient(orchestratorURL, apiToken)
 
 	// Create clarification LLM client and handler
-	llmClient := clarify.NewOpenRouterClient(openrouterKey)
+	llmClient := clarify.NewOpenRouterClient(openrouterKey, clarificationModel)
 	clarifyHandler := clarify.NewHandler(llmClient, logger)
 
 	// Create Discord session

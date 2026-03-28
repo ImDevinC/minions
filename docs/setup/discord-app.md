@@ -146,6 +146,7 @@ export DISCORD_BOT_TOKEN="your-token"
 export ORCHESTRATOR_URL="http://localhost:8080"
 export INTERNAL_API_TOKEN="your-internal-token"
 export OPENROUTER_API_KEY="your-openrouter-key"
+export OPENROUTER_CLARIFICATION_MODEL="anthropic/claude-sonnet-4"
 
 go run ./cmd/bot
 ```
@@ -229,6 +230,7 @@ User was denied access to the control panel. Check the control panel logs for de
 | `ORCHESTRATOR_URL` | URL of orchestrator service |
 | `INTERNAL_API_TOKEN` | Shared secret for service auth |
 | `OPENROUTER_API_KEY` | API key for clarification LLM (OpenRouter) |
+| `OPENROUTER_CLARIFICATION_MODEL` | OpenRouter model used for clarification checks |
 | `DISCORD_ALLOWED_GUILD_ID` | Optional guild ID restriction for command acceptance |
 | `DISCORD_ALLOWED_ROLE_ID` | Optional role ID restriction for command acceptance |
 

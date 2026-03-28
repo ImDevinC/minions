@@ -128,7 +128,8 @@ kubectl create secret generic minions-db -n minions \
 
 # LLM API keys (OpenRouter)
 kubectl create secret generic minions-llm-keys -n minions \
-  --from-literal=OPENROUTER_API_KEY='sk-or-...'
+  --from-literal=OPENROUTER_API_KEY='sk-or-...' \
+  --from-literal=OPENROUTER_CLARIFICATION_MODEL='anthropic/claude-sonnet-4'
 
 # GitHub App (use --from-file for PEM key)
 kubectl create secret generic minions-github-app -n minions \
@@ -167,6 +168,7 @@ metadata:
 type: Opaque
 stringData:
   OPENROUTER_API_KEY: "REPLACE_ME"
+  OPENROUTER_CLARIFICATION_MODEL: "anthropic/claude-sonnet-4"
 ---
 apiVersion: v1
 kind: Secret
@@ -210,7 +212,7 @@ For production, consider [External Secrets Operator](https://external-secrets.io
 kubectl get secrets -n minions
 # NAME                   TYPE     DATA   AGE
 # minions-db             Opaque   1      1m
-# minions-llm-keys       Opaque   1      1m
+# minions-llm-keys       Opaque   2      1m
 # minions-github-app     Opaque   2      1m
 # minions-discord-bot    Opaque   1      1m
 # minions-internal-api   Opaque   1      1m

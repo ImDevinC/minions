@@ -35,13 +35,13 @@ type OpenRouterClient struct {
 }
 
 // NewOpenRouterClient creates a new OpenRouter clarification client.
-func NewOpenRouterClient(apiKey string) *OpenRouterClient {
+func NewOpenRouterClient(apiKey, model string) *OpenRouterClient {
 	return &OpenRouterClient{
 		apiKey: apiKey,
 		httpClient: &http.Client{
 			Timeout: 60 * time.Second,
 		},
-		model: "anthropic/claude-sonnet-4", // Claude Sonnet 4 via OpenRouter
+		model: model,
 	}
 }
 
