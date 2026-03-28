@@ -53,6 +53,11 @@ Given a repository and task description, determine:
 2. Does the task have a single, well-defined goal?
 3. Can the agent reasonably infer what files/code to modify?
 
+Important constraint:
+- The coding agent can checkout and inspect the repository on its own.
+- Never ask where code lives (file names, paths, folders, directories, modules, or repository structure).
+- Only ask about product/behavior requirements when truly unclear.
+
 If the task is clear and actionable, respond with exactly:
 READY
 
@@ -68,7 +73,33 @@ Examples of tasks that need clarification:
 - "Add logging" → "Where should logging be added and what level (debug, info, error)?"
 - "Fix the tests" → "Which test file or test case is failing?"
 
+Examples of questions to avoid (NOT allowed):
+- "Which file contains this code?"
+- "What folder should I edit?"
+- "Where is this implemented in the repository?"
+
 Only ask ONE question. Be direct and specific.`
+
+var codebaseStructureQuestionPhrases = []string{
+	"which file",
+	"what file",
+	"which files",
+	"what files",
+	"file contains",
+	"where is this implemented",
+	"where in the repo",
+	"where in the repository",
+	"where in the codebase",
+	"which folder",
+	"what folder",
+	"which directory",
+	"what directory",
+	"which path",
+	"what path",
+	"repository structure",
+	"repo structure",
+	"codebase structure",
+}
 
 // openRouterRequest is the request body for the OpenRouter API (OpenAI-compatible format).
 type openRouterRequest struct {
@@ -152,15 +183,35 @@ func (c *OpenRouterClient) Evaluate(ctx context.Context, repo, task string) (*LL
 		return nil, fmt.Errorf("empty response from openrouter")
 	}
 
-	text := strings.TrimSpace(apiResp.Choices[0].Message.Content)
+	text := apiResp.Choices[0].Message.Content
+	return parseClarificationResponse(text), nil
+}
 
-	// Check if the response indicates ready
-	if strings.ToUpper(text) == "READY" {
-		return &LLMResponse{Ready: true}, nil
+func parseClarificationResponse(text string) *LLMResponse {
+	trimmed := strings.TrimSpace(text)
+
+	// Check if the response indicates ready.
+	if strings.ToUpper(trimmed) == "READY" {
+		return &LLMResponse{Ready: true}
 	}
 
-	// Otherwise, the text is a clarification question
-	return &LLMResponse{Ready: false, Question: text}, nil
+	// Guardrail: do not ask users where code lives in the repository.
+	if isCodebaseStructureQuestion(trimmed) {
+		return &LLMResponse{Ready: true}
+	}
+
+	// Otherwise, the text is a clarification question.
+	return &LLMResponse{Ready: false, Question: trimmed}
+}
+
+func isCodebaseStructureQuestion(question string) bool {
+	q := strings.ToLower(strings.TrimSpace(question))
+	for _, phrase := range codebaseStructureQuestionPhrases {
+		if strings.Contains(q, phrase) {
+			return true
+		}
+	}
+	return false
 }
 
 // NoOpLLM is a no-op implementation for testing or when clarification is disabled.
