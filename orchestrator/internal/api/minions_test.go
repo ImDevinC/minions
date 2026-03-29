@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anomalyco/minions/orchestrator/internal/k8s"
-	"github.com/anomalyco/minions/orchestrator/internal/webhook"
 	"github.com/go-chi/chi/v5"
+	"github.com/imdevinc/minions/orchestrator/internal/k8s"
+	"github.com/imdevinc/minions/orchestrator/internal/webhook"
 )
 
 func newTestHandler(t *testing.T) *MinionHandler {

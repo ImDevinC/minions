@@ -7,9 +7,9 @@ import (
 	"os"
 	"testing"
 
-	"github.com/anomalyco/minions/orchestrator/internal/db"
-	"github.com/anomalyco/minions/orchestrator/internal/k8s"
 	"github.com/google/uuid"
+	"github.com/imdevinc/minions/orchestrator/internal/db"
+	"github.com/imdevinc/minions/orchestrator/internal/k8s"
 )
 
 // mockMinionStore is a test double for MinionStore.

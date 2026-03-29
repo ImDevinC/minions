@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anomalyco/minions/orchestrator/internal/db"
-	"github.com/anomalyco/minions/orchestrator/internal/k8s"
-	"github.com/anomalyco/minions/orchestrator/internal/webhook"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/imdevinc/minions/orchestrator/internal/db"
+	"github.com/imdevinc/minions/orchestrator/internal/k8s"
+	"github.com/imdevinc/minions/orchestrator/internal/webhook"
 )
 
 // SSEDisconnector handles disconnecting SSE streams from minions.

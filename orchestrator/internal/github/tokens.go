@@ -24,7 +24,7 @@ var ErrInstallationNotFound = errors.New("GitHub App not installed for this owne
 // It automatically refreshes tokens before they expire (handled by ghinstallation).
 type TokenManager interface {
 	// GetToken returns an installation token for the given repository.
-	// The repo format is "owner/name" (e.g., "anomalyco/minions").
+	// The repo format is "owner/name" (e.g., "imdevinc/minions").
 	// Returns ErrAccessRevoked if the installation has been revoked/suspended.
 	// Returns ErrInstallationNotFound if no installation exists for the owner.
 	GetToken(ctx context.Context, repo string) (string, error)
@@ -86,7 +86,7 @@ func NewManager(cfg Config, logger *slog.Logger) (*Manager, error) {
 }
 
 // GetToken returns an installation token for the given repository.
-// The repo format is "owner/name" (e.g., "anomalyco/minions").
+// The repo format is "owner/name" (e.g., "imdevinc/minions").
 func (m *Manager) GetToken(ctx context.Context, repo string) (string, error) {
 	owner, _, ok := parseRepo(repo)
 	if !ok {

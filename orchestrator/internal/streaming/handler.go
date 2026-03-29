@@ -4,8 +4,8 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/anomalyco/minions/orchestrator/internal/db"
 	"github.com/google/uuid"
+	"github.com/imdevinc/minions/orchestrator/internal/db"
 )
 
 // DBEventHandler persists events to the database and broadcasts to WebSocket clients.

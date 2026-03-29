@@ -9,8 +9,8 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
-	"github.com/anomalyco/minions/discord-bot/internal/clarify"
-	"github.com/anomalyco/minions/discord-bot/internal/orchestrator"
+	"github.com/imdevinc/minions/discord-bot/internal/clarify"
+	"github.com/imdevinc/minions/discord-bot/internal/orchestrator"
 )
 
 // mockOrchestrator is a mock implementation of Orchestrator for testing

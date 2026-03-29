@@ -152,7 +152,7 @@ func (c *OpenRouterClient) Evaluate(ctx context.Context, repo, task string) (*LL
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	req.Header.Set("HTTP-Referer", "https://github.com/anomalyco/minions")
+	req.Header.Set("HTTP-Referer", "https://github.com/imdevinc/minions")
 	req.Header.Set("X-Title", "Minions Discord Bot")
 
 	resp, err := c.httpClient.Do(req)

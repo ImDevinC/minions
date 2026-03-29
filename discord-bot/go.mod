@@ -1,4 +1,4 @@
-module github.com/anomalyco/minions/discord-bot
+module github.com/imdevinc/minions/discord-bot
 
 go 1.25.0
 

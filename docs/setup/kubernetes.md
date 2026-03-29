@@ -328,7 +328,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: orchestrator
-          image: ghcr.io/anomalyco/minions/orchestrator:latest
+          image: ghcr.io/imdevinc/minions/orchestrator:latest
           ports:
             - name: http
               containerPort: 8080
@@ -412,7 +412,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: discord-bot
-          image: ghcr.io/anomalyco/minions/discord-bot:latest
+          image: ghcr.io/imdevinc/minions/discord-bot:latest
           ports:
             - name: http
               containerPort: 8081

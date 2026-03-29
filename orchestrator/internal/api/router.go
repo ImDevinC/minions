@@ -6,13 +6,13 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/anomalyco/minions/orchestrator/internal/db"
-	"github.com/anomalyco/minions/orchestrator/internal/k8s"
-	"github.com/anomalyco/minions/orchestrator/internal/streaming"
-	"github.com/anomalyco/minions/orchestrator/internal/webhook"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
+	"github.com/imdevinc/minions/orchestrator/internal/db"
+	"github.com/imdevinc/minions/orchestrator/internal/k8s"
+	"github.com/imdevinc/minions/orchestrator/internal/streaming"
+	"github.com/imdevinc/minions/orchestrator/internal/webhook"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 

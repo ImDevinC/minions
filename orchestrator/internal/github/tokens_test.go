@@ -26,8 +26,8 @@ func TestParseRepo(t *testing.T) {
 		},
 		{
 			name:      "valid org repo",
-			repo:      "anomalyco/minions",
-			wantOwner: "anomalyco",
+			repo:      "imdevinc/minions",
+			wantOwner: "imdevinc",
 			wantName:  "minions",
 			wantOK:    true,
 		},

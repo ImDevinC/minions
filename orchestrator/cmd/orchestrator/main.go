@@ -11,15 +11,15 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/anomalyco/minions/orchestrator/internal/api"
-	"github.com/anomalyco/minions/orchestrator/internal/db"
-	"github.com/anomalyco/minions/orchestrator/internal/github"
-	"github.com/anomalyco/minions/orchestrator/internal/k8s"
-	"github.com/anomalyco/minions/orchestrator/internal/reconciler"
-	"github.com/anomalyco/minions/orchestrator/internal/spawner"
-	"github.com/anomalyco/minions/orchestrator/internal/streaming"
-	"github.com/anomalyco/minions/orchestrator/internal/watchdog"
-	"github.com/anomalyco/minions/orchestrator/internal/webhook"
+	"github.com/imdevinc/minions/orchestrator/internal/api"
+	"github.com/imdevinc/minions/orchestrator/internal/db"
+	"github.com/imdevinc/minions/orchestrator/internal/github"
+	"github.com/imdevinc/minions/orchestrator/internal/k8s"
+	"github.com/imdevinc/minions/orchestrator/internal/reconciler"
+	"github.com/imdevinc/minions/orchestrator/internal/spawner"
+	"github.com/imdevinc/minions/orchestrator/internal/streaming"
+	"github.com/imdevinc/minions/orchestrator/internal/watchdog"
+	"github.com/imdevinc/minions/orchestrator/internal/webhook"
 )
 
 func main() {

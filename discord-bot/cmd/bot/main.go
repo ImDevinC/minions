@@ -14,9 +14,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
-	"github.com/anomalyco/minions/discord-bot/internal/clarify"
-	"github.com/anomalyco/minions/discord-bot/internal/handler"
-	"github.com/anomalyco/minions/discord-bot/internal/orchestrator"
+	"github.com/imdevinc/minions/discord-bot/internal/clarify"
+	"github.com/imdevinc/minions/discord-bot/internal/handler"
+	"github.com/imdevinc/minions/discord-bot/internal/orchestrator"
 )
 
 func main() {

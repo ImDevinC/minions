@@ -11,8 +11,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/anomalyco/minions/orchestrator/internal/db"
-	"github.com/anomalyco/minions/orchestrator/internal/k8s"
+	"github.com/imdevinc/minions/orchestrator/internal/db"
+	"github.com/imdevinc/minions/orchestrator/internal/k8s"
 )
 
 // --- Test Mocks ---
