@@ -10,8 +10,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/anomalyco/minions/orchestrator/internal/db"
-	"github.com/anomalyco/minions/orchestrator/internal/k8s"
+	"github.com/imdevinc/minions/orchestrator/internal/db"
+	"github.com/imdevinc/minions/orchestrator/internal/k8s"
 )
 
 // PollInterval is how often the spawner checks for pending minions.
@@ -36,7 +36,7 @@ type MinionUpdater interface {
 // TokenManager generates GitHub App installation tokens for repository access.
 type TokenManager interface {
 	// GetToken returns an installation token for the given repository.
-	// The repo format is "owner/name" (e.g., "anomalyco/minions").
+	// The repo format is "owner/name" (e.g., "imdevinc/minions").
 	GetToken(ctx context.Context, repo string) (string, error)
 }
 

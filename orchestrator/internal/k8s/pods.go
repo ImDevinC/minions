@@ -116,7 +116,7 @@ type PodManager interface {
 // Config holds configuration for the Kubernetes client.
 type Config struct {
 	// DevboxImage is the container image for devbox pods.
-	// e.g., "ghcr.io/anomalyco/minions-devbox:latest"
+	// e.g., "ghcr.io/imdevinc/minions/devbox:latest"
 	DevboxImage string
 
 	// OpenRouterAPIKey is passed as env var to devbox for OpenRouter access.

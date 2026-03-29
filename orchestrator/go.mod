@@ -1,4 +1,4 @@
-module github.com/anomalyco/minions/orchestrator
+module github.com/imdevinc/minions/orchestrator
 
 go 1.25.0
 
