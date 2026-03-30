@@ -82,7 +82,7 @@ clone_repo() {
     chmod 600 ~/.git-credentials
 
     # Configure git user for commits (agent will use these)
-    git config --global user.email "minion@anomaly.co"
+    git config --global user.email "minion@imdevinc.com"
     git config --global user.name "Minion"
 
     # Clone with depth=1 for speed (full history not needed for most tasks)
