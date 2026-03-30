@@ -119,9 +119,6 @@ gh pr create --title "<conventional commit title>" --body "<description>"
 - Change 1
 - Change 2
 - Change 3
-
-__Disclosure__
-This change was developed with the assistance of AI, but was reviewed and tested by a human.
 ```
 
 ### 4. After PR Merge
@@ -190,7 +187,4 @@ git push -u origin feat/my-feature
 gh pr create --title "feat(scope): add new capability" --body "## Summary
 - Added X
 - Updated Y
-
-__Disclosure__
-This change was developed with the assistance of AI, but was reviewed and tested by a human."
 ```
