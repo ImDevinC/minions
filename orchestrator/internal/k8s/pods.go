@@ -269,37 +269,22 @@ func (c *Client) SpawnPod(ctx context.Context, params SpawnParams) (string, erro
 	}
 
 	// Add auth PVC mount if configured
-	// We need an emptyDir at ~/.local so OpenCode can create subdirectories
-	// (share/opencode/log/, state/, etc.). The subPath mount places auth.json
-	// inside this writable directory tree, and writes go to the PVC for persistence.
+	// Mount the PVC to /etc/opencode-share and let the entrypoint symlink auth.json
+	// to ~/.local/share/opencode/auth.json. This avoids subPath permission issues
+	// that prevent OpenCode from creating sibling directories (log/, state/, etc.).
 	if c.config.AuthPVCName != "" {
-		volumes = append(volumes,
-			corev1.Volume{
-				Name: "local-data",
-				VolumeSource: corev1.VolumeSource{
-					EmptyDir: &corev1.EmptyDirVolumeSource{},
+		volumes = append(volumes, corev1.Volume{
+			Name: "auth-pvc",
+			VolumeSource: corev1.VolumeSource{
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+					ClaimName: c.config.AuthPVCName,
 				},
 			},
-			corev1.Volume{
-				Name: "auth-pvc",
-				VolumeSource: corev1.VolumeSource{
-					PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-						ClaimName: c.config.AuthPVCName,
-					},
-				},
-			},
-		)
-		volumeMounts = append(volumeMounts,
-			corev1.VolumeMount{
-				Name:      "local-data",
-				MountPath: "/home/minion/.local",
-			},
-			corev1.VolumeMount{
-				Name:      "auth-pvc",
-				MountPath: "/home/minion/.local/share/opencode/auth.json",
-				SubPath:   "auth.json",
-			},
-		)
+		})
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      "auth-pvc",
+			MountPath: "/etc/opencode-share",
+		})
 	}
 
 	pod := &corev1.Pod{
