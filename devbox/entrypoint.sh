@@ -49,6 +49,14 @@ setup_config() {
     log "Setting up OpenCode configuration"
     mkdir -p ~/.config/opencode
     cp -r /etc/opencode/* ~/.config/opencode/
+
+    # Symlink auth.json if mounted (for LLM provider authentication)
+    # Uses symlink so token refreshes write back to the PVC
+    if [[ -f /etc/opencode-share/auth.json ]]; then
+        mkdir -p ~/.local/share/opencode
+        ln -sf /etc/opencode-share/auth.json ~/.local/share/opencode/auth.json
+        log "Linked auth.json from PVC to OpenCode data directory"
+    fi
 }
 
 # Validate required environment variables
