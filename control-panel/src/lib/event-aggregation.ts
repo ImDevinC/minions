@@ -688,20 +688,15 @@ export function aggregateEvents(
           state.processedEventIds.add(event.id);
         }
 
-        // Route to appropriate part list based on tracked type
+        // Route to appropriate part list based on tracked type.
+        // Note: deltaType may be undefined if delta arrives before part.updated (race condition).
+        // This is expected during streaming; we default to text which is harmless.
         const deltaType = state.partTypeByID.get(deltaPartID);
         if (deltaType === "reasoning") {
           if (!reasoningPartIDs.includes(deltaPartID)) {
             reasoningPartIDs.push(deltaPartID);
           }
         } else {
-          // Default to text for unknown types (race condition: delta arrived before part.updated)
-          if (deltaType === undefined) {
-            console.warn(
-              "Delta for unknown part type, defaulting to text",
-              deltaPartID
-            );
-          }
           if (!textPartIDs.includes(deltaPartID)) {
             textPartIDs.push(deltaPartID);
           }
