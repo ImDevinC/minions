@@ -1,0 +1,32 @@
+# Persistent Volume Claims for minions
+# NOTE: These are examples. Adjust storageClassName for your cluster.
+
+---
+# Auth PVC for OpenCode authentication
+# Contains auth.json with access/refresh tokens for LLM providers
+# Mounted to minion pods at /home/minion/.local/share/opencode/auth.json
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minion-auth
+  namespace: minions
+  labels:
+    app.kubernetes.io/part-of: minions
+    app.kubernetes.io/component: storage
+spec:
+  # ReadWriteMany required since multiple minion pods may mount simultaneously
+  # and auth.json may need to be updated (token refresh)
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      # auth.json is tiny (~1KB), but most providers have minimum sizes
+      storage: 1Mi
+  # IMPORTANT: Replace with your RWX-capable storage class
+  # Examples:
+  #   - AWS EFS: "efs-sc"
+  #   - GCP Filestore: "standard-rwx"
+  #   - Azure Files: "azurefile"
+  #   - Longhorn: "longhorn"
+  #   - NFS: "nfs-client"
+  # storageClassName: "your-rwx-storage-class"

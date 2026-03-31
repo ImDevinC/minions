@@ -91,6 +91,9 @@ spec:
             # Default model for minion creation (when client doesn't specify)
             - name: DEFAULT_MODEL
               value: "anthropic/claude-sonnet-4.5"
+            # PVC name for auth.json mount (optional, remove if not using auth PVC)
+            - name: MINION_AUTH_PVC_NAME
+              value: "minion-auth"
           envFrom:
             # DATABASE_URL
             - secretRef:
@@ -98,7 +101,8 @@ spec:
             # INTERNAL_API_TOKEN
             - secretRef:
                 name: minions-internal-api
-            # OPENROUTER_API_KEY (passed to devbox pods and used by discord-bot)
+            # DEVBOX_OPENROUTER_API_KEY (passed to devbox pods with prefix stripped)
+            # OPENROUTER_CLARIFICATION_MODEL (used by discord-bot)
             - secretRef:
                 name: minions-llm-keys
             # GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY
