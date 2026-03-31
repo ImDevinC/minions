@@ -110,7 +110,7 @@ function SubtaskMessageRow({
   return (
     <div className="py-2 px-2 border-b border-gray-700/30 last:border-b-0">
       {/* Timestamp */}
-      <div className="text-xs text-gray-500 mb-1.5">
+      <div className="text-xs text-gray-500 mb-1.5" suppressHydrationWarning>
         {new Date(message.timestamp).toLocaleTimeString()}
         {message.isStreaming && (
           <span className="ml-2 text-blue-400">

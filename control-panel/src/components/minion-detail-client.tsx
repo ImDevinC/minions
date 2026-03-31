@@ -61,7 +61,7 @@ function formatCost(costUsd: number): string {
 
 // Format token counts with thousands separators
 function formatTokens(count: number): string {
-  return count.toLocaleString();
+  return count.toLocaleString("en-US");
 }
 
 // Check if a minion can be terminated (is in a running state)
@@ -201,14 +201,14 @@ export function MinionDetailClient({ minion }: MinionDetailClientProps) {
           </div>
           <div>
             <span className="text-gray-500">Created</span>
-            <p className="text-gray-200">
+            <p className="text-gray-200" suppressHydrationWarning>
               {new Date(minion.created_at).toLocaleString()}
             </p>
           </div>
           {minion.started_at && (
             <div>
               <span className="text-gray-500">Started</span>
-              <p className="text-gray-200">
+              <p className="text-gray-200" suppressHydrationWarning>
                 {new Date(minion.started_at).toLocaleString()}
               </p>
             </div>
@@ -216,7 +216,7 @@ export function MinionDetailClient({ minion }: MinionDetailClientProps) {
           {minion.completed_at && (
             <div>
               <span className="text-gray-500">Completed</span>
-              <p className="text-gray-200">
+              <p className="text-gray-200" suppressHydrationWarning>
                 {new Date(minion.completed_at).toLocaleString()}
               </p>
             </div>

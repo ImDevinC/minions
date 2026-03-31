@@ -51,6 +51,18 @@ const SKIP_PART_TYPES = new Set([
 ]);
 
 /**
+ * Informational event types that are not displayable content.
+ * These are internal OpenCode SSE events for state notifications
+ * (LSP updates, git changes, todo tracking, session state).
+ */
+const INFORMATIONAL_EVENT_TYPES = new Set([
+  "lsp.client.diagnostics",
+  "vcs.branch.updated",
+  "todo.updated",
+  "session.idle",
+]);
+
+/**
  * Part types that should be rendered as system messages rather than chat messages.
  */
 const SYSTEM_PART_TYPES = new Set(["agent", "retry"]);
@@ -221,6 +233,9 @@ function isSystemEvent(event: MinionEvent): boolean {
  */
 function shouldSkipEvent(event: MinionEvent): boolean {
   if (isHeartbeatEvent(event)) return true;
+
+  // Skip informational events (LSP, VCS, todo, session state)
+  if (INFORMATIONAL_EVENT_TYPES.has(event.event_type)) return true;
 
   const partType = getPartType(event);
   if (partType && SKIP_PART_TYPES.has(partType)) return true;

@@ -78,7 +78,7 @@ export function SystemMessageRow({ message }: SystemMessageRowProps) {
     const agentName = getAgentName(message.content);
     return (
       <div className="flex items-center gap-2 py-1.5 px-3 md:px-4 text-xs text-gray-500 bg-gray-800/30">
-        <span className="text-gray-600 shrink-0">{time}</span>
+        <span className="text-gray-600 shrink-0" suppressHydrationWarning>{time}</span>
         <span className="text-gray-400 truncate">
           Switched to <span className="text-gray-300 font-medium">{agentName}</span> agent
         </span>
@@ -91,7 +91,7 @@ export function SystemMessageRow({ message }: SystemMessageRowProps) {
     const errorMsg = getErrorMessage(message.content);
     return (
       <div className="flex items-start gap-2 py-2 px-3 md:px-4 text-xs md:text-sm bg-red-500/10 border-l-2 border-red-500">
-        <span className="text-red-400/80 shrink-0 text-xs">{time}</span>
+        <span className="text-red-400/80 shrink-0 text-xs" suppressHydrationWarning>{time}</span>
         <span className="text-red-400 whitespace-pre-wrap break-words min-w-0">{errorMsg}</span>
       </div>
     );
@@ -103,7 +103,7 @@ export function SystemMessageRow({ message }: SystemMessageRowProps) {
     const attemptText = attempt > 0 ? `, attempt ${attempt}` : "";
     return (
       <div className="flex items-center gap-2 py-1.5 px-3 md:px-4 text-xs bg-yellow-500/10 border-l-2 border-yellow-500">
-        <span className="text-yellow-400/70 shrink-0">{time}</span>
+        <span className="text-yellow-400/70 shrink-0" suppressHydrationWarning>{time}</span>
         <span className="text-yellow-400">⚠️ Retrying{attemptText}</span>
       </div>
     );
@@ -117,7 +117,7 @@ export function SystemMessageRow({ message }: SystemMessageRowProps) {
 
   return (
     <div className="flex items-center gap-2 py-1 px-3 md:px-4 text-xs text-gray-600 bg-gray-800/20">
-      <span className="text-gray-700 shrink-0">{time}</span>
+      <span className="text-gray-700 shrink-0" suppressHydrationWarning>{time}</span>
       <span className="text-gray-500 truncate">{displayContent}</span>
     </div>
   );

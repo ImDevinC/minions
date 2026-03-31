@@ -1,3 +1,6 @@
+"use client";
+
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { MinionSummary, MinionStatus } from "@/types/minion";
 
@@ -72,7 +75,26 @@ function formatRelativeTime(dateString: string): string {
   if (diffMin < 60) return `${diffMin}m ago`;
   if (diffHr < 24) return `${diffHr}h ago`;
   if (diffDay < 7) return `${diffDay}d ago`;
-  return date.toLocaleDateString();
+  return date.toLocaleDateString("en-US");
+}
+
+/**
+ * Hook for client-side relative time display.
+ * Returns empty string on server, formatted time on client.
+ */
+function useRelativeTime(dateString: string): string {
+  const [relativeTime, setRelativeTime] = useState("");
+
+  useEffect(() => {
+    setRelativeTime(formatRelativeTime(dateString));
+    // Update every minute for running minions
+    const interval = setInterval(() => {
+      setRelativeTime(formatRelativeTime(dateString));
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [dateString]);
+
+  return relativeTime;
 }
 
 function truncateTask(task: string, maxLen = 120): string {
@@ -83,6 +105,7 @@ function truncateTask(task: string, maxLen = 120): string {
 export function MinionCard({ minion }: { minion: MinionSummary }) {
   const [owner, ...repoParts] = minion.repo.split("/");
   const repoName = repoParts.join("/");
+  const relativeTime = useRelativeTime(minion.created_at);
 
   return (
     <Link
@@ -115,7 +138,7 @@ export function MinionCard({ minion }: { minion: MinionSummary }) {
           <div className="flex items-center gap-3 text-xs text-gray-500">
             <span>{minion.model}</span>
             <span>·</span>
-            <span>{formatRelativeTime(minion.created_at)}</span>
+            <span>{relativeTime}</span>
           </div>
         </div>
 
