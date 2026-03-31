@@ -56,12 +56,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	// OPENROUTER_API_KEY is required for LLM access in devbox pods
-	openRouterAPIKey := os.Getenv("OPENROUTER_API_KEY")
-	if openRouterAPIKey == "" {
-		logger.Error("OPENROUTER_API_KEY environment variable is required")
-		os.Exit(1)
-	}
+	// MINION_AUTH_PVC_NAME is optional; if set, mounts auth.json from PVC to devbox pods
+	authPVCName := os.Getenv("MINION_AUTH_PVC_NAME")
 
 	// GITHUB_APP_ID is required for GitHub App authentication
 	githubAppIDStr := os.Getenv("GITHUB_APP_ID")
@@ -114,8 +110,8 @@ func main() {
 
 	// Initialize Kubernetes client for pod management
 	podManager, err := k8s.NewClient(k8s.Config{
-		DevboxImage:      devboxImage,
-		OpenRouterAPIKey: openRouterAPIKey,
+		DevboxImage: devboxImage,
+		AuthPVCName: authPVCName,
 	}, logger)
 	if err != nil {
 		logger.Error("failed to create kubernetes client", "error", err)

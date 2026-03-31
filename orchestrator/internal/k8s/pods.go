@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -119,8 +121,9 @@ type Config struct {
 	// e.g., "ghcr.io/imdevinc/minions/devbox:latest"
 	DevboxImage string
 
-	// OpenRouterAPIKey is passed as env var to devbox for OpenRouter access.
-	OpenRouterAPIKey string
+	// AuthPVCName is the name of the PVC containing auth.json for OpenCode.
+	// If empty, no auth PVC is mounted.
+	AuthPVCName string
 }
 
 // Client provides Kubernetes operations for minion pods.
@@ -225,6 +228,63 @@ func (c *Client) SpawnPod(ctx context.Context, params SpawnParams) (string, erro
 	falseVal := false
 	trueVal := true
 
+	// Build volume mounts - base mounts plus optional auth PVC
+	volumeMounts := []corev1.VolumeMount{
+		{Name: "workspace", MountPath: "/workspace"},
+		{Name: "tmp", MountPath: "/tmp"},
+		{Name: "home", MountPath: "/home/minion"},
+		{Name: "task", MountPath: TaskMountPath, ReadOnly: true},
+	}
+
+	// Build volumes - base volumes plus optional auth PVC
+	volumes := []corev1.Volume{
+		{
+			Name: "workspace",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
+		},
+		{
+			Name: "tmp",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
+		},
+		{
+			Name: "home",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
+		},
+		{
+			Name: "task",
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: taskConfigMapName(minionIDStr),
+					},
+				},
+			},
+		},
+	}
+
+	// Add auth PVC mount if configured
+	if c.config.AuthPVCName != "" {
+		volumes = append(volumes, corev1.Volume{
+			Name: "auth-pvc",
+			VolumeSource: corev1.VolumeSource{
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+					ClaimName: c.config.AuthPVCName,
+				},
+			},
+		})
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      "auth-pvc",
+			MountPath: "/home/minion/.local/share/opencode/auth.json",
+			SubPath:   "auth.json",
+		})
+	}
+
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      podName,
@@ -262,44 +322,10 @@ func (c *Client) SpawnPod(ctx context.Context, params SpawnParams) (string, erro
 					Env: c.buildEnvVars(params),
 					// Writable temp directories for git clone, opencode work, etc.
 					// Task is mounted read-only from ConfigMap.
-					VolumeMounts: []corev1.VolumeMount{
-						{Name: "workspace", MountPath: "/workspace"},
-						{Name: "tmp", MountPath: "/tmp"},
-						{Name: "home", MountPath: "/home/minion"},
-						{Name: "task", MountPath: TaskMountPath, ReadOnly: true},
-					},
+					VolumeMounts: volumeMounts,
 				},
 			},
-			Volumes: []corev1.Volume{
-				{
-					Name: "workspace",
-					VolumeSource: corev1.VolumeSource{
-						EmptyDir: &corev1.EmptyDirVolumeSource{},
-					},
-				},
-				{
-					Name: "tmp",
-					VolumeSource: corev1.VolumeSource{
-						EmptyDir: &corev1.EmptyDirVolumeSource{},
-					},
-				},
-				{
-					Name: "home",
-					VolumeSource: corev1.VolumeSource{
-						EmptyDir: &corev1.EmptyDirVolumeSource{},
-					},
-				},
-				{
-					Name: "task",
-					VolumeSource: corev1.VolumeSource{
-						ConfigMap: &corev1.ConfigMapVolumeSource{
-							LocalObjectReference: corev1.LocalObjectReference{
-								Name: taskConfigMapName(minionIDStr),
-							},
-						},
-					},
-				},
-			},
+			Volumes: volumes,
 		},
 	}
 
@@ -464,6 +490,7 @@ func isPodReady(pod *corev1.Pod) bool {
 
 // buildEnvVars constructs environment variables for the devbox container.
 // Note: Task content is passed via ConfigMap volume mount, not environment variable.
+// All orchestrator env vars with DEVBOX_ prefix are passed through with the prefix stripped.
 func (c *Client) buildEnvVars(params SpawnParams) []corev1.EnvVar {
 	envs := []corev1.EnvVar{
 		{Name: "MINION_ID", Value: params.MinionID.String()},
@@ -474,9 +501,16 @@ func (c *Client) buildEnvVars(params SpawnParams) []corev1.EnvVar {
 		{Name: "INTERNAL_API_TOKEN", Value: params.InternalAPIToken},
 	}
 
-	// Add OpenRouter API key for LLM access
-	if c.config.OpenRouterAPIKey != "" {
-		envs = append(envs, corev1.EnvVar{Name: "OPENROUTER_API_KEY", Value: c.config.OpenRouterAPIKey})
+	// Pass through all DEVBOX_* env vars with prefix stripped
+	// e.g., DEVBOX_OPENROUTER_API_KEY -> OPENROUTER_API_KEY
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "DEVBOX_") {
+			parts := strings.SplitN(kv, "=", 2)
+			if len(parts) == 2 {
+				name := strings.TrimPrefix(parts[0], "DEVBOX_")
+				envs = append(envs, corev1.EnvVar{Name: name, Value: parts[1]})
+			}
+		}
 	}
 
 	return envs
