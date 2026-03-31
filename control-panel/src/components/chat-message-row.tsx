@@ -39,7 +39,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({ message, expandedTo
   return (
     <div className="py-2 md:py-3 px-3 md:px-4 border-b border-gray-800">
       {/* Timestamp and streaming indicator */}
-      <div className="text-xs text-gray-500 mb-2">
+      <div className="text-xs text-gray-500 mb-2" suppressHydrationWarning>
         {new Date(message.timestamp).toLocaleTimeString()}
         {message.isStreaming && (
           <span className="ml-2 text-blue-400">
