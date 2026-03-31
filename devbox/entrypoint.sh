@@ -205,6 +205,10 @@ wait_for_completion() {
     local elapsed=0
     local poll_interval=5
 
+    # Give OpenCode time to start processing the async task before first poll
+    sleep 2
+    elapsed=2
+
     while [[ $elapsed -lt $TASK_TIMEOUT ]]; do
         # Check if OpenCode process is still running
         if ! kill -0 "$OPENCODE_PID" 2>/dev/null; then
@@ -220,6 +224,7 @@ wait_for_completion() {
         # OpenCode returns {} when all sessions are idle.
         # Treat that as completion when the status endpoint call itself succeeds.
         if status_response=$(curl -sf "${SESSION_ENDPOINT}/status"); then
+            log "Session status response: $status_response"
             session_status=$(echo "$status_response" | jq -r --arg id "$SESSION_ID" '
                 if type == "object" and length == 0 then
                     "idle"
@@ -232,6 +237,8 @@ wait_for_completion() {
         case "$session_status" in
             "idle")
                 log "Task completed (session idle)"
+                log "OpenCode logs:"
+                cat /tmp/opencode.log >&2 || true
                 return 0
                 ;;
             "busy"|"running"|"pending")
