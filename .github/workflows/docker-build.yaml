@@ -10,6 +10,7 @@ on:
       - 'discord-bot-v*'
       - 'control-panel-v*'
       - 'devbox-v*'
+      - 'matrix-bot-v*'
 
 env:
   REGISTRY: ghcr.io
