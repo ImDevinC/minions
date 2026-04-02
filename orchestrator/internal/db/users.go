@@ -11,11 +11,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// User represents a Discord user in the system.
+// User represents a user in the system (Discord or Matrix).
 type User struct {
 	ID              uuid.UUID
 	DiscordID       string
 	DiscordUsername string
+	MatrixID        *string // Matrix user ID (e.g., @user:matrix.org)
 	AvatarURL       *string
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
@@ -82,10 +83,10 @@ func (s *UserStore) GetOrCreate(ctx context.Context, discordID, discordUsername 
 func (s *UserStore) GetByDiscordID(ctx context.Context, discordID string) (*User, error) {
 	user := &User{}
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, discord_id, discord_username, avatar_url, created_at, updated_at
+		`SELECT id, discord_id, discord_username, matrix_id, avatar_url, created_at, updated_at
 		 FROM users WHERE discord_id = $1`,
 		discordID,
-	).Scan(&user.ID, &user.DiscordID, &user.DiscordUsername, &user.AvatarURL, &user.CreatedAt, &user.UpdatedAt)
+	).Scan(&user.ID, &user.DiscordID, &user.DiscordUsername, &user.MatrixID, &user.AvatarURL, &user.CreatedAt, &user.UpdatedAt)
 
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -95,6 +96,60 @@ func (s *UserStore) GetByDiscordID(ctx context.Context, discordID string) (*User
 	}
 
 	return user, nil
+}
+
+// GetByMatrixID finds a user by their Matrix ID.
+func (s *UserStore) GetByMatrixID(ctx context.Context, matrixID string) (*User, error) {
+	user := &User{}
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, discord_id, discord_username, matrix_id, avatar_url, created_at, updated_at
+		 FROM users WHERE matrix_id = $1`,
+		matrixID,
+	).Scan(&user.ID, &user.DiscordID, &user.DiscordUsername, &user.MatrixID, &user.AvatarURL, &user.CreatedAt, &user.UpdatedAt)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return user, nil
+}
+
+// GetOrCreateByMatrixID finds an existing user by Matrix ID or creates a new one.
+// Returns the user and whether it was newly created.
+func (s *UserStore) GetOrCreateByMatrixID(ctx context.Context, matrixID string) (*User, bool, error) {
+	// Try to find existing user first
+	user, err := s.GetByMatrixID(ctx, matrixID)
+	if err == nil {
+		return user, false, nil
+	}
+
+	if !errors.Is(err, ErrNotFound) {
+		return nil, false, err
+	}
+
+	// User doesn't exist, create new one
+	user = &User{
+		ID:       uuid.New(),
+		MatrixID: &matrixID,
+	}
+
+	err = s.pool.QueryRow(ctx,
+		`INSERT INTO users (id, discord_id, discord_username, matrix_id)
+		 VALUES ($1, '', '', $2)
+		 ON CONFLICT (matrix_id) DO UPDATE SET
+		   updated_at = NOW()
+		 RETURNING id, created_at, updated_at`,
+		user.ID, matrixID,
+	).Scan(&user.ID, &user.CreatedAt, &user.UpdatedAt)
+
+	if err != nil {
+		return nil, false, err
+	}
+
+	return user, true, nil
 }
 
 // ErrNotFound indicates the requested resource was not found.

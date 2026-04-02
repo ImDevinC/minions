@@ -166,16 +166,19 @@ func (w *Watchdog) checkIdleMinions(ctx context.Context) int {
 
 	alertedCount := 0
 	for _, m := range minions {
-		channelID := ""
+		notification := webhook.Notification{
+			MinionID: m.ID,
+			Type:     webhook.NotifyIdle,
+			Platform: webhook.Platform(m.Platform),
+		}
 		if m.DiscordChannelID != nil {
-			channelID = *m.DiscordChannelID
+			notification.DiscordChannelID = *m.DiscordChannelID
+		}
+		if m.MatrixRoomID != nil {
+			notification.MatrixRoomID = *m.MatrixRoomID
 		}
 
-		err := w.notifier.Notify(ctx, webhook.Notification{
-			MinionID:         m.ID,
-			Type:             webhook.NotifyIdle,
-			DiscordChannelID: channelID,
-		})
+		err := w.notifier.Notify(ctx, notification)
 		if err != nil {
 			w.logger.Error("failed to send idle notification",
 				"minion_id", m.ID,
@@ -275,17 +278,20 @@ func (w *Watchdog) checkClarificationTimeouts(ctx context.Context) int {
 		// Clean up SSE connection
 		w.sse.Disconnect(m.ID)
 
-		// Notify Discord
-		channelID := ""
+		// Notify bot based on platform
+		notification := webhook.Notification{
+			MinionID: m.ID,
+			Type:     webhook.NotifyClarificationTimeout,
+			Platform: webhook.Platform(m.Platform),
+		}
 		if m.DiscordChannelID != nil {
-			channelID = *m.DiscordChannelID
+			notification.DiscordChannelID = *m.DiscordChannelID
+		}
+		if m.MatrixRoomID != nil {
+			notification.MatrixRoomID = *m.MatrixRoomID
 		}
 
-		err := w.notifier.Notify(ctx, webhook.Notification{
-			MinionID:         m.ID,
-			Type:             webhook.NotifyClarificationTimeout,
-			DiscordChannelID: channelID,
-		})
+		err := w.notifier.Notify(ctx, notification)
 		if err != nil {
 			w.logger.Error("failed to send clarification timeout notification",
 				"minion_id", m.ID,

@@ -82,6 +82,9 @@ spec:
             # Discord bot webhook for notifications
             - name: DISCORD_BOT_WEBHOOK_URL
               value: "http://discord-bot.minions.svc.cluster.local:8081/webhook"
+            # Matrix bot webhook for notifications
+            - name: MATRIX_BOT_WEBHOOK_URL
+              value: "http://matrix-bot.minions.svc.cluster.local:8081/webhook"
             # Container image for spawning minion devbox pods
             - name: DEVBOX_IMAGE
               value: "ghcr.io/imdevinc/minions/devbox:latest"
@@ -263,6 +266,112 @@ spec:
   type: ClusterIP
   selector:
     app.kubernetes.io/name: discord-bot
+  ports:
+    - name: http
+      port: 8081
+      targetPort: http
+      protocol: TCP
+
+---
+# Matrix Bot Deployment
+# Handles Matrix events and webhook callbacks from orchestrator
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: matrix-bot
+  namespace: minions
+  labels:
+    app.kubernetes.io/name: matrix-bot
+    app.kubernetes.io/component: bot
+    app.kubernetes.io/part-of: minions
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: matrix-bot
+  strategy:
+    type: Recreate  # single replica, Matrix sync doesn't support dual connections well
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: matrix-bot
+        app.kubernetes.io/component: bot
+        app.kubernetes.io/part-of: minions
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: matrix-bot
+          image: ghcr.io/imdevinc/minions/matrix-bot:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8081
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "8081"
+            # Orchestrator API endpoint
+            - name: ORCHESTRATOR_URL
+              value: "http://orchestrator.minions.svc.cluster.local:8080"
+          envFrom:
+            # MATRIX_HOMESERVER_URL, MATRIX_BOT_USER_ID, MATRIX_BOT_ACCESS_TOKEN
+            - secretRef:
+                name: minions-matrix-bot
+            # INTERNAL_API_TOKEN
+            - secretRef:
+                name: minions-internal-api
+            # OPENROUTER_API_KEY (for clarification LLM)
+            - secretRef:
+                name: minions-llm-keys
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+
+---
+# Matrix Bot Service
+# Exposes webhook endpoint to orchestrator
+apiVersion: v1
+kind: Service
+metadata:
+  name: matrix-bot
+  namespace: minions
+  labels:
+    app.kubernetes.io/name: matrix-bot
+    app.kubernetes.io/part-of: minions
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: matrix-bot
   ports:
     - name: http
       port: 8081

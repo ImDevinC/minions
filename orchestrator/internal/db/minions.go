@@ -30,20 +30,33 @@ type Scanner interface {
 	Scan(dest ...any) error
 }
 
-// scanMinion scans all 25 Minion fields from a row in canonical order.
-// The SELECT must match: id, user_id, repo, task, model, status,
-// clarification_question, clarification_answer, clarification_message_id,
-// input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens, cost_usd,
-// pr_url, error, session_id, pod_name,
-// discord_message_id, discord_channel_id, created_at, started_at, completed_at, last_activity_at
+// minionSelectColumns is the canonical SELECT column list for minion queries.
+// Keep in sync with scanMinion().
+const minionSelectColumns = `id, user_id, repo, task, model, status, platform,
+	clarification_question, clarification_answer, clarification_message_id, matrix_clarification_event_id,
+	input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens, cost_usd,
+	pr_url, error, session_id, pod_name,
+	discord_message_id, discord_channel_id, matrix_event_id, matrix_room_id,
+	created_at, started_at, completed_at, last_activity_at`
+
+// minionSelectColumnsWithPrefix is the prefixed version for JOINs.
+const minionSelectColumnsWithPrefix = `m.id, m.user_id, m.repo, m.task, m.model, m.status, m.platform,
+	m.clarification_question, m.clarification_answer, m.clarification_message_id, m.matrix_clarification_event_id,
+	m.input_tokens, m.output_tokens, m.reasoning_tokens, m.cache_read_tokens, m.cache_write_tokens, m.cost_usd,
+	m.pr_url, m.error, m.session_id, m.pod_name,
+	m.discord_message_id, m.discord_channel_id, m.matrix_event_id, m.matrix_room_id,
+	m.created_at, m.started_at, m.completed_at, m.last_activity_at`
+
+// scanMinion scans all 29 Minion fields from a row in canonical order.
+// The SELECT must match minionSelectColumns.
 func scanMinion(row Scanner) (*Minion, error) {
 	m := &Minion{}
 	err := row.Scan(
-		&m.ID, &m.UserID, &m.Repo, &m.Task, &m.Model, &m.Status,
-		&m.ClarificationQuestion, &m.ClarificationAnswer, &m.ClarificationMessageID,
+		&m.ID, &m.UserID, &m.Repo, &m.Task, &m.Model, &m.Status, &m.Platform,
+		&m.ClarificationQuestion, &m.ClarificationAnswer, &m.ClarificationMessageID, &m.MatrixClarificationEventID,
 		&m.InputTokens, &m.OutputTokens, &m.ReasoningTokens, &m.CacheReadTokens, &m.CacheWriteTokens, &m.CostUSD,
 		&m.PRURL, &m.Error, &m.SessionID, &m.PodName,
-		&m.DiscordMessageID, &m.DiscordChannelID,
+		&m.DiscordMessageID, &m.DiscordChannelID, &m.MatrixEventID, &m.MatrixRoomID,
 		&m.CreatedAt, &m.StartedAt, &m.CompletedAt, &m.LastActivityAt,
 	)
 	if err != nil {
@@ -52,24 +65,32 @@ func scanMinion(row Scanner) (*Minion, error) {
 	return m, nil
 }
 
-// scanMinionWithOwner scans all 25 Minion fields plus OwnerDiscordID (26th field).
+// scanMinionWithOwner scans all 29 Minion fields plus owner IDs (30th, 31st fields).
 // Used for queries that JOIN users table for owner validation.
 func scanMinionWithOwner(row Scanner) (*MinionWithOwner, error) {
 	m := &MinionWithOwner{}
 	err := row.Scan(
-		&m.ID, &m.UserID, &m.Repo, &m.Task, &m.Model, &m.Status,
-		&m.ClarificationQuestion, &m.ClarificationAnswer, &m.ClarificationMessageID,
+		&m.ID, &m.UserID, &m.Repo, &m.Task, &m.Model, &m.Status, &m.Platform,
+		&m.ClarificationQuestion, &m.ClarificationAnswer, &m.ClarificationMessageID, &m.MatrixClarificationEventID,
 		&m.InputTokens, &m.OutputTokens, &m.ReasoningTokens, &m.CacheReadTokens, &m.CacheWriteTokens, &m.CostUSD,
 		&m.PRURL, &m.Error, &m.SessionID, &m.PodName,
-		&m.DiscordMessageID, &m.DiscordChannelID,
+		&m.DiscordMessageID, &m.DiscordChannelID, &m.MatrixEventID, &m.MatrixRoomID,
 		&m.CreatedAt, &m.StartedAt, &m.CompletedAt, &m.LastActivityAt,
-		&m.OwnerDiscordID,
+		&m.OwnerDiscordID, &m.OwnerMatrixID,
 	)
 	if err != nil {
 		return nil, err
 	}
 	return m, nil
 }
+
+// Platform represents the chat platform where a minion was created.
+type Platform string
+
+const (
+	PlatformDiscord Platform = "discord"
+	PlatformMatrix  Platform = "matrix"
+)
 
 // MinionStatus represents the lifecycle state of a minion.
 type MinionStatus string
@@ -85,44 +106,52 @@ const (
 
 // Minion represents a task execution instance.
 type Minion struct {
-	ID                     uuid.UUID
-	UserID                 uuid.UUID
-	Repo                   string
-	Task                   string
-	Model                  string
-	Status                 MinionStatus
-	ClarificationQuestion  *string
-	ClarificationAnswer    *string
-	ClarificationMessageID *string
-	InputTokens            int64
-	OutputTokens           int64
-	ReasoningTokens        int64
-	CacheReadTokens        int64
-	CacheWriteTokens       int64
-	CostUSD                float64
-	PRURL                  *string
-	Error                  *string
-	SessionID              *string
-	PodName                *string
-	DiscordMessageID       *string
-	DiscordChannelID       *string
-	CreatedAt              time.Time
-	StartedAt              *time.Time
-	CompletedAt            *time.Time
-	LastActivityAt         time.Time
+	ID                         uuid.UUID
+	UserID                     uuid.UUID
+	Repo                       string
+	Task                       string
+	Model                      string
+	Status                     MinionStatus
+	Platform                   Platform
+	ClarificationQuestion      *string
+	ClarificationAnswer        *string
+	ClarificationMessageID     *string // Discord clarification message ID
+	MatrixClarificationEventID *string // Matrix clarification event ID
+	InputTokens                int64
+	OutputTokens               int64
+	ReasoningTokens            int64
+	CacheReadTokens            int64
+	CacheWriteTokens           int64
+	CostUSD                    float64
+	PRURL                      *string
+	Error                      *string
+	SessionID                  *string
+	PodName                    *string
+	DiscordMessageID           *string
+	DiscordChannelID           *string
+	MatrixEventID              *string // Matrix event ID of original command
+	MatrixRoomID               *string // Matrix room ID for notifications
+	CreatedAt                  time.Time
+	StartedAt                  *time.Time
+	CompletedAt                *time.Time
+	LastActivityAt             time.Time
 }
 
 // CreateMinionParams holds parameters for creating a new minion.
 type CreateMinionParams struct {
-	UserID                 uuid.UUID
-	Repo                   string
-	Task                   string
-	Model                  string
-	Status                 MinionStatus
-	ClarificationQuestion  string
-	ClarificationMessageID string
-	DiscordMessageID       string
-	DiscordChannelID       string
+	UserID                     uuid.UUID
+	Repo                       string
+	Task                       string
+	Model                      string
+	Status                     MinionStatus
+	Platform                   Platform
+	ClarificationQuestion      string
+	ClarificationMessageID     string // Discord clarification message ID
+	MatrixClarificationEventID string // Matrix clarification event ID
+	DiscordMessageID           string
+	DiscordChannelID           string
+	MatrixEventID              string
+	MatrixRoomID               string
 }
 
 // MinionStore handles minion database operations.
@@ -144,16 +173,20 @@ func NewMinionStoreWithPool(pool Pool) *MinionStore {
 // Create inserts a new minion record.
 func (s *MinionStore) Create(ctx context.Context, params CreateMinionParams) (*Minion, error) {
 	minion := &Minion{
-		ID:     uuid.New(),
-		UserID: params.UserID,
-		Repo:   params.Repo,
-		Task:   params.Task,
-		Model:  params.Model,
-		Status: params.Status,
+		ID:       uuid.New(),
+		UserID:   params.UserID,
+		Repo:     params.Repo,
+		Task:     params.Task,
+		Model:    params.Model,
+		Status:   params.Status,
+		Platform: params.Platform,
 	}
 
 	if minion.Status == "" {
 		minion.Status = StatusPending
+	}
+	if minion.Platform == "" {
+		minion.Platform = PlatformDiscord
 	}
 	if params.ClarificationQuestion != "" {
 		minion.ClarificationQuestion = &params.ClarificationQuestion
@@ -161,21 +194,31 @@ func (s *MinionStore) Create(ctx context.Context, params CreateMinionParams) (*M
 	if params.ClarificationMessageID != "" {
 		minion.ClarificationMessageID = &params.ClarificationMessageID
 	}
-
+	if params.MatrixClarificationEventID != "" {
+		minion.MatrixClarificationEventID = &params.MatrixClarificationEventID
+	}
 	if params.DiscordMessageID != "" {
 		minion.DiscordMessageID = &params.DiscordMessageID
 	}
 	if params.DiscordChannelID != "" {
 		minion.DiscordChannelID = &params.DiscordChannelID
 	}
+	if params.MatrixEventID != "" {
+		minion.MatrixEventID = &params.MatrixEventID
+	}
+	if params.MatrixRoomID != "" {
+		minion.MatrixRoomID = &params.MatrixRoomID
+	}
 
 	err := s.pool.QueryRow(ctx,
-		`INSERT INTO minions (id, user_id, repo, task, model, status, clarification_question, clarification_message_id, discord_message_id, discord_channel_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		`INSERT INTO minions (id, user_id, repo, task, model, status, platform,
+		 clarification_question, clarification_message_id, matrix_clarification_event_id,
+		 discord_message_id, discord_channel_id, matrix_event_id, matrix_room_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		 RETURNING created_at, last_activity_at`,
-		minion.ID, minion.UserID, minion.Repo, minion.Task, minion.Model, minion.Status,
-		minion.ClarificationQuestion, minion.ClarificationMessageID,
-		minion.DiscordMessageID, minion.DiscordChannelID,
+		minion.ID, minion.UserID, minion.Repo, minion.Task, minion.Model, minion.Status, minion.Platform,
+		minion.ClarificationQuestion, minion.ClarificationMessageID, minion.MatrixClarificationEventID,
+		minion.DiscordMessageID, minion.DiscordChannelID, minion.MatrixEventID, minion.MatrixRoomID,
 	).Scan(&minion.CreatedAt, &minion.LastActivityAt)
 
 	if err != nil {
@@ -219,12 +262,7 @@ func (s *MinionStore) FindRecentDuplicate(ctx context.Context, tx pgx.Tx, repo, 
 
 	// Check for existing minion with same repo+task in the duplicate window
 	row := tx.QueryRow(ctx,
-		`SELECT id, user_id, repo, task, model, status,
-		        clarification_question, clarification_answer, clarification_message_id,
-		        input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens, cost_usd,
-		        pr_url, error, session_id, pod_name,
-		        discord_message_id, discord_channel_id,
-		        created_at, started_at, completed_at, last_activity_at
+		`SELECT `+minionSelectColumns+`
 		 FROM minions 
 		 WHERE repo = $1 AND task = $2 AND created_at > NOW() - $3::interval
 		 ORDER BY created_at DESC
@@ -279,16 +317,20 @@ func (s *MinionStore) CreateOrFindDuplicate(ctx context.Context, params CreateMi
 
 	// Create new minion within the same transaction (lock still held)
 	minion := &Minion{
-		ID:     uuid.New(),
-		UserID: params.UserID,
-		Repo:   params.Repo,
-		Task:   params.Task,
-		Model:  params.Model,
-		Status: params.Status,
+		ID:       uuid.New(),
+		UserID:   params.UserID,
+		Repo:     params.Repo,
+		Task:     params.Task,
+		Model:    params.Model,
+		Status:   params.Status,
+		Platform: params.Platform,
 	}
 
 	if minion.Status == "" {
 		minion.Status = StatusPending
+	}
+	if minion.Platform == "" {
+		minion.Platform = PlatformDiscord
 	}
 	if params.ClarificationQuestion != "" {
 		minion.ClarificationQuestion = &params.ClarificationQuestion
@@ -296,21 +338,31 @@ func (s *MinionStore) CreateOrFindDuplicate(ctx context.Context, params CreateMi
 	if params.ClarificationMessageID != "" {
 		minion.ClarificationMessageID = &params.ClarificationMessageID
 	}
-
+	if params.MatrixClarificationEventID != "" {
+		minion.MatrixClarificationEventID = &params.MatrixClarificationEventID
+	}
 	if params.DiscordMessageID != "" {
 		minion.DiscordMessageID = &params.DiscordMessageID
 	}
 	if params.DiscordChannelID != "" {
 		minion.DiscordChannelID = &params.DiscordChannelID
 	}
+	if params.MatrixEventID != "" {
+		minion.MatrixEventID = &params.MatrixEventID
+	}
+	if params.MatrixRoomID != "" {
+		minion.MatrixRoomID = &params.MatrixRoomID
+	}
 
 	err = tx.QueryRow(ctx,
-		`INSERT INTO minions (id, user_id, repo, task, model, status, clarification_question, clarification_message_id, discord_message_id, discord_channel_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		`INSERT INTO minions (id, user_id, repo, task, model, status, platform,
+		 clarification_question, clarification_message_id, matrix_clarification_event_id,
+		 discord_message_id, discord_channel_id, matrix_event_id, matrix_room_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		 RETURNING created_at, last_activity_at`,
-		minion.ID, minion.UserID, minion.Repo, minion.Task, minion.Model, minion.Status,
-		minion.ClarificationQuestion, minion.ClarificationMessageID,
-		minion.DiscordMessageID, minion.DiscordChannelID,
+		minion.ID, minion.UserID, minion.Repo, minion.Task, minion.Model, minion.Status, minion.Platform,
+		minion.ClarificationQuestion, minion.ClarificationMessageID, minion.MatrixClarificationEventID,
+		minion.DiscordMessageID, minion.DiscordChannelID, minion.MatrixEventID, minion.MatrixRoomID,
 	).Scan(&minion.CreatedAt, &minion.LastActivityAt)
 
 	if err != nil {
@@ -330,12 +382,7 @@ func (s *MinionStore) CreateOrFindDuplicate(ctx context.Context, params CreateMi
 // GetByID retrieves a minion by ID.
 func (s *MinionStore) GetByID(ctx context.Context, id uuid.UUID) (*Minion, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, user_id, repo, task, model, status,
-		        clarification_question, clarification_answer, clarification_message_id,
-		        input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens, cost_usd,
-		        pr_url, error, session_id, pod_name,
-		        discord_message_id, discord_channel_id,
-		        created_at, started_at, completed_at, last_activity_at
+		`SELECT `+minionSelectColumns+`
 		 FROM minions WHERE id = $1`,
 		id,
 	)
@@ -431,13 +478,7 @@ func (s *MinionStore) List(ctx context.Context, params ListMinionsParams) ([]*Mi
 	}
 
 	// Build query dynamically based on filters
-	query := `SELECT id, user_id, repo, task, model, status,
-		        clarification_question, clarification_answer, clarification_message_id,
-		        input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens, cost_usd,
-		        pr_url, error, session_id, pod_name,
-		        discord_message_id, discord_channel_id,
-		        created_at, started_at, completed_at, last_activity_at
-		 FROM minions`
+	query := `SELECT ` + minionSelectColumns + ` FROM minions`
 
 	var args []any
 	argIdx := 1
@@ -498,8 +539,12 @@ type TerminateResult struct {
 	PreviousStatus MinionStatus
 	// PodName is the pod name if one was assigned (for k8s cleanup).
 	PodName *string
-	// DiscordChannelID for sending notifications.
+	// Platform indicates which platform to notify.
+	Platform Platform
+	// DiscordChannelID for sending notifications (Discord).
 	DiscordChannelID *string
+	// MatrixRoomID for sending notifications (Matrix).
+	MatrixRoomID *string
 }
 
 // ErrAlreadyTerminal indicates the minion is already in a terminal state.
@@ -518,11 +563,12 @@ func (s *MinionStore) Terminate(ctx context.Context, id uuid.UUID) (*TerminateRe
 
 	// Lock the row and fetch current status
 	var currentStatus MinionStatus
-	var podName, discordChannelID *string
+	var platform Platform
+	var podName, discordChannelID, matrixRoomID *string
 	err = tx.QueryRow(ctx,
-		`SELECT status, pod_name, discord_channel_id FROM minions WHERE id = $1 FOR UPDATE`,
+		`SELECT status, platform, pod_name, discord_channel_id, matrix_room_id FROM minions WHERE id = $1 FOR UPDATE`,
 		id,
-	).Scan(&currentStatus, &podName, &discordChannelID)
+	).Scan(&currentStatus, &platform, &podName, &discordChannelID, &matrixRoomID)
 
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -534,7 +580,9 @@ func (s *MinionStore) Terminate(ctx context.Context, id uuid.UUID) (*TerminateRe
 	result := &TerminateResult{
 		PreviousStatus:   currentStatus,
 		PodName:          podName,
+		Platform:         platform,
 		DiscordChannelID: discordChannelID,
+		MatrixRoomID:     matrixRoomID,
 	}
 
 	// If already in a terminal state, return success (idempotent)
@@ -576,8 +624,12 @@ type CompleteResult struct {
 	WasUpdated bool
 	// PreviousStatus is the status before update.
 	PreviousStatus MinionStatus
-	// DiscordChannelID for sending notifications.
+	// Platform indicates which platform to notify.
+	Platform Platform
+	// DiscordChannelID for sending notifications (Discord).
 	DiscordChannelID *string
+	// MatrixRoomID for sending notifications (Matrix).
+	MatrixRoomID *string
 }
 
 // Complete marks a minion as completed or failed.
@@ -598,11 +650,12 @@ func (s *MinionStore) Complete(ctx context.Context, params CompleteParams) (*Com
 
 	// Lock the row and fetch current status
 	var currentStatus MinionStatus
-	var discordChannelID *string
+	var platform Platform
+	var discordChannelID, matrixRoomID *string
 	err = tx.QueryRow(ctx,
-		`SELECT status, discord_channel_id FROM minions WHERE id = $1 FOR UPDATE`,
+		`SELECT status, platform, discord_channel_id, matrix_room_id FROM minions WHERE id = $1 FOR UPDATE`,
 		params.ID,
-	).Scan(&currentStatus, &discordChannelID)
+	).Scan(&currentStatus, &platform, &discordChannelID, &matrixRoomID)
 
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -613,7 +666,9 @@ func (s *MinionStore) Complete(ctx context.Context, params CompleteParams) (*Com
 
 	result := &CompleteResult{
 		PreviousStatus:   currentStatus,
+		Platform:         platform,
 		DiscordChannelID: discordChannelID,
+		MatrixRoomID:     matrixRoomID,
 	}
 
 	// If already in a terminal state, return success (idempotent)
@@ -728,13 +783,7 @@ func (s *MinionStore) ListByStatuses(ctx context.Context, statuses []MinionStatu
 	}
 
 	// Build query with IN clause
-	query := `SELECT id, user_id, repo, task, model, status,
-		        clarification_question, clarification_answer, clarification_message_id,
-		        input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens, cost_usd,
-		        pr_url, error, session_id, pod_name,
-		        discord_message_id, discord_channel_id,
-		        created_at, started_at, completed_at, last_activity_at
-		 FROM minions WHERE status = ANY($1)`
+	query := `SELECT ` + minionSelectColumns + ` FROM minions WHERE status = ANY($1)`
 
 	// Convert to []string for pgx array handling
 	statusStrings := make([]string, len(statuses))
@@ -767,12 +816,7 @@ func (s *MinionStore) ListByStatuses(ctx context.Context, statuses []MinionStatu
 // ListPending returns minions in pending status ordered by created_at ASC (FIFO).
 // Used by spawner to process minions in order of creation.
 func (s *MinionStore) ListPending(ctx context.Context) ([]*Minion, error) {
-	query := `SELECT id, user_id, repo, task, model, status,
-		        clarification_question, clarification_answer, clarification_message_id,
-		        input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens, cost_usd,
-		        pr_url, error, session_id, pod_name,
-		        discord_message_id, discord_channel_id,
-		        created_at, started_at, completed_at, last_activity_at
+	query := `SELECT ` + minionSelectColumns + `
 		 FROM minions 
 		 WHERE status = $1
 		 ORDER BY created_at ASC`
@@ -847,12 +891,7 @@ func (s *MinionStore) UpdateTokenUsage(ctx context.Context, params UpdateTokenUs
 // ListIdleRunning returns running minions with last_activity_at older than threshold.
 // Used by watchdog to detect idle minions that may be stuck.
 func (s *MinionStore) ListIdleRunning(ctx context.Context, idleThreshold time.Duration) ([]*Minion, error) {
-	query := `SELECT id, user_id, repo, task, model, status,
-		        clarification_question, clarification_answer, clarification_message_id,
-		        input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens, cost_usd,
-		        pr_url, error, session_id, pod_name,
-		        discord_message_id, discord_channel_id,
-		        created_at, started_at, completed_at, last_activity_at
+	query := `SELECT ` + minionSelectColumns + `
 		 FROM minions 
 		 WHERE status = 'running' 
 		   AND last_activity_at < NOW() - $1::interval`
@@ -882,12 +921,7 @@ func (s *MinionStore) ListIdleRunning(ctx context.Context, idleThreshold time.Du
 // ListClarificationTimeouts returns minions stuck in awaiting_clarification for too long.
 // Used by watchdog to enforce clarification timeout (24h by default).
 func (s *MinionStore) ListClarificationTimeouts(ctx context.Context, timeout time.Duration) ([]*Minion, error) {
-	query := `SELECT id, user_id, repo, task, model, status,
-		        clarification_question, clarification_answer, clarification_message_id,
-		        input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens, cost_usd,
-		        pr_url, error, session_id, pod_name,
-		        discord_message_id, discord_channel_id,
-		        created_at, started_at, completed_at, last_activity_at
+	query := `SELECT ` + minionSelectColumns + `
 		 FROM minions 
 		 WHERE status = 'awaiting_clarification' 
 		   AND created_at < NOW() - $1::interval`
@@ -914,11 +948,12 @@ func (s *MinionStore) ListClarificationTimeouts(ctx context.Context, timeout tim
 	return minions, nil
 }
 
-// MinionWithOwner extends Minion with owner's Discord ID from the joined users table.
+// MinionWithOwner extends Minion with owner's IDs from the joined users table.
 // Used for clarification reply validation.
 type MinionWithOwner struct {
 	Minion
 	OwnerDiscordID string
+	OwnerMatrixID  *string
 }
 
 // GetByClarificationMessageID looks up a minion by its Discord clarification message ID.
@@ -926,17 +961,41 @@ type MinionWithOwner struct {
 // Used for processing replies to clarification questions.
 func (s *MinionStore) GetByClarificationMessageID(ctx context.Context, messageID string) (*MinionWithOwner, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT m.id, m.user_id, m.repo, m.task, m.model, m.status,
-		        m.clarification_question, m.clarification_answer, m.clarification_message_id,
+		`SELECT m.id, m.user_id, m.repo, m.task, m.model, m.status, m.platform,
+		        m.clarification_question, m.clarification_answer, m.clarification_message_id, m.matrix_clarification_event_id,
 		        m.input_tokens, m.output_tokens, m.reasoning_tokens, m.cache_read_tokens, m.cache_write_tokens, m.cost_usd,
 		        m.pr_url, m.error, m.session_id, m.pod_name,
-		        m.discord_message_id, m.discord_channel_id,
+		        m.discord_message_id, m.discord_channel_id, m.matrix_event_id, m.matrix_room_id,
 		        m.created_at, m.started_at, m.completed_at, m.last_activity_at,
-		        u.discord_id
+		        u.discord_id, u.matrix_id
 		 FROM minions m
 		 JOIN users u ON m.user_id = u.id
 		 WHERE m.clarification_message_id = $1`,
 		messageID,
+	)
+
+	m, err := scanMinionWithOwner(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return m, nil
+}
+
+// GetByMatrixClarificationEventID looks up a minion by its Matrix clarification event ID.
+// JOINs the users table to include the owner's Matrix ID for reply validation.
+// Used for processing replies to clarification questions in Matrix.
+func (s *MinionStore) GetByMatrixClarificationEventID(ctx context.Context, eventID string) (*MinionWithOwner, error) {
+	row := s.pool.QueryRow(ctx,
+		`SELECT `+minionSelectColumnsWithPrefix+`,
+		        u.discord_id, u.matrix_id
+		 FROM minions m
+		 JOIN users u ON m.user_id = u.id
+		 WHERE m.matrix_clarification_event_id = $1`,
+		eventID,
 	)
 
 	m, err := scanMinionWithOwner(row)
@@ -964,12 +1023,7 @@ type SetClarificationAnswerParams struct {
 // still eligible for cleanup.
 // Used by watchdog to perform delayed pod cleanup.
 func (s *MinionStore) ListTerminalWithPodOlderThan(ctx context.Context, age time.Duration) ([]*Minion, error) {
-	query := `SELECT id, user_id, repo, task, model, status,
-		        clarification_question, clarification_answer, clarification_message_id,
-		        input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens, cost_usd,
-		        pr_url, error, session_id, pod_name,
-		        discord_message_id, discord_channel_id,
-		        created_at, started_at, completed_at, last_activity_at
+	query := `SELECT ` + minionSelectColumns + `
 	 FROM minions
 	 WHERE status IN ('completed', 'failed', 'terminated')
 	   AND pod_name IS NOT NULL

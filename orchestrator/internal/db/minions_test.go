@@ -82,6 +82,8 @@ func (m *mockScanner) Scan(dest ...any) error {
 			*d = v.(string)
 		case *MinionStatus:
 			*d = v.(MinionStatus)
+		case *Platform:
+			*d = v.(Platform)
 		case **string:
 			if v == nil {
 				*d = nil
@@ -110,7 +112,7 @@ func (m *mockScanner) Scan(dest ...any) error {
 }
 
 func TestScanMinion(t *testing.T) {
-	// Create test data for all 25 fields
+	// Create test data for all 29 fields
 	testID := uuid.New()
 	testUserID := uuid.New()
 	now := time.Now().Truncate(time.Microsecond)
@@ -120,6 +122,8 @@ func TestScanMinion(t *testing.T) {
 	sessionID := "sess-xyz"
 	channelID := "123456789"
 	messageID := "987654321"
+	matrixEventID := "$event123"
+	matrixRoomID := "!room:matrix.org"
 
 	scanner := &mockScanner{
 		values: []any{
@@ -129,9 +133,11 @@ func TestScanMinion(t *testing.T) {
 			"fix the bug",       // Task
 			"claude-3-5-sonnet", // Model
 			StatusRunning,       // Status
+			PlatformDiscord,     // Platform
 			clarificationQ,      // ClarificationQuestion (*string)
 			nil,                 // ClarificationAnswer (*string)
 			nil,                 // ClarificationMessageID (*string)
+			nil,                 // MatrixClarificationEventID (*string)
 			int64(1000),         // InputTokens
 			int64(500),          // OutputTokens
 			int64(200),          // ReasoningTokens
@@ -144,6 +150,8 @@ func TestScanMinion(t *testing.T) {
 			podName,             // PodName (*string)
 			messageID,           // DiscordMessageID (*string)
 			channelID,           // DiscordChannelID (*string)
+			matrixEventID,       // MatrixEventID (*string)
+			matrixRoomID,        // MatrixRoomID (*string)
 			now,                 // CreatedAt
 			now,                 // StartedAt (*time.Time)
 			nil,                 // CompletedAt (*time.Time)
@@ -156,7 +164,7 @@ func TestScanMinion(t *testing.T) {
 		t.Fatalf("scanMinion failed: %v", err)
 	}
 
-	// Verify all 25 fields
+	// Verify all 29 fields
 	if m.ID != testID {
 		t.Errorf("ID: got %v, want %v", m.ID, testID)
 	}
@@ -175,6 +183,9 @@ func TestScanMinion(t *testing.T) {
 	if m.Status != StatusRunning {
 		t.Errorf("Status: got %v, want %v", m.Status, StatusRunning)
 	}
+	if m.Platform != PlatformDiscord {
+		t.Errorf("Platform: got %v, want %v", m.Platform, PlatformDiscord)
+	}
 	if m.ClarificationQuestion == nil || *m.ClarificationQuestion != clarificationQ {
 		t.Errorf("ClarificationQuestion: got %v, want %v", m.ClarificationQuestion, &clarificationQ)
 	}
@@ -183,6 +194,9 @@ func TestScanMinion(t *testing.T) {
 	}
 	if m.ClarificationMessageID != nil {
 		t.Errorf("ClarificationMessageID: got %v, want nil", m.ClarificationMessageID)
+	}
+	if m.MatrixClarificationEventID != nil {
+		t.Errorf("MatrixClarificationEventID: got %v, want nil", m.MatrixClarificationEventID)
 	}
 	if m.InputTokens != 1000 {
 		t.Errorf("InputTokens: got %v, want %v", m.InputTokens, 1000)
@@ -219,6 +233,12 @@ func TestScanMinion(t *testing.T) {
 	}
 	if m.DiscordChannelID == nil || *m.DiscordChannelID != channelID {
 		t.Errorf("DiscordChannelID: got %v, want %v", m.DiscordChannelID, &channelID)
+	}
+	if m.MatrixEventID == nil || *m.MatrixEventID != matrixEventID {
+		t.Errorf("MatrixEventID: got %v, want %v", m.MatrixEventID, &matrixEventID)
+	}
+	if m.MatrixRoomID == nil || *m.MatrixRoomID != matrixRoomID {
+		t.Errorf("MatrixRoomID: got %v, want %v", m.MatrixRoomID, &matrixRoomID)
 	}
 	if !m.CreatedAt.Equal(now) {
 		t.Errorf("CreatedAt: got %v, want %v", m.CreatedAt, now)

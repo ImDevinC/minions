@@ -130,16 +130,25 @@ func main() {
 	}
 	logger.Info("github token manager initialized", "app_id", githubAppID)
 
-	// Create webhook notifier for Discord bot callbacks
-	// DISCORD_BOT_WEBHOOK_URL is optional; if not set, use no-op notifier
+	// Create webhook notifier for bot callbacks (Discord and Matrix)
+	// DISCORD_BOT_WEBHOOK_URL and MATRIX_BOT_WEBHOOK_URL are optional
 	var notifier webhook.Notifier
-	webhookURL := os.Getenv("DISCORD_BOT_WEBHOOK_URL")
-	if webhookURL != "" {
-		notifier = webhook.NewHTTPNotifier(logger, webhookURL, apiToken)
-		logger.Info("webhook notifier configured", "url", webhookURL)
+	discordWebhookURL := os.Getenv("DISCORD_BOT_WEBHOOK_URL")
+	matrixWebhookURL := os.Getenv("MATRIX_BOT_WEBHOOK_URL")
+	if discordWebhookURL != "" || matrixWebhookURL != "" {
+		notifier = webhook.NewHTTPNotifierWithConfig(webhook.HTTPNotifierConfig{
+			Logger:     logger,
+			DiscordURL: discordWebhookURL,
+			MatrixURL:  matrixWebhookURL,
+			APIToken:   apiToken,
+		})
+		logger.Info("webhook notifier configured",
+			"discord_url", discordWebhookURL,
+			"matrix_url", matrixWebhookURL,
+		)
 	} else {
 		notifier = webhook.NewNoOpNotifier(logger)
-		logger.Info("webhook notifier not configured (DISCORD_BOT_WEBHOOK_URL not set)")
+		logger.Info("webhook notifier not configured (no webhook URLs set)")
 	}
 
 	// Create stores
