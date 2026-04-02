@@ -98,7 +98,19 @@ func main() {
 				allowedRooms = append(allowedRooms, id.RoomID(r))
 			}
 		}
-		logger.Info("matrix command restriction enabled", "allowed_rooms", allowedRooms)
+		logger.Info("matrix room restriction enabled", "allowed_rooms", allowedRooms)
+	}
+
+	// MATRIX_ALLOWED_USERS is optional, comma-separated list of allowed user IDs
+	var allowedUsers []id.UserID
+	if allowedUsersStr := os.Getenv("MATRIX_ALLOWED_USERS"); allowedUsersStr != "" {
+		for _, u := range strings.Split(allowedUsersStr, ",") {
+			u = strings.TrimSpace(u)
+			if u != "" {
+				allowedUsers = append(allowedUsers, id.UserID(u))
+			}
+		}
+		logger.Info("matrix user restriction enabled", "allowed_users", allowedUsers)
 	}
 
 	// Create orchestrator client for minion creation + rate limiting
@@ -123,6 +135,7 @@ func main() {
 		clarifyHandler,
 		id.UserID(botUserID),
 		allowedRooms,
+		allowedUsers,
 	)
 
 	// Set up syncer for receiving events
