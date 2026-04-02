@@ -78,6 +78,7 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 		r.Get("/minions", minionHandler.HandleList)
 		r.Post("/minions", minionHandler.HandleCreate)
 		r.Get("/minions/by-clarification/{messageId}", minionHandler.HandleGetByClarificationMessageID)
+		r.Get("/minions/by-matrix-clarification/{eventId}", minionHandler.HandleGetByMatrixClarificationEventID)
 		r.Get("/minions/{id}", minionHandler.HandleGet)
 		r.Get("/minions/{id}/events", minionHandler.HandleGetEvents)
 		r.Delete("/minions/{id}", minionHandler.HandleDelete)

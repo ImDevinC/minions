@@ -24,18 +24,28 @@ const (
 	NotifyClarificationTimeout NotificationType = "clarification_timeout"
 )
 
-// Notification holds data for a webhook callback to the Discord bot.
+// Platform represents the chat platform for notifications.
+type Platform string
+
+const (
+	PlatformDiscord Platform = "discord"
+	PlatformMatrix  Platform = "matrix"
+)
+
+// Notification holds data for a webhook callback to bot services.
 type Notification struct {
 	MinionID         uuid.UUID
 	Type             NotificationType
-	DiscordChannelID string
+	Platform         Platform
+	DiscordChannelID string // for Discord notifications
+	MatrixRoomID     string // for Matrix notifications
 	PRURL            string // optional, for completed notifications
 	Error            string // optional, for failed notifications
 }
 
-// Notifier sends notifications to the Discord bot webhook.
+// Notifier sends notifications to bot webhooks (Discord, Matrix).
 type Notifier interface {
-	// Notify sends a notification to the Discord bot.
+	// Notify sends a notification to the appropriate bot based on platform.
 	// Returns nil if notification was sent successfully or if no webhook is configured.
 	Notify(ctx context.Context, notification Notification) error
 }
@@ -56,26 +66,37 @@ func (n *NoOpNotifier) Notify(ctx context.Context, notification Notification) er
 	n.logger.Info("no-op notification (webhook not configured)",
 		"minion_id", notification.MinionID,
 		"type", notification.Type,
-		"channel_id", notification.DiscordChannelID,
+		"platform", notification.Platform,
 	)
 	return nil
 }
 
-// webhookRequest is the JSON payload sent to the Discord bot webhook.
+// webhookRequest is the JSON payload sent to bot webhooks.
 type webhookRequest struct {
 	MinionID         string `json:"minion_id"`
 	Type             string `json:"type"`
-	DiscordChannelID string `json:"discord_channel_id"`
+	Platform         string `json:"platform"`
+	DiscordChannelID string `json:"discord_channel_id,omitempty"`
+	MatrixRoomID     string `json:"matrix_room_id,omitempty"`
 	PRURL            string `json:"pr_url,omitempty"`
 	Error            string `json:"error,omitempty"`
 }
 
-// HTTPNotifier sends notifications to the Discord bot via HTTP.
+// HTTPNotifier sends notifications to bot services via HTTP.
 type HTTPNotifier struct {
 	logger     *slog.Logger
-	webhookURL string
+	discordURL string // Discord bot webhook URL
+	matrixURL  string // Matrix bot webhook URL (optional)
 	apiToken   string
 	client     *http.Client
+}
+
+// HTTPNotifierConfig holds configuration for HTTPNotifier.
+type HTTPNotifierConfig struct {
+	Logger     *slog.Logger
+	DiscordURL string // Discord bot webhook URL (e.g., http://discord-bot:8081/webhook)
+	MatrixURL  string // Matrix bot webhook URL (e.g., http://matrix-bot:8081/webhook)
+	APIToken   string // INTERNAL_API_TOKEN for authentication
 }
 
 // NewHTTPNotifier creates an HTTP notifier.
@@ -84,7 +105,7 @@ type HTTPNotifier struct {
 func NewHTTPNotifier(logger *slog.Logger, webhookURL, apiToken string) *HTTPNotifier {
 	return &HTTPNotifier{
 		logger:     logger,
-		webhookURL: webhookURL,
+		discordURL: webhookURL,
 		apiToken:   apiToken,
 		client: &http.Client{
 			Timeout: 10 * time.Second,
@@ -92,12 +113,44 @@ func NewHTTPNotifier(logger *slog.Logger, webhookURL, apiToken string) *HTTPNoti
 	}
 }
 
-// Notify sends a notification to the Discord bot webhook.
+// NewHTTPNotifierWithConfig creates an HTTP notifier with full configuration.
+func NewHTTPNotifierWithConfig(cfg HTTPNotifierConfig) *HTTPNotifier {
+	return &HTTPNotifier{
+		logger:     cfg.Logger,
+		discordURL: cfg.DiscordURL,
+		matrixURL:  cfg.MatrixURL,
+		apiToken:   cfg.APIToken,
+		client: &http.Client{
+			Timeout: 10 * time.Second,
+		},
+	}
+}
+
+// Notify sends a notification to the appropriate bot based on platform.
 func (n *HTTPNotifier) Notify(ctx context.Context, notification Notification) error {
+	// Determine webhook URL based on platform
+	var webhookURL string
+	switch notification.Platform {
+	case PlatformMatrix:
+		if n.matrixURL == "" {
+			n.logger.Warn("matrix webhook not configured, skipping notification",
+				"minion_id", notification.MinionID,
+				"type", notification.Type,
+			)
+			return nil
+		}
+		webhookURL = n.matrixURL
+	default:
+		// Default to Discord for backward compatibility
+		webhookURL = n.discordURL
+	}
+
 	payload := webhookRequest{
 		MinionID:         notification.MinionID.String(),
 		Type:             string(notification.Type),
+		Platform:         string(notification.Platform),
 		DiscordChannelID: notification.DiscordChannelID,
+		MatrixRoomID:     notification.MatrixRoomID,
 		PRURL:            notification.PRURL,
 		Error:            notification.Error,
 	}
@@ -107,7 +160,7 @@ func (n *HTTPNotifier) Notify(ctx context.Context, notification Notification) er
 		return fmt.Errorf("failed to marshal notification: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, n.webhookURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhookURL, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -128,7 +181,7 @@ func (n *HTTPNotifier) Notify(ctx context.Context, notification Notification) er
 	n.logger.Info("webhook notification sent",
 		"minion_id", notification.MinionID,
 		"type", notification.Type,
-		"channel_id", notification.DiscordChannelID,
+		"platform", notification.Platform,
 	)
 	return nil
 }

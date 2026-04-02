@@ -64,16 +64,21 @@ func NewMinionHandler(cfg MinionHandlerConfig) *MinionHandler {
 
 // CreateMinionRequest is the request body for POST /api/minions.
 type CreateMinionRequest struct {
-	Repo                   string `json:"repo"`
-	Task                   string `json:"task"`
-	Model                  string `json:"model"`
-	InitialStatus          string `json:"initial_status,omitempty"`
-	ClarificationQuestion  string `json:"clarification_question,omitempty"`
-	ClarificationMessageID string `json:"clarification_message_id,omitempty"`
-	DiscordMessageID       string `json:"discord_message_id"`
-	DiscordChannelID       string `json:"discord_channel_id"`
-	DiscordUserID          string `json:"discord_user_id"`
-	DiscordUsername        string `json:"discord_username"`
+	Repo                       string `json:"repo"`
+	Task                       string `json:"task"`
+	Model                      string `json:"model"`
+	Platform                   string `json:"platform,omitempty"`
+	InitialStatus              string `json:"initial_status,omitempty"`
+	ClarificationQuestion      string `json:"clarification_question,omitempty"`
+	ClarificationMessageID     string `json:"clarification_message_id,omitempty"`
+	MatrixClarificationEventID string `json:"matrix_clarification_event_id,omitempty"`
+	DiscordMessageID           string `json:"discord_message_id"`
+	DiscordChannelID           string `json:"discord_channel_id"`
+	DiscordUserID              string `json:"discord_user_id"`
+	DiscordUsername            string `json:"discord_username"`
+	MatrixEventID              string `json:"matrix_event_id,omitempty"`
+	MatrixRoomID               string `json:"matrix_room_id,omitempty"`
+	MatrixUserID               string `json:"matrix_user_id,omitempty"`
 }
 
 // CreateMinionResponse is the response body for POST /api/minions.
@@ -112,9 +117,33 @@ func (h *MinionHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate required fields
-	if req.Repo == "" || req.Task == "" || req.DiscordUserID == "" {
-		h.writeError(w, http.StatusBadRequest, "missing required fields: repo, task, discord_user_id", "")
+	// Determine platform (default to discord for backward compatibility)
+	platform := db.PlatformDiscord
+	if req.Platform != "" {
+		switch db.Platform(req.Platform) {
+		case db.PlatformDiscord:
+			platform = db.PlatformDiscord
+		case db.PlatformMatrix:
+			platform = db.PlatformMatrix
+		default:
+			h.writeError(w, http.StatusBadRequest, "invalid platform: must be discord or matrix", "INVALID_PLATFORM")
+			return
+		}
+	}
+
+	// Validate required fields based on platform
+	if req.Repo == "" || req.Task == "" {
+		h.writeError(w, http.StatusBadRequest, "missing required fields: repo, task", "")
+		return
+	}
+
+	// Platform-specific validation
+	if platform == db.PlatformDiscord && req.DiscordUserID == "" {
+		h.writeError(w, http.StatusBadRequest, "missing required field: discord_user_id", "")
+		return
+	}
+	if platform == db.PlatformMatrix && req.MatrixUserID == "" {
+		h.writeError(w, http.StatusBadRequest, "missing required field: matrix_user_id", "")
 		return
 	}
 
@@ -157,15 +186,30 @@ func (h *MinionHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 	// Normalize repo (trim whitespace)
 	req.Repo = strings.TrimSpace(req.Repo)
 
-	// Get or create user
-	user, created, err := h.users.GetOrCreate(r.Context(), req.DiscordUserID, req.DiscordUsername)
-	if err != nil {
-		h.logger.Error("failed to get or create user", "error", err, "discord_id", req.DiscordUserID)
-		h.writeError(w, http.StatusInternalServerError, "internal server error", "")
-		return
-	}
-	if created {
-		h.logger.Info("created new user", "user_id", user.ID, "discord_id", req.DiscordUserID)
+	// Get or create user based on platform
+	var user *db.User
+	var created bool
+	var err error
+	if platform == db.PlatformDiscord {
+		user, created, err = h.users.GetOrCreate(r.Context(), req.DiscordUserID, req.DiscordUsername)
+		if err != nil {
+			h.logger.Error("failed to get or create user", "error", err, "discord_id", req.DiscordUserID)
+			h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+			return
+		}
+		if created {
+			h.logger.Info("created new user", "user_id", user.ID, "discord_id", req.DiscordUserID)
+		}
+	} else {
+		user, created, err = h.users.GetOrCreateByMatrixID(r.Context(), req.MatrixUserID)
+		if err != nil {
+			h.logger.Error("failed to get or create user", "error", err, "matrix_id", req.MatrixUserID)
+			h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+			return
+		}
+		if created {
+			h.logger.Info("created new user", "user_id", user.ID, "matrix_id", req.MatrixUserID)
+		}
 	}
 
 	// Check rate limits
@@ -190,15 +234,19 @@ func (h *MinionHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 
 	// Create minion (with duplicate detection)
 	result, err := h.minions.CreateOrFindDuplicate(r.Context(), db.CreateMinionParams{
-		UserID:                 user.ID,
-		Repo:                   req.Repo,
-		Task:                   req.Task,
-		Model:                  req.Model,
-		Status:                 initialStatus,
-		ClarificationQuestion:  req.ClarificationQuestion,
-		ClarificationMessageID: req.ClarificationMessageID,
-		DiscordMessageID:       req.DiscordMessageID,
-		DiscordChannelID:       req.DiscordChannelID,
+		UserID:                     user.ID,
+		Repo:                       req.Repo,
+		Task:                       req.Task,
+		Model:                      req.Model,
+		Status:                     initialStatus,
+		Platform:                   platform,
+		ClarificationQuestion:      req.ClarificationQuestion,
+		ClarificationMessageID:     req.ClarificationMessageID,
+		MatrixClarificationEventID: req.MatrixClarificationEventID,
+		DiscordMessageID:           req.DiscordMessageID,
+		DiscordChannelID:           req.DiscordChannelID,
+		MatrixEventID:              req.MatrixEventID,
+		MatrixRoomID:               req.MatrixRoomID,
 	})
 	if err != nil {
 		h.logger.Error("failed to create minion", "error", err, "user_id", user.ID)
@@ -519,13 +567,19 @@ func (h *MinionHandler) HandleDelete(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Notify Discord bot
+		// Notify bot based on platform
+		notification := webhook.Notification{
+			MinionID: id,
+			Type:     webhook.NotifyTerminated,
+			Platform: webhook.Platform(result.Platform),
+		}
 		if result.DiscordChannelID != nil {
-			notification := webhook.Notification{
-				MinionID:         id,
-				Type:             webhook.NotifyTerminated,
-				DiscordChannelID: *result.DiscordChannelID,
-			}
+			notification.DiscordChannelID = *result.DiscordChannelID
+		}
+		if result.MatrixRoomID != nil {
+			notification.MatrixRoomID = *result.MatrixRoomID
+		}
+		if notification.DiscordChannelID != "" || notification.MatrixRoomID != "" {
 			if err := h.notifier.Notify(r.Context(), notification); err != nil {
 				// Log but don't fail the request; notification is best-effort
 				h.logger.Error("failed to send termination notification", "error", err, "minion_id", id)
@@ -626,8 +680,9 @@ func (h *MinionHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	// Clean up SSE connection
 	h.sse.Disconnect(id)
 
-	// If minion was actually updated, notify Discord
-	if result.WasUpdated && result.DiscordChannelID != nil {
+	// If minion was actually updated, notify bot based on platform
+	hasNotificationTarget := result.DiscordChannelID != nil || result.MatrixRoomID != nil
+	if result.WasUpdated && hasNotificationTarget {
 		var notifyType webhook.NotificationType
 		var prURL, errMsg string
 		if status == db.StatusCompleted {
@@ -643,11 +698,17 @@ func (h *MinionHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		}
 
 		notification := webhook.Notification{
-			MinionID:         id,
-			Type:             notifyType,
-			DiscordChannelID: *result.DiscordChannelID,
-			PRURL:            prURL,
-			Error:            errMsg,
+			MinionID: id,
+			Type:     notifyType,
+			Platform: webhook.Platform(result.Platform),
+			PRURL:    prURL,
+			Error:    errMsg,
+		}
+		if result.DiscordChannelID != nil {
+			notification.DiscordChannelID = *result.DiscordChannelID
+		}
+		if result.MatrixRoomID != nil {
+			notification.MatrixRoomID = *result.MatrixRoomID
 		}
 		if err := h.notifier.Notify(r.Context(), notification); err != nil {
 			// Log but don't fail the request; notification is best-effort
@@ -985,6 +1046,60 @@ func (h *MinionHandler) HandleGetByClarificationMessageID(w http.ResponseWriter,
 		ClarificationQuestion: minion.ClarificationQuestion,
 		DiscordChannelID:      minion.DiscordChannelID,
 		DiscordUserID:         minion.OwnerDiscordID,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		h.logger.Error("failed to encode response", "error", err)
+	}
+}
+
+// HandleGetByMatrixClarificationEventID handles GET /api/minions/by-matrix-clarification/{eventId}.
+// Looks up a minion by its Matrix clarification event ID.
+// Includes matrix_user_id from the joined users table for reply validation.
+func (h *MinionHandler) HandleGetByMatrixClarificationEventID(w http.ResponseWriter, r *http.Request) {
+	eventID := chi.URLParam(r, "eventId")
+	if eventID == "" {
+		h.writeError(w, http.StatusBadRequest, "eventId is required", "MISSING_EVENT_ID")
+		return
+	}
+
+	minion, err := h.minions.GetByMatrixClarificationEventID(r.Context(), eventID)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			h.writeError(w, http.StatusNotFound, "minion not found", "NOT_FOUND")
+			return
+		}
+		h.logger.Error("failed to get minion by matrix clarification event ID", "error", err, "event_id", eventID)
+		h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+		return
+	}
+
+	// Return a minimal response with just the fields needed for reply handling
+	var matrixUserID string
+	if minion.OwnerMatrixID != nil {
+		matrixUserID = *minion.OwnerMatrixID
+	}
+
+	resp := struct {
+		ID                    string  `json:"id"`
+		Repo                  string  `json:"repo"`
+		Task                  string  `json:"task"`
+		Model                 string  `json:"model"`
+		Status                string  `json:"status"`
+		ClarificationQuestion *string `json:"clarification_question,omitempty"`
+		MatrixRoomID          *string `json:"matrix_room_id,omitempty"`
+		MatrixUserID          string  `json:"matrix_user_id"`
+	}{
+		ID:                    minion.ID.String(),
+		Repo:                  minion.Repo,
+		Task:                  minion.Task,
+		Model:                 minion.Model,
+		Status:                string(minion.Status),
+		ClarificationQuestion: minion.ClarificationQuestion,
+		MatrixRoomID:          minion.MatrixRoomID,
+		MatrixUserID:          matrixUserID,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
