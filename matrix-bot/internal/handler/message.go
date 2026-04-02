@@ -59,6 +59,7 @@ type MessageHandler struct {
 	clarification ClarificationEvaluator
 	botUserID     id.UserID
 	allowedRooms  map[id.RoomID]bool // nil means all rooms allowed
+	allowedUsers  map[id.UserID]bool // nil means all users allowed
 }
 
 // NewMessageHandler creates a new message handler
@@ -69,12 +70,21 @@ func NewMessageHandler(
 	clarification ClarificationEvaluator,
 	botUserID id.UserID,
 	allowedRooms []id.RoomID,
+	allowedUsers []id.UserID,
 ) *MessageHandler {
 	var roomMap map[id.RoomID]bool
 	if len(allowedRooms) > 0 {
 		roomMap = make(map[id.RoomID]bool)
 		for _, r := range allowedRooms {
 			roomMap[r] = true
+		}
+	}
+
+	var userMap map[id.UserID]bool
+	if len(allowedUsers) > 0 {
+		userMap = make(map[id.UserID]bool)
+		for _, u := range allowedUsers {
+			userMap[u] = true
 		}
 	}
 
@@ -85,6 +95,7 @@ func NewMessageHandler(
 		clarification: clarification,
 		botUserID:     botUserID,
 		allowedRooms:  roomMap,
+		allowedUsers:  userMap,
 	}
 }
 
@@ -102,6 +113,11 @@ func (h *MessageHandler) Handle(ctx context.Context, evt *event.Event) {
 
 	// Check room restrictions
 	if !h.isRoomAllowed(evt.RoomID) {
+		return
+	}
+
+	// Check user restrictions
+	if !h.isUserAllowed(evt.Sender) {
 		return
 	}
 
@@ -263,6 +279,11 @@ func (h *MessageHandler) HandleReply(ctx context.Context, evt *event.Event) {
 		return
 	}
 
+	// Check user restrictions
+	if !h.isUserAllowed(evt.Sender) {
+		return
+	}
+
 	content := evt.Content.AsMessage()
 	if content == nil {
 		return
@@ -365,6 +386,14 @@ func (h *MessageHandler) isRoomAllowed(roomID id.RoomID) bool {
 		return true
 	}
 	return h.allowedRooms[roomID]
+}
+
+// isUserAllowed checks if the user is in the allowed list (or if all users are allowed)
+func (h *MessageHandler) isUserAllowed(userID id.UserID) bool {
+	if h.allowedUsers == nil {
+		return true
+	}
+	return h.allowedUsers[userID]
 }
 
 // isMentioned checks if the bot is mentioned in the message
