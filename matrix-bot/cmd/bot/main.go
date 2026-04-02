@@ -128,6 +128,41 @@ func main() {
 	// Set up syncer for receiving events
 	syncer := client.Syncer.(*mautrix.DefaultSyncer)
 
+	// Auto-accept room invites (respecting allowed rooms if configured)
+	syncer.OnEventType(event.StateMember, func(ctx context.Context, evt *event.Event) {
+		// Only handle invites directed at the bot
+		if evt.GetStateKey() != botUserID {
+			return
+		}
+		membership := evt.Content.AsMember().Membership
+		if membership != event.MembershipInvite {
+			return
+		}
+
+		// If allowed rooms is configured, only accept invites to those rooms
+		if len(allowedRooms) > 0 {
+			allowed := false
+			for _, r := range allowedRooms {
+				if r == evt.RoomID {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
+				logger.Info("ignoring invite to non-allowed room", "room_id", evt.RoomID, "inviter", evt.Sender)
+				return
+			}
+		}
+
+		logger.Info("received room invite", "room_id", evt.RoomID, "inviter", evt.Sender)
+		_, err := client.JoinRoomByID(ctx, evt.RoomID)
+		if err != nil {
+			logger.Error("failed to join room", "room_id", evt.RoomID, "error", err)
+		} else {
+			logger.Info("joined room", "room_id", evt.RoomID)
+		}
+	})
+
 	// Handle message events
 	syncer.OnEventType(event.EventMessage, func(ctx context.Context, evt *event.Event) {
 		// First check if this is a reply to a clarification question
