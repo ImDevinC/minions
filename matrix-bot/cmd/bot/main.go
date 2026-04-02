@@ -22,12 +22,17 @@ import (
 	"github.com/imdevinc/minions/matrix-bot/internal/orchestrator"
 )
 
+// Version is set at build time via ldflags, defaults to dev for local builds.
+var Version = "dev"
+
 func main() {
 	// Configure structured logging with JSON output for production
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}))
 	slog.SetDefault(logger)
+
+	logger.Info("starting matrix-bot", "version", Version)
 
 	// Get port from env or default to 8081
 	port := os.Getenv("PORT")
