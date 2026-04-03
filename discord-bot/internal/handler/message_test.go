@@ -306,6 +306,7 @@ func TestMessageHandler_IsCommandAllowed_GuildOnlyRestriction(t *testing.T) {
 		&mockOrchestrator{},
 		&mockClarificationEvaluator{},
 		AccessRestrictions{AllowedGuildID: "guild-1"},
+		"",
 	)
 
 	allowedMsg := &discordgo.Message{
@@ -341,6 +342,7 @@ func TestMessageHandler_IsCommandAllowed_RoleRestriction(t *testing.T) {
 		&mockOrchestrator{},
 		&mockClarificationEvaluator{},
 		AccessRestrictions{AllowedGuildID: "guild-1", AllowedRoleID: "role-admin"},
+		"",
 	)
 
 	allowedMsg := &discordgo.Message{

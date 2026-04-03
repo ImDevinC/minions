@@ -69,12 +69,16 @@ func main() {
 
 	allowedGuildID := os.Getenv("DISCORD_ALLOWED_GUILD_ID")
 	allowedRoleID := os.Getenv("DISCORD_ALLOWED_ROLE_ID")
+	controlPanelURL := os.Getenv("CONTROL_PANEL_URL")
 
 	if allowedGuildID != "" {
 		logger.Info("discord command restriction enabled", "allowed_guild_id", allowedGuildID)
 	}
 	if allowedRoleID != "" {
 		logger.Info("discord command role restriction enabled", "allowed_role_id", allowedRoleID)
+	}
+	if controlPanelURL != "" {
+		logger.Info("control panel URL configured", "url", controlPanelURL)
 	}
 
 	// Create orchestrator client for minion creation + rate limiting
@@ -114,6 +118,7 @@ func main() {
 			AllowedGuildID: allowedGuildID,
 			AllowedRoleID:  allowedRoleID,
 		},
+		controlPanelURL,
 	)
 	discord.AddHandler(msgHandler.Handle)
 	// Also handle replies to clarification questions

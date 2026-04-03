@@ -4,6 +4,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -50,11 +51,12 @@ type ClarificationEvaluator interface {
 
 // MessageHandler handles incoming Discord messages
 type MessageHandler struct {
-	logger         *slog.Logger
-	orchestrator   Orchestrator
-	clarification  ClarificationEvaluator
-	allowedGuildID string
-	allowedRoleID  string
+	logger          *slog.Logger
+	orchestrator    Orchestrator
+	clarification   ClarificationEvaluator
+	allowedGuildID  string
+	allowedRoleID   string
+	controlPanelURL string
 }
 
 // AccessRestrictions configures optional Discord command access restrictions.
@@ -69,13 +71,15 @@ func NewMessageHandler(
 	orch Orchestrator,
 	clarification ClarificationEvaluator,
 	restrictions AccessRestrictions,
+	controlPanelURL string,
 ) *MessageHandler {
 	return &MessageHandler{
-		logger:         logger,
-		orchestrator:   orch,
-		clarification:  clarification,
-		allowedGuildID: restrictions.AllowedGuildID,
-		allowedRoleID:  restrictions.AllowedRoleID,
+		logger:          logger,
+		orchestrator:    orch,
+		clarification:   clarification,
+		allowedGuildID:  restrictions.AllowedGuildID,
+		allowedRoleID:   restrictions.AllowedRoleID,
+		controlPanelURL: controlPanelURL,
 	}
 }
 
@@ -197,6 +201,9 @@ func (h *MessageHandler) Handle(s *discordgo.Session, m *discordgo.MessageCreate
 			"repo", cmd.Repo,
 		)
 		msg := "✅ Task is clear! Your minion is being spawned..."
+		if h.controlPanelURL != "" {
+			msg += fmt.Sprintf("\nView progress: %s/minions/%s", h.controlPanelURL, resp.ID)
+		}
 		_, sendErr := s.ChannelMessageSendReply(m.ChannelID, msg, m.Reference())
 		if sendErr != nil {
 			h.logger.Error("failed to send ready notification", "error", sendErr)
@@ -450,6 +457,9 @@ func (h *MessageHandler) HandleReply(s *discordgo.Session, m *discordgo.MessageC
 
 	// Confirm to the user
 	msg := "✅ Got it! Your minion is now being spawned with the clarified task..."
+	if h.controlPanelURL != "" {
+		msg += fmt.Sprintf("\nView progress: %s/minions/%s", h.controlPanelURL, minion.ID)
+	}
 	_, sendErr := s.ChannelMessageSendReply(m.ChannelID, msg, m.Reference())
 	if sendErr != nil {
 		h.logger.Error("failed to send confirmation", "error", sendErr)
@@ -468,13 +478,15 @@ func (h *MessageHandler) isCommandAllowed(s *discordgo.Session, msg *discordgo.M
 			"channel_id", msg.ChannelID,
 		)
 		// Send "I'm sorry Dave" message for non-guild context
-		_, sendErr := s.ChannelMessageSendReply(
-			msg.ChannelID,
-			"I'm sorry Dave, I'm afraid I can't do that",
-			msg.Reference(),
-		)
-		if sendErr != nil {
-			h.logger.Error("failed to send non-guild context message", "error", sendErr)
+		if s != nil {
+			_, sendErr := s.ChannelMessageSendReply(
+				msg.ChannelID,
+				"I'm sorry Dave, I'm afraid I can't do that",
+				msg.Reference(),
+			)
+			if sendErr != nil {
+				h.logger.Error("failed to send non-guild context message", "error", sendErr)
+			}
 		}
 		return false
 	}
@@ -486,13 +498,15 @@ func (h *MessageHandler) isCommandAllowed(s *discordgo.Session, msg *discordgo.M
 			"guild_id", msg.GuildID,
 		)
 		// Send "I'm sorry Dave" message for unauthorized guild
-		_, sendErr := s.ChannelMessageSendReply(
-			msg.ChannelID,
-			"I'm sorry Dave, I'm afraid I can't do that",
-			msg.Reference(),
-		)
-		if sendErr != nil {
-			h.logger.Error("failed to send unauthorized guild message", "error", sendErr)
+		if s != nil {
+			_, sendErr := s.ChannelMessageSendReply(
+				msg.ChannelID,
+				"I'm sorry Dave, I'm afraid I can't do that",
+				msg.Reference(),
+			)
+			if sendErr != nil {
+				h.logger.Error("failed to send unauthorized guild message", "error", sendErr)
+			}
 		}
 		return false
 	}
@@ -509,13 +523,15 @@ func (h *MessageHandler) isCommandAllowed(s *discordgo.Session, msg *discordgo.M
 			"guild_id", msg.GuildID,
 		)
 		// Send "I'm sorry Dave" message for role resolution failure
-		_, sendErr := s.ChannelMessageSendReply(
-			msg.ChannelID,
-			"I'm sorry Dave, I'm afraid I can't do that",
-			msg.Reference(),
-		)
-		if sendErr != nil {
-			h.logger.Error("failed to send role resolution failure message", "error", sendErr)
+		if s != nil {
+			_, sendErr := s.ChannelMessageSendReply(
+				msg.ChannelID,
+				"I'm sorry Dave, I'm afraid I can't do that",
+				msg.Reference(),
+			)
+			if sendErr != nil {
+				h.logger.Error("failed to send role resolution failure message", "error", sendErr)
+			}
 		}
 		return false
 	}
@@ -526,13 +542,15 @@ func (h *MessageHandler) isCommandAllowed(s *discordgo.Session, msg *discordgo.M
 			"guild_id", msg.GuildID,
 		)
 		// Send "I'm sorry Dave" message for lack of required role
-		_, sendErr := s.ChannelMessageSendReply(
-			msg.ChannelID,
-			"I'm sorry Dave, I'm afraid I can't do that",
-			msg.Reference(),
-		)
-		if sendErr != nil {
-			h.logger.Error("failed to send role authorization message", "error", sendErr)
+		if s != nil {
+			_, sendErr := s.ChannelMessageSendReply(
+				msg.ChannelID,
+				"I'm sorry Dave, I'm afraid I can't do that",
+				msg.Reference(),
+			)
+			if sendErr != nil {
+				h.logger.Error("failed to send role authorization message", "error", sendErr)
+			}
 		}
 		return false
 	}

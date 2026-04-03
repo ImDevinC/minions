@@ -34,6 +34,7 @@ type WebhookRequest struct {
 	MatrixRoomID string           `json:"matrix_room_id"`
 	PRURL        string           `json:"pr_url,omitempty"`
 	Error        string           `json:"error,omitempty"`
+	Summary      string           `json:"summary,omitempty"`
 }
 
 // WebhookHandler handles incoming webhook callbacks from the orchestrator.
@@ -151,6 +152,17 @@ func (h *WebhookHandler) handleCompleted(ctx context.Context, req WebhookRequest
 		msg = "✅ Minion completed! No changes were made."
 	}
 
+	// Append summary if available (truncated for Matrix limits)
+	if req.Summary != "" {
+		summary := req.Summary
+		// Truncate summary to fit Matrix message limits
+		const maxSummaryLen = 4000
+		if len(summary) > maxSummaryLen {
+			summary = summary[:maxSummaryLen] + "..."
+		}
+		msg += fmt.Sprintf("\n\n**Summary:**\n%s", summary)
+	}
+
 	roomID := id.RoomID(req.MatrixRoomID)
 	content := &event.MessageEventContent{
 		MsgType: event.MsgText,
@@ -166,6 +178,7 @@ func (h *WebhookHandler) handleCompleted(ctx context.Context, req WebhookRequest
 		"minion_id", req.MinionID,
 		"room_id", req.MatrixRoomID,
 		"has_pr", req.PRURL != "",
+		"has_summary", req.Summary != "",
 	)
 	return nil
 }
