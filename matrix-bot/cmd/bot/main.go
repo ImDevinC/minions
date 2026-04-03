@@ -119,6 +119,11 @@ func main() {
 		logger.Info("control panel URL configured", "url", controlPanelURL)
 	}
 
+	// Record startup time to filter out old messages on restart
+	// This prevents reprocessing messages that were already handled before a restart
+	startupTime := time.Now().UnixMilli()
+	logger.Info("bot startup time recorded", "startup_time_ms", startupTime)
+
 	// Create orchestrator client for minion creation + rate limiting
 	orchClient := orchestrator.NewClient(orchestratorURL, apiToken)
 
@@ -143,6 +148,7 @@ func main() {
 		allowedRooms,
 		allowedUsers,
 		controlPanelURL,
+		startupTime,
 	)
 
 	// Set up syncer for receiving events

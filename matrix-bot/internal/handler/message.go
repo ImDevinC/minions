@@ -62,9 +62,12 @@ type MessageHandler struct {
 	allowedRooms    map[id.RoomID]bool // nil means all rooms allowed
 	allowedUsers    map[id.UserID]bool // nil means all users allowed
 	controlPanelURL string
+	startupTime     int64 // Unix milliseconds, events before this are ignored
 }
 
-// NewMessageHandler creates a new message handler
+// NewMessageHandler creates a new message handler.
+// startupTime is the Unix milliseconds timestamp when the bot started; events older than
+// this are ignored to prevent reprocessing on restart.
 func NewMessageHandler(
 	logger *slog.Logger,
 	client *mautrix.Client,
@@ -74,6 +77,7 @@ func NewMessageHandler(
 	allowedRooms []id.RoomID,
 	allowedUsers []id.UserID,
 	controlPanelURL string,
+	startupTime int64,
 ) *MessageHandler {
 	var roomMap map[id.RoomID]bool
 	if len(allowedRooms) > 0 {
@@ -100,6 +104,7 @@ func NewMessageHandler(
 		allowedRooms:    roomMap,
 		allowedUsers:    userMap,
 		controlPanelURL: controlPanelURL,
+		startupTime:     startupTime,
 	}
 }
 
@@ -112,6 +117,11 @@ func (h *MessageHandler) Handle(ctx context.Context, evt *event.Event) {
 
 	// Ignore messages from ourselves
 	if evt.Sender == h.botUserID {
+		return
+	}
+
+	// Ignore messages from before bot startup to prevent reprocessing on restart
+	if evt.Timestamp < h.startupTime {
 		return
 	}
 
@@ -279,6 +289,11 @@ func (h *MessageHandler) Handle(ctx context.Context, evt *event.Event) {
 func (h *MessageHandler) HandleReply(ctx context.Context, evt *event.Event) {
 	// Ignore messages from ourselves
 	if evt.Sender == h.botUserID {
+		return
+	}
+
+	// Ignore messages from before bot startup to prevent reprocessing on restart
+	if evt.Timestamp < h.startupTime {
 		return
 	}
 
