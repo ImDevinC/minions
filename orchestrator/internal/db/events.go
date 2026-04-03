@@ -126,26 +126,63 @@ func (s *EventStore) GetEventsSince(ctx context.Context, minionID uuid.UUID, sin
 }
 
 // GetLastAssistantMessage returns the most recent assistant message text
-// for a minion. This extracts the final summary from message.updated events
-// where the assistant role is present with text content.
+// for a minion. This extracts the final summary from message.part.updated events.
 //
-// The message structure is: content.parts[].text where parts[].type == "text"
+// OpenCode emits message.part.updated events with structure:
+//
+//	{
+//	  "part": {
+//	    "type": "text"|"tool"|"step-start"|"step-finish"|"patch",
+//	    "text": "...",           // only for type=text
+//	    "messageID": "msg_...",  // groups parts into messages
+//	    "sessionID": "ses_..."
+//	  }
+//	}
+//
+// Assistant messages are identified by having tool or step-start parts (user
+// messages only have text parts). We find the last assistant messageID, then
+// extract the text content from that message.
+//
 // Returns empty string if no assistant message is found.
 func (s *EventStore) GetLastAssistantMessage(ctx context.Context, minionID uuid.UUID) (string, error) {
-	// Find the most recent message.updated event with role=assistant
-	// The structure is: content -> role, parts
-	// We want the text from parts where type=text
-	var content map[string]any
+	// Use a CTE to:
+	// 1. Find messageIDs that have tool/step parts (assistant indicators)
+	// 2. Get the most recent assistant messageID
+	// 3. Extract the text content from that message
+	var text *string
 	err := s.pool.QueryRow(ctx,
-		`SELECT content
+		`WITH assistant_messages AS (
+		   -- Find messageIDs that have tool/step parts (assistant indicators)
+		   SELECT DISTINCT content->'part'->>'messageID' as msg_id
+		   FROM minion_events
+		   WHERE minion_id = $1
+		     AND event_type = 'message.part.updated'
+		     AND content->'part'->>'type' IN ('tool', 'step-start')
+		 ),
+		 last_assistant_msg AS (
+		   -- Get the most recent assistant message by finding the latest timestamp
+		   SELECT content->'part'->>'messageID' as msg_id, MAX(timestamp) as ts
+		   FROM minion_events
+		   WHERE minion_id = $1
+		     AND event_type = 'message.part.updated'
+		     AND content->'part'->>'messageID' IN (SELECT msg_id FROM assistant_messages)
+		   GROUP BY content->'part'->>'messageID'
+		   ORDER BY ts DESC
+		   LIMIT 1
+		 )
+		 -- Get the text content from that message (latest non-empty text part)
+		 SELECT content->'part'->>'text'
 		 FROM minion_events
-		 WHERE minion_id = $1 
-		   AND event_type = 'message.updated'
-		   AND content->>'role' = 'assistant'
+		 WHERE minion_id = $1
+		   AND event_type = 'message.part.updated'
+		   AND content->'part'->>'type' = 'text'
+		   AND content->'part'->>'messageID' = (SELECT msg_id FROM last_assistant_msg)
+		   AND content->'part'->>'text' IS NOT NULL
+		   AND content->'part'->>'text' != ''
 		 ORDER BY timestamp DESC
 		 LIMIT 1`,
 		minionID,
-	).Scan(&content)
+	).Scan(&text)
 
 	if err != nil {
 		// pgx returns no rows error when nothing found
@@ -155,30 +192,11 @@ func (s *EventStore) GetLastAssistantMessage(ctx context.Context, minionID uuid.
 		return "", err
 	}
 
-	if content == nil {
+	if text == nil {
 		return "", nil
 	}
 
-	// Extract text from parts array where type=text
-	// Structure: {"role": "assistant", "parts": [{"type": "text", "text": "..."}]}
-	parts, ok := content["parts"].([]any)
-	if !ok {
-		return "", nil
-	}
-
-	for _, p := range parts {
-		part, ok := p.(map[string]any)
-		if !ok {
-			continue
-		}
-		if part["type"] == "text" {
-			if text, ok := part["text"].(string); ok && text != "" {
-				return text, nil
-			}
-		}
-	}
-
-	return "", nil
+	return *text, nil
 }
 
 // GetLatestSessionError returns the error message from the most recent
