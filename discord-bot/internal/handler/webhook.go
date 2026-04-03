@@ -31,6 +31,7 @@ type WebhookRequest struct {
 	DiscordChannelID string           `json:"discord_channel_id"`
 	PRURL            string           `json:"pr_url,omitempty"`
 	Error            string           `json:"error,omitempty"`
+	Summary          string           `json:"summary,omitempty"`
 }
 
 // WebhookHandler handles incoming webhook callbacks from the orchestrator.
@@ -147,6 +148,17 @@ func (h *WebhookHandler) handleCompleted(req WebhookRequest) error {
 		msg = "✅ Minion completed! No changes were made."
 	}
 
+	// Append summary if available (truncated for Discord limits)
+	if req.Summary != "" {
+		summary := req.Summary
+		// Truncate summary to fit Discord message limits (leaving room for PR URL)
+		const maxSummaryLen = 1500
+		if len(summary) > maxSummaryLen {
+			summary = summary[:maxSummaryLen] + "..."
+		}
+		msg += fmt.Sprintf("\n\n**Summary:**\n%s", summary)
+	}
+
 	_, err := h.discord.ChannelMessageSend(req.DiscordChannelID, msg)
 	if err != nil {
 		return fmt.Errorf("failed to send completion message: %w", err)
@@ -156,6 +168,7 @@ func (h *WebhookHandler) handleCompleted(req WebhookRequest) error {
 		"minion_id", req.MinionID,
 		"channel_id", req.DiscordChannelID,
 		"has_pr", req.PRURL != "",
+		"has_summary", req.Summary != "",
 	)
 	return nil
 }

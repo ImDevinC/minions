@@ -41,6 +41,7 @@ type Notification struct {
 	MatrixRoomID     string // for Matrix notifications
 	PRURL            string // optional, for completed notifications
 	Error            string // optional, for failed notifications
+	Summary          string // optional, final AI summary message
 }
 
 // Notifier sends notifications to bot webhooks (Discord, Matrix).
@@ -80,6 +81,7 @@ type webhookRequest struct {
 	MatrixRoomID     string `json:"matrix_room_id,omitempty"`
 	PRURL            string `json:"pr_url,omitempty"`
 	Error            string `json:"error,omitempty"`
+	Summary          string `json:"summary,omitempty"`
 }
 
 // HTTPNotifier sends notifications to bot services via HTTP.
@@ -153,6 +155,7 @@ func (n *HTTPNotifier) Notify(ctx context.Context, notification Notification) er
 		MatrixRoomID:     notification.MatrixRoomID,
 		PRURL:            notification.PRURL,
 		Error:            notification.Error,
+		Summary:          notification.Summary,
 	}
 
 	body, err := json.Marshal(payload)

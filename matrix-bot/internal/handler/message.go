@@ -4,6 +4,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -53,13 +54,14 @@ type ClarificationEvaluator interface {
 
 // MessageHandler handles incoming Matrix messages
 type MessageHandler struct {
-	logger        *slog.Logger
-	client        *mautrix.Client
-	orchestrator  Orchestrator
-	clarification ClarificationEvaluator
-	botUserID     id.UserID
-	allowedRooms  map[id.RoomID]bool // nil means all rooms allowed
-	allowedUsers  map[id.UserID]bool // nil means all users allowed
+	logger          *slog.Logger
+	client          *mautrix.Client
+	orchestrator    Orchestrator
+	clarification   ClarificationEvaluator
+	botUserID       id.UserID
+	allowedRooms    map[id.RoomID]bool // nil means all rooms allowed
+	allowedUsers    map[id.UserID]bool // nil means all users allowed
+	controlPanelURL string
 }
 
 // NewMessageHandler creates a new message handler
@@ -71,6 +73,7 @@ func NewMessageHandler(
 	botUserID id.UserID,
 	allowedRooms []id.RoomID,
 	allowedUsers []id.UserID,
+	controlPanelURL string,
 ) *MessageHandler {
 	var roomMap map[id.RoomID]bool
 	if len(allowedRooms) > 0 {
@@ -89,13 +92,14 @@ func NewMessageHandler(
 	}
 
 	return &MessageHandler{
-		logger:        logger,
-		client:        client,
-		orchestrator:  orch,
-		clarification: clarification,
-		botUserID:     botUserID,
-		allowedRooms:  roomMap,
-		allowedUsers:  userMap,
+		logger:          logger,
+		client:          client,
+		orchestrator:    orch,
+		clarification:   clarification,
+		botUserID:       botUserID,
+		allowedRooms:    roomMap,
+		allowedUsers:    userMap,
+		controlPanelURL: controlPanelURL,
 	}
 }
 
@@ -211,7 +215,11 @@ func (h *MessageHandler) Handle(ctx context.Context, evt *event.Event) {
 			"minion_id", resp.ID,
 			"repo", cmd.Repo,
 		)
-		h.sendReply(evt.RoomID, evt.ID, "Task is clear! Your minion is being spawned...")
+		msg := "Task is clear! Your minion is being spawned..."
+		if h.controlPanelURL != "" {
+			msg += fmt.Sprintf("\nView progress: %s/minions/%s", h.controlPanelURL, resp.ID)
+		}
+		h.sendReply(evt.RoomID, evt.ID, msg)
 		return
 	}
 
@@ -377,7 +385,11 @@ func (h *MessageHandler) HandleReply(ctx context.Context, evt *event.Event) {
 	)
 
 	// Confirm to the user
-	h.sendReply(evt.RoomID, evt.ID, "Got it! Your minion is now being spawned with the clarified task...")
+	msg := "Got it! Your minion is now being spawned with the clarified task..."
+	if h.controlPanelURL != "" {
+		msg += fmt.Sprintf("\nView progress: %s/minions/%s", h.controlPanelURL, minion.ID)
+	}
+	h.sendReply(evt.RoomID, evt.ID, msg)
 }
 
 // isRoomAllowed checks if the room is in the allowed list (or if all rooms are allowed)

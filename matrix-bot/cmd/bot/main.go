@@ -113,6 +113,12 @@ func main() {
 		logger.Info("matrix user restriction enabled", "allowed_users", allowedUsers)
 	}
 
+	// CONTROL_PANEL_URL is optional, for including links to minion status pages
+	controlPanelURL := os.Getenv("CONTROL_PANEL_URL")
+	if controlPanelURL != "" {
+		logger.Info("control panel URL configured", "url", controlPanelURL)
+	}
+
 	// Create orchestrator client for minion creation + rate limiting
 	orchClient := orchestrator.NewClient(orchestratorURL, apiToken)
 
@@ -136,6 +142,7 @@ func main() {
 		id.UserID(botUserID),
 		allowedRooms,
 		allowedUsers,
+		controlPanelURL,
 	)
 
 	// Set up syncer for receiving events

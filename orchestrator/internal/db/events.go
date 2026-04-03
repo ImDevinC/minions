@@ -125,6 +125,62 @@ func (s *EventStore) GetEventsSince(ctx context.Context, minionID uuid.UUID, sin
 	return events, nil
 }
 
+// GetLastAssistantMessage returns the most recent assistant message text
+// for a minion. This extracts the final summary from message.updated events
+// where the assistant role is present with text content.
+//
+// The message structure is: content.parts[].text where parts[].type == "text"
+// Returns empty string if no assistant message is found.
+func (s *EventStore) GetLastAssistantMessage(ctx context.Context, minionID uuid.UUID) (string, error) {
+	// Find the most recent message.updated event with role=assistant
+	// The structure is: content -> role, parts
+	// We want the text from parts where type=text
+	var content map[string]any
+	err := s.pool.QueryRow(ctx,
+		`SELECT content
+		 FROM minion_events
+		 WHERE minion_id = $1 
+		   AND event_type = 'message.updated'
+		   AND content->>'role' = 'assistant'
+		 ORDER BY timestamp DESC
+		 LIMIT 1`,
+		minionID,
+	).Scan(&content)
+
+	if err != nil {
+		// pgx returns no rows error when nothing found
+		if err.Error() == "no rows in result set" {
+			return "", nil
+		}
+		return "", err
+	}
+
+	if content == nil {
+		return "", nil
+	}
+
+	// Extract text from parts array where type=text
+	// Structure: {"role": "assistant", "parts": [{"type": "text", "text": "..."}]}
+	parts, ok := content["parts"].([]any)
+	if !ok {
+		return "", nil
+	}
+
+	for _, p := range parts {
+		part, ok := p.(map[string]any)
+		if !ok {
+			continue
+		}
+		if part["type"] == "text" {
+			if text, ok := part["text"].(string); ok && text != "" {
+				return text, nil
+			}
+		}
+	}
+
+	return "", nil
+}
+
 // GetLatestSessionError returns the error message from the most recent
 // session.error event for a minion, if any exists. This is used to detect
 // cases where OpenCode failed (e.g., model not found) but the session still

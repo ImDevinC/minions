@@ -684,11 +684,17 @@ func (h *MinionHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	hasNotificationTarget := result.DiscordChannelID != nil || result.MatrixRoomID != nil
 	if result.WasUpdated && hasNotificationTarget {
 		var notifyType webhook.NotificationType
-		var prURL, errMsg string
+		var prURL, errMsg, summary string
 		if status == db.StatusCompleted {
 			notifyType = webhook.NotifyCompleted
 			if req.PRURL != nil {
 				prURL = *req.PRURL
+			}
+			// Fetch the last assistant message as the summary
+			if summaryText, err := h.events.GetLastAssistantMessage(r.Context(), id); err != nil {
+				h.logger.Warn("failed to fetch summary message", "error", err, "minion_id", id)
+			} else {
+				summary = summaryText
 			}
 		} else {
 			notifyType = webhook.NotifyFailed
@@ -703,6 +709,7 @@ func (h *MinionHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 			Platform: webhook.Platform(result.Platform),
 			PRURL:    prURL,
 			Error:    errMsg,
+			Summary:  summary,
 		}
 		if result.DiscordChannelID != nil {
 			notification.DiscordChannelID = *result.DiscordChannelID
