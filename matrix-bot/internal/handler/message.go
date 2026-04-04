@@ -11,6 +11,7 @@ import (
 
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/event"
+	"maunium.net/go/mautrix/format"
 	"maunium.net/go/mautrix/id"
 
 	"github.com/imdevinc/minions/matrix-bot/internal/clarify"
@@ -489,17 +490,14 @@ func (h *MessageHandler) extractReplyBody(content *event.MessageEventContent) st
 
 // sendReply sends a text message as a reply to the given event
 func (h *MessageHandler) sendReply(roomID id.RoomID, replyTo id.EventID, text string) string {
-	content := &event.MessageEventContent{
-		MsgType: event.MsgText,
-		Body:    text,
-		RelatesTo: &event.RelatesTo{
-			InReplyTo: &event.InReplyTo{
-				EventID: replyTo,
-			},
+	content := format.RenderMarkdown(text, true, false)
+	content.RelatesTo = &event.RelatesTo{
+		InReplyTo: &event.InReplyTo{
+			EventID: replyTo,
 		},
 	}
 
-	resp, err := h.client.SendMessageEvent(context.Background(), roomID, event.EventMessage, content)
+	resp, err := h.client.SendMessageEvent(context.Background(), roomID, event.EventMessage, &content)
 	if err != nil {
 		h.logger.Error("failed to send reply",
 			"error", err,
