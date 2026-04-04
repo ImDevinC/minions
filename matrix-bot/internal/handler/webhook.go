@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/event"
+	"maunium.net/go/mautrix/format"
 	"maunium.net/go/mautrix/id"
 )
 
@@ -164,12 +165,9 @@ func (h *WebhookHandler) handleCompleted(ctx context.Context, req WebhookRequest
 	}
 
 	roomID := id.RoomID(req.MatrixRoomID)
-	content := &event.MessageEventContent{
-		MsgType: event.MsgText,
-		Body:    msg,
-	}
+	content := format.RenderMarkdown(msg, true, false)
 
-	_, err := h.client.SendMessageEvent(ctx, roomID, event.EventMessage, content)
+	_, err := h.client.SendMessageEvent(ctx, roomID, event.EventMessage, &content)
 	if err != nil {
 		return fmt.Errorf("failed to send completion message: %w", err)
 	}
@@ -199,12 +197,9 @@ func (h *WebhookHandler) handleFailed(ctx context.Context, req WebhookRequest) e
 	msg := fmt.Sprintf("❌ Minion failed: %s", errorSummary)
 
 	roomID := id.RoomID(req.MatrixRoomID)
-	content := &event.MessageEventContent{
-		MsgType: event.MsgText,
-		Body:    msg,
-	}
+	content := format.RenderMarkdown(msg, true, false)
 
-	_, err := h.client.SendMessageEvent(ctx, roomID, event.EventMessage, content)
+	_, err := h.client.SendMessageEvent(ctx, roomID, event.EventMessage, &content)
 	if err != nil {
 		return fmt.Errorf("failed to send failure message: %w", err)
 	}
@@ -222,12 +217,9 @@ func (h *WebhookHandler) handleTerminated(ctx context.Context, req WebhookReques
 	msg := fmt.Sprintf("🛑 Minion `%s` was terminated.", shortID(req.MinionID))
 
 	roomID := id.RoomID(req.MatrixRoomID)
-	content := &event.MessageEventContent{
-		MsgType: event.MsgText,
-		Body:    msg,
-	}
+	content := format.RenderMarkdown(msg, true, false)
 
-	_, err := h.client.SendMessageEvent(ctx, roomID, event.EventMessage, content)
+	_, err := h.client.SendMessageEvent(ctx, roomID, event.EventMessage, &content)
 	if err != nil {
 		return fmt.Errorf("failed to send termination message: %w", err)
 	}
@@ -244,12 +236,9 @@ func (h *WebhookHandler) handleIdle(ctx context.Context, req WebhookRequest) err
 	msg := fmt.Sprintf("⚠️ Minion `%s` has been idle for over 30 minutes. It may be stuck or waiting for input.", shortID(req.MinionID))
 
 	roomID := id.RoomID(req.MatrixRoomID)
-	content := &event.MessageEventContent{
-		MsgType: event.MsgText,
-		Body:    msg,
-	}
+	content := format.RenderMarkdown(msg, true, false)
 
-	_, err := h.client.SendMessageEvent(ctx, roomID, event.EventMessage, content)
+	_, err := h.client.SendMessageEvent(ctx, roomID, event.EventMessage, &content)
 	if err != nil {
 		return fmt.Errorf("failed to send idle message: %w", err)
 	}
@@ -266,12 +255,9 @@ func (h *WebhookHandler) handleClarificationTimeout(ctx context.Context, req Web
 	msg := fmt.Sprintf("⏰ Minion `%s` timed out waiting for clarification (24h limit). The task has been cancelled.", shortID(req.MinionID))
 
 	roomID := id.RoomID(req.MatrixRoomID)
-	content := &event.MessageEventContent{
-		MsgType: event.MsgText,
-		Body:    msg,
-	}
+	content := format.RenderMarkdown(msg, true, false)
 
-	_, err := h.client.SendMessageEvent(ctx, roomID, event.EventMessage, content)
+	_, err := h.client.SendMessageEvent(ctx, roomID, event.EventMessage, &content)
 	if err != nil {
 		return fmt.Errorf("failed to send clarification timeout message: %w", err)
 	}
