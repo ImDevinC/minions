@@ -200,6 +200,8 @@ func (s *UserStore) GetOrCreateByGitHubID(ctx context.Context, githubID, githubU
 	}
 
 	// User doesn't exist, create new one
+	// Note: No ON CONFLICT needed since we already checked for existing user above.
+	// The unique index on github_id will prevent duplicates in race conditions.
 	user = &User{
 		ID:             uuid.New(),
 		GitHubID:       &githubID,
@@ -209,9 +211,6 @@ func (s *UserStore) GetOrCreateByGitHubID(ctx context.Context, githubID, githubU
 	err = s.pool.QueryRow(ctx,
 		`INSERT INTO users (id, discord_id, discord_username, github_id, github_username)
 		 VALUES ($1, '', '', $2, $3)
-		 ON CONFLICT (github_id) DO UPDATE SET
-		   github_username = EXCLUDED.github_username,
-		   updated_at = NOW()
 		 RETURNING id, created_at, updated_at`,
 		user.ID, githubID, githubUsername,
 	).Scan(&user.ID, &user.CreatedAt, &user.UpdatedAt)
