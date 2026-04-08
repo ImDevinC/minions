@@ -11,6 +11,7 @@ on:
       - 'control-panel-v*'
       - 'devbox-v*'
       - 'matrix-bot-v*'
+      - 'github-webhook-v*'
 
 env:
   REGISTRY: ghcr.io

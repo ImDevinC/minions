@@ -104,6 +104,7 @@ type SpawnParams struct {
 	GitHubToken      string // Installation token for repo access
 	OrchestratorURL  string // Base URL for orchestrator (callbacks, etc.)
 	InternalAPIToken string // Token for authenticating with orchestrator
+	Branch           string // Target branch to clone (optional, for PR feedback flow)
 }
 
 // PodManager handles both pod creation and termination.
@@ -501,6 +502,11 @@ func (c *Client) buildEnvVars(params SpawnParams) []corev1.EnvVar {
 		{Name: "GITHUB_TOKEN", Value: params.GitHubToken},
 		{Name: "ORCHESTRATOR_URL", Value: params.OrchestratorURL},
 		{Name: "INTERNAL_API_TOKEN", Value: params.InternalAPIToken},
+	}
+
+	// Add branch for PR feedback flow (optional)
+	if params.Branch != "" {
+		envs = append(envs, corev1.EnvVar{Name: "MINION_BRANCH", Value: params.Branch})
 	}
 
 	// Pass through all DEVBOX_* env vars with prefix stripped

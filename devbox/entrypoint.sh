@@ -17,6 +17,7 @@
 # Optional environment variables:
 #   OPENCODE_PORT           - Port for OpenCode serve (default: 4096)
 #   TASK_TIMEOUT            - Maximum task execution time in seconds (default: 1800 = 30 min)
+#   MINION_BRANCH           - Target branch to clone (for PR feedback flow)
 #
 # Orchestrator receives callbacks at:
 #   POST $ORCHESTRATOR_URL/api/minions/$MINION_ID/callback
@@ -94,7 +95,17 @@ clone_repo() {
     git config --global user.name "Minion"
 
     # Clone with depth=1 for speed (full history not needed for most tasks)
-    if ! git clone --depth=1 "https://github.com/${MINION_REPO}.git" /workspace/repo 2>&1; then
+    # If MINION_BRANCH is set, clone that specific branch (PR feedback flow)
+    local clone_args=("--depth=1")
+    if [[ -n "${MINION_BRANCH:-}" ]]; then
+        log "Cloning specific branch for PR feedback flow: ${MINION_BRANCH}"
+        clone_args+=("--branch" "${MINION_BRANCH}")
+        # Export flag so agent knows this is a PR feedback scenario
+        # Agent should push to existing branch, not create new PR
+        export MINION_PR_FEEDBACK=1
+    fi
+
+    if ! git clone "${clone_args[@]}" "https://github.com/${MINION_REPO}.git" /workspace/repo 2>&1; then
         die "Failed to clone repository"
     fi
 

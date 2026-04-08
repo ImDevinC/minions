@@ -486,3 +486,120 @@ spec:
       port: 3000
       targetPort: http
       protocol: TCP
+
+---
+# GitHub Webhook Deployment
+# Receives GitHub PR comment webhooks and spawns follow-up minions
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: github-webhook
+  namespace: minions
+  labels:
+    app.kubernetes.io/name: github-webhook
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: minions
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: github-webhook
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: github-webhook
+        app.kubernetes.io/component: backend
+        app.kubernetes.io/part-of: minions
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+      containers:
+        - name: github-webhook
+          image: ghcr.io/imdevinc/minions/github-webhook:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "8080"
+            # Orchestrator API endpoint
+            - name: ORCHESTRATOR_URL
+              value: "http://orchestrator.minions.svc.cluster.local:8080"
+            # Path to approved repos config (mounted from ConfigMap)
+            - name: APPROVED_REPOS_PATH
+              value: "/config/approved-repos.txt"
+          envFrom:
+            # GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY, GITHUB_WEBHOOK_SECRET
+            - secretRef:
+                name: minions-github-app
+            # INTERNAL_API_TOKEN (shared with orchestrator)
+            - secretRef:
+                name: minions-internal-api
+          volumeMounts:
+            - name: approved-repos
+              mountPath: /config
+              readOnly: true
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: approved-repos
+          configMap:
+            name: github-webhook-config
+
+---
+# GitHub Webhook Service
+# Internal service for ingress routing
+apiVersion: v1
+kind: Service
+metadata:
+  name: github-webhook
+  namespace: minions
+  labels:
+    app.kubernetes.io/name: github-webhook
+    app.kubernetes.io/part-of: minions
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: github-webhook
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP

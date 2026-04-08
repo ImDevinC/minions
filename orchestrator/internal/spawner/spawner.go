@@ -195,6 +195,11 @@ func (s *Spawner) processMinion(ctx context.Context, m *db.Minion) {
 		InternalAPIToken: s.config.InternalAPIToken,
 	}
 
+	// Add branch for PR feedback flow
+	if m.Branch != nil {
+		params.Branch = *m.Branch
+	}
+
 	podName, err := s.pods.SpawnPodWithRetry(ctx, params)
 	if err != nil {
 		errMsg := fmt.Sprintf("failed to spawn pod after retries: %v", err)
