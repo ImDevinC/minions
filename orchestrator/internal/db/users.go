@@ -14,8 +14,8 @@ import (
 // User represents a user in the system (Discord, Matrix, or GitHub).
 type User struct {
 	ID              uuid.UUID
-	DiscordID       string
-	DiscordUsername string
+	DiscordID       *string // Discord user ID (nullable for non-Discord users)
+	DiscordUsername *string // Discord username (nullable for non-Discord users)
 	MatrixID        *string // Matrix user ID (e.g., @user:matrix.org)
 	GitHubID        *string // GitHub user ID (numeric as text)
 	GitHubUsername  *string // GitHub username
@@ -41,14 +41,14 @@ func (s *UserStore) GetOrCreate(ctx context.Context, discordID, discordUsername 
 	user, err := s.GetByDiscordID(ctx, discordID)
 	if err == nil {
 		// User exists, update username if changed
-		if user.DiscordUsername != discordUsername {
+		if user.DiscordUsername == nil || *user.DiscordUsername != discordUsername {
 			_, err = s.pool.Exec(ctx,
 				`UPDATE users SET discord_username = $1, updated_at = NOW() WHERE id = $2`,
 				discordUsername, user.ID)
 			if err != nil {
 				return nil, false, err
 			}
-			user.DiscordUsername = discordUsername
+			user.DiscordUsername = &discordUsername
 		}
 		return user, false, nil
 	}
@@ -60,8 +60,8 @@ func (s *UserStore) GetOrCreate(ctx context.Context, discordID, discordUsername 
 	// User doesn't exist, create new one
 	user = &User{
 		ID:              uuid.New(),
-		DiscordID:       discordID,
-		DiscordUsername: discordUsername,
+		DiscordID:       &discordID,
+		DiscordUsername: &discordUsername,
 	}
 
 	err = s.pool.QueryRow(ctx,
