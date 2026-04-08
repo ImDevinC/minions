@@ -105,7 +105,7 @@ func loadApprovedRepos(path string) (map[string]bool, error) {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		repos[line] = true
+		repos[strings.ToLower(line)] = true
 	}
 
 	if err := scanner.Err(); err != nil {
