@@ -6,6 +6,7 @@ import { MinionDetail, MinionStatus } from "@/types/minion";
 import { TerminateModal } from "./terminate-modal";
 import { useMinionEvents } from "@/hooks/use-minion-events";
 import { ChatView } from "./chat-view";
+import { PlatformBadge } from "./platform-icon";
 
 // Re-export StatusBadge for server component compatibility
 interface StatusConfig {
@@ -148,7 +149,10 @@ export function MinionDetailClient({ minion }: MinionDetailClientProps) {
       <div className="bg-gray-800 border border-gray-700 rounded-lg p-6">
         <div className="flex items-start justify-between gap-4 mb-4">
           <div>
-            <h1 className="text-2xl font-bold text-white mb-2">{minion.repo}</h1>
+            <h1 className="text-2xl font-bold text-white mb-2 flex items-center gap-2">
+              <PlatformBadge platform={minion.platform} size="md" />
+              {minion.repo}
+            </h1>
             <div className="flex items-center gap-3">
               <StatusBadge status={currentStatus} />
               {canTerminate(currentStatus) && (

@@ -8,6 +8,8 @@ export type MinionStatus =
   | "failed"
   | "terminated";
 
+export type MinionPlatform = "discord" | "matrix" | "github";
+
 // Response from GET /api/minions (list endpoint)
 export interface MinionSummary {
   id: string;
@@ -15,6 +17,7 @@ export interface MinionSummary {
   repo: string;
   task: string;
   model: string;
+  platform: MinionPlatform;
   pr_url?: string;
   error?: string;
   cost_usd: number;
@@ -29,6 +32,7 @@ export interface MinionDetail {
   task: string;
   model: string;
   status: MinionStatus;
+  platform: MinionPlatform;
   clarification_question?: string;
   clarification_answer?: string;
   clarification_message_id?: string;
