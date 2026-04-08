@@ -11,12 +11,14 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// User represents a user in the system (Discord or Matrix).
+// User represents a user in the system (Discord, Matrix, or GitHub).
 type User struct {
 	ID              uuid.UUID
 	DiscordID       string
 	DiscordUsername string
 	MatrixID        *string // Matrix user ID (e.g., @user:matrix.org)
+	GitHubID        *string // GitHub user ID (numeric as text)
+	GitHubUsername  *string // GitHub username
 	AvatarURL       *string
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
@@ -83,10 +85,10 @@ func (s *UserStore) GetOrCreate(ctx context.Context, discordID, discordUsername 
 func (s *UserStore) GetByDiscordID(ctx context.Context, discordID string) (*User, error) {
 	user := &User{}
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, discord_id, discord_username, matrix_id, avatar_url, created_at, updated_at
+		`SELECT id, discord_id, discord_username, matrix_id, github_id, github_username, avatar_url, created_at, updated_at
 		 FROM users WHERE discord_id = $1`,
 		discordID,
-	).Scan(&user.ID, &user.DiscordID, &user.DiscordUsername, &user.MatrixID, &user.AvatarURL, &user.CreatedAt, &user.UpdatedAt)
+	).Scan(&user.ID, &user.DiscordID, &user.DiscordUsername, &user.MatrixID, &user.GitHubID, &user.GitHubUsername, &user.AvatarURL, &user.CreatedAt, &user.UpdatedAt)
 
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -102,10 +104,10 @@ func (s *UserStore) GetByDiscordID(ctx context.Context, discordID string) (*User
 func (s *UserStore) GetByMatrixID(ctx context.Context, matrixID string) (*User, error) {
 	user := &User{}
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, discord_id, discord_username, matrix_id, avatar_url, created_at, updated_at
+		`SELECT id, discord_id, discord_username, matrix_id, github_id, github_username, avatar_url, created_at, updated_at
 		 FROM users WHERE matrix_id = $1`,
 		matrixID,
-	).Scan(&user.ID, &user.DiscordID, &user.DiscordUsername, &user.MatrixID, &user.AvatarURL, &user.CreatedAt, &user.UpdatedAt)
+	).Scan(&user.ID, &user.DiscordID, &user.DiscordUsername, &user.MatrixID, &user.GitHubID, &user.GitHubUsername, &user.AvatarURL, &user.CreatedAt, &user.UpdatedAt)
 
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -154,3 +156,69 @@ func (s *UserStore) GetOrCreateByMatrixID(ctx context.Context, matrixID string) 
 
 // ErrNotFound indicates the requested resource was not found.
 var ErrNotFound = errors.New("not found")
+
+// GetByGitHubID finds a user by their GitHub ID.
+func (s *UserStore) GetByGitHubID(ctx context.Context, githubID string) (*User, error) {
+	user := &User{}
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, discord_id, discord_username, matrix_id, github_id, github_username, avatar_url, created_at, updated_at
+		 FROM users WHERE github_id = $1`,
+		githubID,
+	).Scan(&user.ID, &user.DiscordID, &user.DiscordUsername, &user.MatrixID, &user.GitHubID, &user.GitHubUsername, &user.AvatarURL, &user.CreatedAt, &user.UpdatedAt)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return user, nil
+}
+
+// GetOrCreateByGitHubID finds an existing user by GitHub ID or creates a new one.
+// Returns the user and whether it was newly created.
+func (s *UserStore) GetOrCreateByGitHubID(ctx context.Context, githubID, githubUsername string) (*User, bool, error) {
+	// Try to find existing user first
+	user, err := s.GetByGitHubID(ctx, githubID)
+	if err == nil {
+		// User exists, update username if changed
+		if user.GitHubUsername == nil || *user.GitHubUsername != githubUsername {
+			_, err = s.pool.Exec(ctx,
+				`UPDATE users SET github_username = $1, updated_at = NOW() WHERE id = $2`,
+				githubUsername, user.ID)
+			if err != nil {
+				return nil, false, err
+			}
+			user.GitHubUsername = &githubUsername
+		}
+		return user, false, nil
+	}
+
+	if !errors.Is(err, ErrNotFound) {
+		return nil, false, err
+	}
+
+	// User doesn't exist, create new one
+	user = &User{
+		ID:             uuid.New(),
+		GitHubID:       &githubID,
+		GitHubUsername: &githubUsername,
+	}
+
+	err = s.pool.QueryRow(ctx,
+		`INSERT INTO users (id, discord_id, discord_username, github_id, github_username)
+		 VALUES ($1, '', '', $2, $3)
+		 ON CONFLICT (github_id) DO UPDATE SET
+		   github_username = EXCLUDED.github_username,
+		   updated_at = NOW()
+		 RETURNING id, created_at, updated_at`,
+		user.ID, githubID, githubUsername,
+	).Scan(&user.ID, &user.CreatedAt, &user.UpdatedAt)
+
+	if err != nil {
+		return nil, false, err
+	}
+
+	return user, true, nil
+}

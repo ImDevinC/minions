@@ -96,3 +96,21 @@ data:
     -- Remove opencode_password column (no longer using password authentication for SSE)
     -- SSE now relies on trusted pod network instead of per-minion credentials
     ALTER TABLE minions DROP COLUMN IF EXISTS opencode_password;
+
+---
+# GitHub Webhook approved repos configuration
+# Lists repos that can trigger minion spawning via PR comments
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: github-webhook-config
+  namespace: minions
+  labels:
+    app.kubernetes.io/name: github-webhook
+    app.kubernetes.io/part-of: minions
+data:
+  approved-repos.txt: |
+    # Add approved repos here, one per line (owner/repo format)
+    # Example:
+    # imdevinc/minions
+    # imdevinc/other-repo

@@ -79,6 +79,12 @@ type CreateMinionRequest struct {
 	MatrixEventID              string `json:"matrix_event_id,omitempty"`
 	MatrixRoomID               string `json:"matrix_room_id,omitempty"`
 	MatrixUserID               string `json:"matrix_user_id,omitempty"`
+	// GitHub PR feedback flow fields
+	Branch          string `json:"branch,omitempty"`            // Target branch to clone
+	SourcePRURL     string `json:"source_pr_url,omitempty"`     // PR URL being addressed
+	GitHubCommentID string `json:"github_comment_id,omitempty"` // Comment ID that triggered this
+	GitHubUserID    string `json:"github_user_id,omitempty"`    // GitHub user ID
+	GitHubUsername  string `json:"github_username,omitempty"`   // GitHub username
 }
 
 // CreateMinionResponse is the response body for POST /api/minions.
@@ -125,8 +131,10 @@ func (h *MinionHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 			platform = db.PlatformDiscord
 		case db.PlatformMatrix:
 			platform = db.PlatformMatrix
+		case db.PlatformGitHub:
+			platform = db.PlatformGitHub
 		default:
-			h.writeError(w, http.StatusBadRequest, "invalid platform: must be discord or matrix", "INVALID_PLATFORM")
+			h.writeError(w, http.StatusBadRequest, "invalid platform: must be discord, matrix, or github", "INVALID_PLATFORM")
 			return
 		}
 	}
@@ -144,6 +152,10 @@ func (h *MinionHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if platform == db.PlatformMatrix && req.MatrixUserID == "" {
 		h.writeError(w, http.StatusBadRequest, "missing required field: matrix_user_id", "")
+		return
+	}
+	if platform == db.PlatformGitHub && req.GitHubUserID == "" {
+		h.writeError(w, http.StatusBadRequest, "missing required field: github_user_id", "")
 		return
 	}
 
@@ -190,7 +202,8 @@ func (h *MinionHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 	var user *db.User
 	var created bool
 	var err error
-	if platform == db.PlatformDiscord {
+	switch platform {
+	case db.PlatformDiscord:
 		user, created, err = h.users.GetOrCreate(r.Context(), req.DiscordUserID, req.DiscordUsername)
 		if err != nil {
 			h.logger.Error("failed to get or create user", "error", err, "discord_id", req.DiscordUserID)
@@ -200,7 +213,7 @@ func (h *MinionHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 		if created {
 			h.logger.Info("created new user", "user_id", user.ID, "discord_id", req.DiscordUserID)
 		}
-	} else {
+	case db.PlatformMatrix:
 		user, created, err = h.users.GetOrCreateByMatrixID(r.Context(), req.MatrixUserID)
 		if err != nil {
 			h.logger.Error("failed to get or create user", "error", err, "matrix_id", req.MatrixUserID)
@@ -209,6 +222,16 @@ func (h *MinionHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		if created {
 			h.logger.Info("created new user", "user_id", user.ID, "matrix_id", req.MatrixUserID)
+		}
+	case db.PlatformGitHub:
+		user, created, err = h.users.GetOrCreateByGitHubID(r.Context(), req.GitHubUserID, req.GitHubUsername)
+		if err != nil {
+			h.logger.Error("failed to get or create user", "error", err, "github_id", req.GitHubUserID)
+			h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+			return
+		}
+		if created {
+			h.logger.Info("created new user", "user_id", user.ID, "github_id", req.GitHubUserID)
 		}
 	}
 
@@ -247,6 +270,9 @@ func (h *MinionHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 		DiscordChannelID:           req.DiscordChannelID,
 		MatrixEventID:              req.MatrixEventID,
 		MatrixRoomID:               req.MatrixRoomID,
+		Branch:                     req.Branch,
+		SourcePRURL:                req.SourcePRURL,
+		GitHubCommentID:            req.GitHubCommentID,
 	})
 	if err != nil {
 		h.logger.Error("failed to create minion", "error", err, "user_id", user.ID)
@@ -1107,6 +1133,44 @@ func (h *MinionHandler) HandleGetByMatrixClarificationEventID(w http.ResponseWri
 		ClarificationQuestion: minion.ClarificationQuestion,
 		MatrixRoomID:          minion.MatrixRoomID,
 		MatrixUserID:          matrixUserID,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		h.logger.Error("failed to encode response", "error", err)
+	}
+}
+
+// HandleGetActiveForPR handles GET /api/minions/active-for-pr?pr_url=...
+// Returns the active minion (pending/running) for a given PR URL, if any.
+// Used by github-webhook to enforce "one minion per PR at a time" rule.
+func (h *MinionHandler) HandleGetActiveForPR(w http.ResponseWriter, r *http.Request) {
+	prURL := r.URL.Query().Get("pr_url")
+	if prURL == "" {
+		h.writeError(w, http.StatusBadRequest, "pr_url query parameter is required", "MISSING_PR_URL")
+		return
+	}
+
+	minion, err := h.minions.GetActiveBySourcePRURL(r.Context(), prURL)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			h.writeError(w, http.StatusNotFound, "no active minion for this PR", "NOT_FOUND")
+			return
+		}
+		h.logger.Error("failed to get active minion for PR", "error", err, "pr_url", prURL)
+		h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+		return
+	}
+
+	resp := struct {
+		ID        string `json:"id"`
+		Status    string `json:"status"`
+		CreatedAt string `json:"created_at"`
+	}{
+		ID:        minion.ID.String(),
+		Status:    string(minion.Status),
+		CreatedAt: minion.CreatedAt.Format(time.RFC3339),
 	}
 
 	w.Header().Set("Content-Type", "application/json")

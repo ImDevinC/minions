@@ -112,7 +112,7 @@ func (m *mockScanner) Scan(dest ...any) error {
 }
 
 func TestScanMinion(t *testing.T) {
-	// Create test data for all 29 fields
+	// Create test data for all 32 fields
 	testID := uuid.New()
 	testUserID := uuid.New()
 	now := time.Now().Truncate(time.Microsecond)
@@ -124,6 +124,8 @@ func TestScanMinion(t *testing.T) {
 	messageID := "987654321"
 	matrixEventID := "$event123"
 	matrixRoomID := "!room:matrix.org"
+	branch := "feat/my-feature"
+	sourcePRURL := "https://github.com/org/repo/pull/42"
 
 	scanner := &mockScanner{
 		values: []any{
@@ -152,6 +154,9 @@ func TestScanMinion(t *testing.T) {
 			channelID,           // DiscordChannelID (*string)
 			matrixEventID,       // MatrixEventID (*string)
 			matrixRoomID,        // MatrixRoomID (*string)
+			branch,              // Branch (*string)
+			sourcePRURL,         // SourcePRURL (*string)
+			nil,                 // GitHubCommentID (*string)
 			now,                 // CreatedAt
 			now,                 // StartedAt (*time.Time)
 			nil,                 // CompletedAt (*time.Time)
@@ -239,6 +244,15 @@ func TestScanMinion(t *testing.T) {
 	}
 	if m.MatrixRoomID == nil || *m.MatrixRoomID != matrixRoomID {
 		t.Errorf("MatrixRoomID: got %v, want %v", m.MatrixRoomID, &matrixRoomID)
+	}
+	if m.Branch == nil || *m.Branch != branch {
+		t.Errorf("Branch: got %v, want %v", m.Branch, &branch)
+	}
+	if m.SourcePRURL == nil || *m.SourcePRURL != sourcePRURL {
+		t.Errorf("SourcePRURL: got %v, want %v", m.SourcePRURL, &sourcePRURL)
+	}
+	if m.GitHubCommentID != nil {
+		t.Errorf("GitHubCommentID: got %v, want nil", m.GitHubCommentID)
 	}
 	if !m.CreatedAt.Equal(now) {
 		t.Errorf("CreatedAt: got %v, want %v", m.CreatedAt, now)

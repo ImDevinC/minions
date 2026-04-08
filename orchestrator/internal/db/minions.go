@@ -37,6 +37,7 @@ const minionSelectColumns = `id, user_id, repo, task, model, status, platform,
 	input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens, cost_usd,
 	pr_url, error, session_id, pod_name,
 	discord_message_id, discord_channel_id, matrix_event_id, matrix_room_id,
+	branch, source_pr_url, github_comment_id,
 	created_at, started_at, completed_at, last_activity_at`
 
 // minionSelectColumnsWithPrefix is the prefixed version for JOINs.
@@ -45,9 +46,10 @@ const minionSelectColumnsWithPrefix = `m.id, m.user_id, m.repo, m.task, m.model,
 	m.input_tokens, m.output_tokens, m.reasoning_tokens, m.cache_read_tokens, m.cache_write_tokens, m.cost_usd,
 	m.pr_url, m.error, m.session_id, m.pod_name,
 	m.discord_message_id, m.discord_channel_id, m.matrix_event_id, m.matrix_room_id,
+	m.branch, m.source_pr_url, m.github_comment_id,
 	m.created_at, m.started_at, m.completed_at, m.last_activity_at`
 
-// scanMinion scans all 29 Minion fields from a row in canonical order.
+// scanMinion scans all 32 Minion fields from a row in canonical order.
 // The SELECT must match minionSelectColumns.
 func scanMinion(row Scanner) (*Minion, error) {
 	m := &Minion{}
@@ -57,6 +59,7 @@ func scanMinion(row Scanner) (*Minion, error) {
 		&m.InputTokens, &m.OutputTokens, &m.ReasoningTokens, &m.CacheReadTokens, &m.CacheWriteTokens, &m.CostUSD,
 		&m.PRURL, &m.Error, &m.SessionID, &m.PodName,
 		&m.DiscordMessageID, &m.DiscordChannelID, &m.MatrixEventID, &m.MatrixRoomID,
+		&m.Branch, &m.SourcePRURL, &m.GitHubCommentID,
 		&m.CreatedAt, &m.StartedAt, &m.CompletedAt, &m.LastActivityAt,
 	)
 	if err != nil {
@@ -65,7 +68,7 @@ func scanMinion(row Scanner) (*Minion, error) {
 	return m, nil
 }
 
-// scanMinionWithOwner scans all 29 Minion fields plus owner IDs (30th, 31st fields).
+// scanMinionWithOwner scans all 32 Minion fields plus owner IDs (33rd, 34th fields).
 // Used for queries that JOIN users table for owner validation.
 func scanMinionWithOwner(row Scanner) (*MinionWithOwner, error) {
 	m := &MinionWithOwner{}
@@ -75,6 +78,7 @@ func scanMinionWithOwner(row Scanner) (*MinionWithOwner, error) {
 		&m.InputTokens, &m.OutputTokens, &m.ReasoningTokens, &m.CacheReadTokens, &m.CacheWriteTokens, &m.CostUSD,
 		&m.PRURL, &m.Error, &m.SessionID, &m.PodName,
 		&m.DiscordMessageID, &m.DiscordChannelID, &m.MatrixEventID, &m.MatrixRoomID,
+		&m.Branch, &m.SourcePRURL, &m.GitHubCommentID,
 		&m.CreatedAt, &m.StartedAt, &m.CompletedAt, &m.LastActivityAt,
 		&m.OwnerDiscordID, &m.OwnerMatrixID,
 	)
@@ -90,6 +94,7 @@ type Platform string
 const (
 	PlatformDiscord Platform = "discord"
 	PlatformMatrix  Platform = "matrix"
+	PlatformGitHub  Platform = "github"
 )
 
 // MinionStatus represents the lifecycle state of a minion.
@@ -131,6 +136,9 @@ type Minion struct {
 	DiscordChannelID           *string
 	MatrixEventID              *string // Matrix event ID of original command
 	MatrixRoomID               *string // Matrix room ID for notifications
+	Branch                     *string // Target branch for PR feedback flow
+	SourcePRURL                *string // PR URL this minion is addressing (set at creation)
+	GitHubCommentID            *string // GitHub comment ID that triggered this minion
 	CreatedAt                  time.Time
 	StartedAt                  *time.Time
 	CompletedAt                *time.Time
@@ -152,6 +160,9 @@ type CreateMinionParams struct {
 	DiscordChannelID           string
 	MatrixEventID              string
 	MatrixRoomID               string
+	Branch                     string // Target branch for PR feedback flow
+	SourcePRURL                string // PR URL this minion is addressing
+	GitHubCommentID            string // GitHub comment ID that triggered this minion
 }
 
 // MinionStore handles minion database operations.
@@ -209,16 +220,27 @@ func (s *MinionStore) Create(ctx context.Context, params CreateMinionParams) (*M
 	if params.MatrixRoomID != "" {
 		minion.MatrixRoomID = &params.MatrixRoomID
 	}
+	if params.Branch != "" {
+		minion.Branch = &params.Branch
+	}
+	if params.SourcePRURL != "" {
+		minion.SourcePRURL = &params.SourcePRURL
+	}
+	if params.GitHubCommentID != "" {
+		minion.GitHubCommentID = &params.GitHubCommentID
+	}
 
 	err := s.pool.QueryRow(ctx,
 		`INSERT INTO minions (id, user_id, repo, task, model, status, platform,
 		 clarification_question, clarification_message_id, matrix_clarification_event_id,
-		 discord_message_id, discord_channel_id, matrix_event_id, matrix_room_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		 discord_message_id, discord_channel_id, matrix_event_id, matrix_room_id,
+		 branch, source_pr_url, github_comment_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 		 RETURNING created_at, last_activity_at`,
 		minion.ID, minion.UserID, minion.Repo, minion.Task, minion.Model, minion.Status, minion.Platform,
 		minion.ClarificationQuestion, minion.ClarificationMessageID, minion.MatrixClarificationEventID,
 		minion.DiscordMessageID, minion.DiscordChannelID, minion.MatrixEventID, minion.MatrixRoomID,
+		minion.Branch, minion.SourcePRURL, minion.GitHubCommentID,
 	).Scan(&minion.CreatedAt, &minion.LastActivityAt)
 
 	if err != nil {
@@ -353,16 +375,27 @@ func (s *MinionStore) CreateOrFindDuplicate(ctx context.Context, params CreateMi
 	if params.MatrixRoomID != "" {
 		minion.MatrixRoomID = &params.MatrixRoomID
 	}
+	if params.Branch != "" {
+		minion.Branch = &params.Branch
+	}
+	if params.SourcePRURL != "" {
+		minion.SourcePRURL = &params.SourcePRURL
+	}
+	if params.GitHubCommentID != "" {
+		minion.GitHubCommentID = &params.GitHubCommentID
+	}
 
 	err = tx.QueryRow(ctx,
 		`INSERT INTO minions (id, user_id, repo, task, model, status, platform,
 		 clarification_question, clarification_message_id, matrix_clarification_event_id,
-		 discord_message_id, discord_channel_id, matrix_event_id, matrix_room_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		 discord_message_id, discord_channel_id, matrix_event_id, matrix_room_id,
+		 branch, source_pr_url, github_comment_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 		 RETURNING created_at, last_activity_at`,
 		minion.ID, minion.UserID, minion.Repo, minion.Task, minion.Model, minion.Status, minion.Platform,
 		minion.ClarificationQuestion, minion.ClarificationMessageID, minion.MatrixClarificationEventID,
 		minion.DiscordMessageID, minion.DiscordChannelID, minion.MatrixEventID, minion.MatrixRoomID,
+		minion.Branch, minion.SourcePRURL, minion.GitHubCommentID,
 	).Scan(&minion.CreatedAt, &minion.LastActivityAt)
 
 	if err != nil {
@@ -961,12 +994,7 @@ type MinionWithOwner struct {
 // Used for processing replies to clarification questions.
 func (s *MinionStore) GetByClarificationMessageID(ctx context.Context, messageID string) (*MinionWithOwner, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT m.id, m.user_id, m.repo, m.task, m.model, m.status, m.platform,
-		        m.clarification_question, m.clarification_answer, m.clarification_message_id, m.matrix_clarification_event_id,
-		        m.input_tokens, m.output_tokens, m.reasoning_tokens, m.cache_read_tokens, m.cache_write_tokens, m.cost_usd,
-		        m.pr_url, m.error, m.session_id, m.pod_name,
-		        m.discord_message_id, m.discord_channel_id, m.matrix_event_id, m.matrix_room_id,
-		        m.created_at, m.started_at, m.completed_at, m.last_activity_at,
+		`SELECT `+minionSelectColumnsWithPrefix+`,
 		        u.discord_id, u.matrix_id
 		 FROM minions m
 		 JOIN users u ON m.user_id = u.id
@@ -1007,6 +1035,30 @@ func (s *MinionStore) GetByMatrixClarificationEventID(ctx context.Context, event
 	}
 
 	return m, nil
+}
+
+// GetActiveBySourcePRURL finds an active (pending or running) minion for the given PR URL.
+// Used to enforce "one minion per PR at a time" rule in PR feedback flow.
+// Returns ErrNotFound if no active minion exists for the PR.
+func (s *MinionStore) GetActiveBySourcePRURL(ctx context.Context, prURL string) (*Minion, error) {
+	row := s.pool.QueryRow(ctx,
+		`SELECT `+minionSelectColumns+`
+		 FROM minions
+		 WHERE source_pr_url = $1 AND status IN ('pending', 'running')
+		 ORDER BY created_at DESC
+		 LIMIT 1`,
+		prURL,
+	)
+
+	minion, err := scanMinion(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return minion, nil
 }
 
 // SetClarificationAnswerParams holds parameters for SetClarificationAnswer.
