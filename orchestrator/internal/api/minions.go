@@ -331,6 +331,7 @@ type ListMinionResponse struct {
 	Repo      string  `json:"repo"`
 	Task      string  `json:"task"`
 	Model     string  `json:"model"`
+	Platform  string  `json:"platform"`
 	PRURL     *string `json:"pr_url,omitempty"`
 	Error     *string `json:"error,omitempty"`
 	CostUSD   float64 `json:"cost_usd"`
@@ -420,6 +421,7 @@ func (h *MinionHandler) HandleList(w http.ResponseWriter, r *http.Request) {
 			Repo:      m.Repo,
 			Task:      m.Task,
 			Model:     m.Model,
+			Platform:  string(m.Platform),
 			PRURL:     m.PRURL,
 			Error:     m.Error,
 			CostUSD:   m.CostUSD,
@@ -442,6 +444,7 @@ type GetMinionResponse struct {
 	Task                   string         `json:"task"`
 	Model                  string         `json:"model"`
 	Status                 string         `json:"status"`
+	Platform               string         `json:"platform"`
 	ClarificationQuestion  *string        `json:"clarification_question,omitempty"`
 	ClarificationAnswer    *string        `json:"clarification_answer,omitempty"`
 	ClarificationMessageID *string        `json:"clarification_message_id,omitempty"`
@@ -505,6 +508,7 @@ func (h *MinionHandler) HandleGet(w http.ResponseWriter, r *http.Request) {
 		Task:                   minion.Task,
 		Model:                  minion.Model,
 		Status:                 string(minion.Status),
+		Platform:               string(minion.Platform),
 		ClarificationQuestion:  minion.ClarificationQuestion,
 		ClarificationAnswer:    minion.ClarificationAnswer,
 		ClarificationMessageID: minion.ClarificationMessageID,
