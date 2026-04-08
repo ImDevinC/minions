@@ -289,8 +289,8 @@ func (h *WebhookHandler) processComment(ctx context.Context, info commentInfo) {
 		"user", info.userLogin,
 	)
 
-	// Check if repo is approved
-	if !h.approvedRepos[info.repo] {
+	// Check if repo is approved (case-insensitive)
+	if !h.approvedRepos[strings.ToLower(info.repo)] {
 		logger.Debug("ignoring comment from unapproved repo")
 		return
 	}
