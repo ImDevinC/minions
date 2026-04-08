@@ -133,16 +133,15 @@ func (s *UserStore) GetOrCreateByMatrixID(ctx context.Context, matrixID string) 
 	}
 
 	// User doesn't exist, create new one
+	// Note: discord_id/discord_username are NULL for Matrix-only users
 	user = &User{
 		ID:       uuid.New(),
 		MatrixID: &matrixID,
 	}
 
 	err = s.pool.QueryRow(ctx,
-		`INSERT INTO users (id, discord_id, discord_username, matrix_id)
-		 VALUES ($1, '', '', $2)
-		 ON CONFLICT (matrix_id) DO UPDATE SET
-		   updated_at = NOW()
+		`INSERT INTO users (id, matrix_id)
+		 VALUES ($1, $2)
 		 RETURNING id, created_at, updated_at`,
 		user.ID, matrixID,
 	).Scan(&user.ID, &user.CreatedAt, &user.UpdatedAt)
@@ -202,6 +201,7 @@ func (s *UserStore) GetOrCreateByGitHubID(ctx context.Context, githubID, githubU
 	// User doesn't exist, create new one
 	// Note: No ON CONFLICT needed since we already checked for existing user above.
 	// The unique index on github_id will prevent duplicates in race conditions.
+	// discord_id/discord_username are NULL for GitHub-only users
 	user = &User{
 		ID:             uuid.New(),
 		GitHubID:       &githubID,
@@ -209,8 +209,8 @@ func (s *UserStore) GetOrCreateByGitHubID(ctx context.Context, githubID, githubU
 	}
 
 	err = s.pool.QueryRow(ctx,
-		`INSERT INTO users (id, discord_id, discord_username, github_id, github_username)
-		 VALUES ($1, '', '', $2, $3)
+		`INSERT INTO users (id, github_id, github_username)
+		 VALUES ($1, $2, $3)
 		 RETURNING id, created_at, updated_at`,
 		user.ID, githubID, githubUsername,
 	).Scan(&user.ID, &user.CreatedAt, &user.UpdatedAt)
