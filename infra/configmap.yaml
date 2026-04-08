@@ -97,6 +97,68 @@ data:
     -- SSE now relies on trusted pod network instead of per-minion credentials
     ALTER TABLE minions DROP COLUMN IF EXISTS opencode_password;
 
+  007_add_token_detail_fields.sql: |
+    -- Add granular token tracking fields for better cost analysis
+    ALTER TABLE minions ADD COLUMN IF NOT EXISTS reasoning_tokens BIGINT NOT NULL DEFAULT 0;
+    ALTER TABLE minions ADD COLUMN IF NOT EXISTS cache_read_tokens BIGINT NOT NULL DEFAULT 0;
+    ALTER TABLE minions ADD COLUMN IF NOT EXISTS cache_write_tokens BIGINT NOT NULL DEFAULT 0;
+    COMMENT ON COLUMN minions.reasoning_tokens IS 'Extended thinking tokens (Claude models)';
+    COMMENT ON COLUMN minions.cache_read_tokens IS 'Prompt cache read tokens';
+    COMMENT ON COLUMN minions.cache_write_tokens IS 'Prompt cache write tokens';
+
+  008_add_matrix_fields.sql: |
+    -- Migration: 008_add_matrix_fields.sql
+    -- Adds Matrix-specific fields for Matrix bot integration
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS matrix_id TEXT;
+    CREATE INDEX IF NOT EXISTS idx_users_matrix_id ON users(matrix_id) WHERE matrix_id IS NOT NULL;
+    ALTER TABLE minions ADD COLUMN IF NOT EXISTS matrix_event_id TEXT;
+    ALTER TABLE minions ADD COLUMN IF NOT EXISTS matrix_room_id TEXT;
+    ALTER TABLE minions ADD COLUMN IF NOT EXISTS matrix_clarification_event_id TEXT;
+    ALTER TABLE minions ADD COLUMN IF NOT EXISTS platform TEXT NOT NULL DEFAULT 'discord';
+    ALTER TABLE minions ADD CONSTRAINT minions_platform_check CHECK (platform IN ('discord', 'matrix'));
+    COMMENT ON COLUMN users.matrix_id IS 'Matrix user ID (e.g., @user:matrix.org)';
+    COMMENT ON COLUMN minions.matrix_event_id IS 'Matrix event ID that triggered this minion';
+    COMMENT ON COLUMN minions.matrix_room_id IS 'Matrix room ID where the minion was requested';
+    COMMENT ON COLUMN minions.matrix_clarification_event_id IS 'Matrix event ID for clarification reply lookup';
+    COMMENT ON COLUMN minions.platform IS 'Platform that initiated the minion: discord or matrix';
+
+  009_add_matrix_id_unique_constraint.sql: |
+    -- Add unique constraint on matrix_id for ON CONFLICT support
+    ALTER TABLE users ADD CONSTRAINT users_matrix_id_unique UNIQUE (matrix_id);
+
+  010_add_github_fields.sql: |
+    -- Migration: 010_add_github_fields.sql
+    -- Adds GitHub user identity and PR feedback flow support
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS github_id TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS github_username TEXT;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_github_id ON users(github_id) WHERE github_id IS NOT NULL;
+    ALTER TABLE minions ADD COLUMN IF NOT EXISTS branch TEXT;
+    ALTER TABLE minions ADD COLUMN IF NOT EXISTS source_pr_url TEXT;
+    ALTER TABLE minions ADD COLUMN IF NOT EXISTS github_comment_id TEXT;
+    ALTER TABLE minions DROP CONSTRAINT IF EXISTS minions_platform_check;
+    ALTER TABLE minions ADD CONSTRAINT minions_platform_check CHECK (platform IN ('discord', 'matrix', 'github'));
+    CREATE INDEX IF NOT EXISTS idx_minions_source_pr_active ON minions(source_pr_url) WHERE source_pr_url IS NOT NULL AND status IN ('pending', 'running');
+    COMMENT ON COLUMN users.github_id IS 'GitHub user ID (numeric as text)';
+    COMMENT ON COLUMN users.github_username IS 'GitHub username at time of last interaction';
+    COMMENT ON COLUMN minions.branch IS 'Target branch to clone (for PR feedback flow)';
+    COMMENT ON COLUMN minions.source_pr_url IS 'PR URL this minion is addressing (set at creation, not completion)';
+    COMMENT ON COLUMN minions.github_comment_id IS 'GitHub comment ID that triggered this minion';
+
+  011_fix_user_constraints.sql: |
+    -- Migration: 011_fix_user_constraints.sql
+    -- Fix user table constraints to support multi-platform users (Discord, Matrix, GitHub)
+    -- Previously discord_id was NOT NULL which breaks when creating Matrix/GitHub-only users
+    ALTER TABLE users ALTER COLUMN discord_id DROP NOT NULL;
+    ALTER TABLE users ALTER COLUMN discord_username DROP NOT NULL;
+    UPDATE users SET discord_id = NULL WHERE discord_id = '';
+    UPDATE users SET discord_username = NULL WHERE discord_username = '';
+    ALTER TABLE users DROP CONSTRAINT IF EXISTS users_discord_id_unique;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_discord_id_unique ON users(discord_id) WHERE discord_id IS NOT NULL;
+    ALTER TABLE users DROP CONSTRAINT IF EXISTS users_matrix_id_unique;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_matrix_id_unique ON users(matrix_id) WHERE matrix_id IS NOT NULL;
+    COMMENT ON COLUMN users.discord_id IS 'Discord user ID (snowflake as text), NULL for non-Discord users';
+    COMMENT ON COLUMN users.discord_username IS 'Discord username at time of last login, NULL for non-Discord users';
+
 ---
 # GitHub Webhook approved repos configuration
 # Lists repos that can trigger minion spawning via PR comments
