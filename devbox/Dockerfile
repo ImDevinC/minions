@@ -22,6 +22,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# Install Docker CLI (client only, no daemon)
+# The Docker CLI can connect to remote Docker daemons or be used with DinD sidecars
+RUN curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian bookworm stable" \
+    | tee /etc/apt/sources.list.d/docker.list > /dev/null \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends docker-ce-cli docker-buildx-plugin \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Buildah and Skopeo for rootless container image building and inspection
+# Buildah can build OCI/Docker images without requiring a daemon or root privileges
+# Skopeo can inspect and copy container images for validation
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    buildah \
+    skopeo \
+    fuse-overlayfs \
+    uidmap \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install Go
 RUN ARCH=$(dpkg --print-architecture) \
     && case "$ARCH" in \
@@ -105,7 +124,11 @@ RUN git --version \
     && node --version \
     && npm --version \
     && gh --version | head -n1 \
-    && opencode --version
+    && opencode --version \
+    && docker --version \
+    && docker buildx version \
+    && buildah --version \
+    && skopeo --version
 
 # Use entrypoint script
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

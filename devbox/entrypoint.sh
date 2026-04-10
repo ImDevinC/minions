@@ -49,7 +49,12 @@ die() {
 setup_config() {
     log "Setting up OpenCode configuration"
     mkdir -p ~/.config/opencode
-    cp -r /etc/opencode/* ~/.config/opencode/
+    # Copy opencode config files (skip containers directory)
+    for item in /etc/opencode/*; do
+        if [[ "$(basename "$item")" != "containers" ]]; then
+            cp -r "$item" ~/.config/opencode/
+        fi
+    done
 
     # Symlink auth.json if mounted (for LLM provider authentication)
     # Uses symlink so token refreshes write back to the PVC
@@ -57,6 +62,19 @@ setup_config() {
         mkdir -p ~/.local/share/opencode
         ln -sf /etc/opencode-share/auth.json ~/.local/share/opencode/auth.json
         log "Linked auth.json from PVC to OpenCode data directory"
+    fi
+
+    # Set up containers configuration for Buildah/Skopeo (rootless container builds)
+    # These tools need config files in ~/.config/containers/
+    if [[ -d /etc/opencode/containers ]]; then
+        log "Setting up containers configuration for Buildah/Skopeo"
+        mkdir -p ~/.config/containers
+        cp -r /etc/opencode/containers/* ~/.config/containers/
+        
+        # Create required directories for rootless container storage
+        # These are used by Buildah's VFS storage driver
+        mkdir -p /tmp/containers/run /tmp/containers/storage
+        log "Containers configuration ready for rootless builds"
     fi
 }
 
