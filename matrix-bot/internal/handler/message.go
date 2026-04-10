@@ -314,12 +314,9 @@ func (h *MessageHandler) HandleReply(ctx context.Context, evt *event.Event) {
 	}
 
 	// Check if this is a reply to another message
-	relatesTo := content.RelatesTo
-	if relatesTo == nil || relatesTo.InReplyTo == nil {
-		return
-	}
-
-	replyToEventID := relatesTo.InReplyTo.EventID
+	// GetReplyTo() handles both simple replies and threaded replies,
+	// returning the event ID the user clicked "reply" on
+	replyToEventID := content.RelatesTo.GetReplyTo()
 	if replyToEventID == "" {
 		return
 	}
@@ -332,12 +329,14 @@ func (h *MessageHandler) HandleReply(ctx context.Context, evt *event.Event) {
 	minion, err := h.orchestrator.GetByMatrixClarificationEventID(opCtx, string(replyToEventID))
 	if err != nil {
 		if errors.Is(err, orchestrator.ErrClarificationNotFound) {
-			// Not a clarification message, ignore
+			// Not a clarification message, ignore silently - this is expected for most replies
 			return
 		}
 		h.logger.Error("failed to look up clarification",
 			"error", err,
 			"reply_to_event_id", replyToEventID,
+			"sender", evt.Sender,
+			"room_id", evt.RoomID,
 		)
 		return
 	}
