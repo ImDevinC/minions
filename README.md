@@ -1,6 +1,6 @@
 # Minions
 
-Discord bot that spawns ephemeral Kubernetes pods to execute coding tasks using AI (OpenCode).
+Chat bot (Discord/Matrix) that spawns ephemeral Kubernetes pods to execute coding tasks using AI (OpenCode).
 
 ```
 @minion --repo owner/repo Add a /health endpoint
@@ -9,12 +9,12 @@ Discord bot that spawns ephemeral Kubernetes pods to execute coding tasks using 
 ## Architecture
 
 ```
-Discord       Orchestrator (Go)          K8s Pods           Control Panel
-   │               │                        │                     │
-   │──@minion────▶│──spawn pod────────────▶│                     │
-   │               │◀──SSE events──────────│                     │
-   │               │──WebSocket broadcast──────────────────────▶│
-   │◀──PR URL─────│◀──callback─────────────│                     │
+Discord/Matrix    Orchestrator (Go)          K8s Pods           Control Panel
+      │                 │                        │                     │
+      │──@minion──────▶│──spawn pod────────────▶│                     │
+      │                 │◀──SSE events──────────│                     │
+      │                 │──WebSocket broadcast──────────────────────▶│
+      │◀──PR URL───────│◀──callback─────────────│                     │
 ```
 
 The orchestrator manages pod lifecycle, streams events to a PostgreSQL database, and broadcasts live updates to the control panel via WebSocket.
@@ -27,6 +27,8 @@ See [docs/architecture.md](docs/architecture.md) for the full design.
 |-----------|-------------|
 | `orchestrator/` | Go service: REST API, K8s pod management, event streaming |
 | `discord-bot/` | Go service: Discord gateway, command parsing, clarification flow |
+| `matrix-bot/` | Go service: Matrix gateway, command parsing, clarification flow |
+| `github-webhook/` | Go service: GitHub PR feedback, @mention handling |
 | `control-panel/` | Next.js app: dashboard, live logs, cost tracking |
 | `devbox/` | Dockerfile + entrypoint for minion pods |
 | `schema/` | PostgreSQL migrations |
@@ -97,7 +99,7 @@ go run ./cmd/bot
 cd control-panel
 
 cp .env.example .env.local
-# Edit .env.local with your Discord OAuth credentials
+# Edit .env.local with your OIDC provider credentials
 
 npm install
 npm run dev
@@ -112,7 +114,9 @@ docker build -t minions-devbox:latest devbox/
 ## Setup Guides
 
 - [GitHub App Setup](docs/setup/github-app.md) - Create and configure the GitHub App
-- [Discord App Setup](docs/setup/discord-app.md) - Create the Discord bot and OAuth
+- [Discord Bot Setup](docs/setup/discord-bot.md) - Create the Discord bot
+- [Matrix Bot Setup](docs/setup/matrix-bot.md) - Create the Matrix bot
+- [GitHub Webhook Setup](docs/setup/github-webhook.md) - Enable PR feedback via @mentions
 - [Kubernetes Deployment](docs/setup/kubernetes.md) - Deploy to a cluster
 
 ## Environment Variables
@@ -145,14 +149,39 @@ docker build -t minions-devbox:latest devbox/
 |----------|----------|-------------|
 | `NEXTAUTH_URL` | Yes | App URL (e.g., http://localhost:3000) |
 | `NEXTAUTH_SECRET` | Yes | Random 32+ char secret |
-| `DISCORD_CLIENT_ID` | Yes | Discord OAuth client ID |
-| `DISCORD_CLIENT_SECRET` | Yes | Discord OAuth client secret |
+| `OIDC_ISSUER` | Yes | OIDC provider issuer URL |
+| `OIDC_CLIENT_ID` | Yes | OIDC client ID |
+| `OIDC_CLIENT_SECRET` | Yes | OIDC client secret |
 | `ORCHESTRATOR_URL` | Yes | Orchestrator API URL |
 | `INTERNAL_API_TOKEN` | Yes | Shared secret for API auth |
-| `DISCORD_ALLOWED_GUILD_ID` | No | Restrict login to members of this guild ID |
-| `DISCORD_ALLOWED_ROLE_ID` | No | Restrict login to users with this role ID (requires guild ID) |
+| `OIDC_PROVIDER_NAME` | No | Display name on sign-in page (default: "OIDC") |
+| `OIDC_SCOPES` | No | OAuth scopes (default: "openid email profile") |
 
-> **Note:** Adding or changing `DISCORD_ALLOWED_GUILD_ID` or `DISCORD_ALLOWED_ROLE_ID` requires restarting the control panel because OAuth scopes are configured at startup.
+### Matrix Bot
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `MATRIX_HOMESERVER_URL` | Yes | Matrix homeserver URL (e.g., https://matrix.org) |
+| `MATRIX_BOT_USER_ID` | Yes | Bot user ID (e.g., @minion:matrix.org) |
+| `MATRIX_BOT_ACCESS_TOKEN` | Yes | Bot access token |
+| `ORCHESTRATOR_URL` | Yes | Orchestrator API URL |
+| `INTERNAL_API_TOKEN` | Yes | Shared secret for API auth |
+| `OPENROUTER_API_KEY` | Yes | For clarification LLM calls (OpenRouter) |
+| `OPENROUTER_CLARIFICATION_MODEL` | Yes | Model name used for clarification checks |
+| `MATRIX_ALLOWED_ROOMS` | No | Comma-separated room IDs to restrict to |
+| `MATRIX_ALLOWED_USERS` | No | Comma-separated user IDs to allow |
+| `CONTROL_PANEL_URL` | No | URL for minion status page links |
+
+### GitHub Webhook
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `GITHUB_APP_ID` | Yes | GitHub App ID |
+| `GITHUB_APP_PRIVATE_KEY` | Yes | GitHub App private key (PEM) |
+| `GITHUB_WEBHOOK_SECRET` | Yes | Webhook secret for signature verification |
+| `ORCHESTRATOR_URL` | Yes | Orchestrator API URL |
+| `INTERNAL_API_TOKEN` | Yes | Shared secret for API auth |
+| `APPROVED_REPOS_PATH` | No | Path to approved repos file (default: /config/approved-repos.txt) |
 
 ## License
 
