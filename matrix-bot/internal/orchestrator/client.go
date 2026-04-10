@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -149,8 +150,10 @@ type MinionByClarificationResponse struct {
 // GetByMatrixClarificationEventID looks up a minion by its Matrix clarification event ID.
 // Used to find the minion when a user replies to a clarification question.
 func (c *Client) GetByMatrixClarificationEventID(ctx context.Context, eventID string) (*MinionByClarificationResponse, error) {
-	url := fmt.Sprintf("%s/api/minions/by-matrix-clarification/%s", c.baseURL, eventID)
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	// URL-encode the event ID to handle special characters in Matrix event IDs
+	encodedEventID := url.PathEscape(eventID)
+	reqURL := fmt.Sprintf("%s/api/minions/by-matrix-clarification/%s", c.baseURL, encodedEventID)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
