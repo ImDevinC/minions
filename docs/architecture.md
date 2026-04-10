@@ -7,33 +7,47 @@
 │                                 MINIONS SYSTEM                                  │
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                 │
-│   Discord                                                                       │
-│   ┌────────────┐     ┌─────────────────────────────────────────────────────┐   │
-│   │   @minion  │────▶│              Orchestrator (Go)                      │   │
-│   │   --repo   │     │  • REST API                                         │   │
-│   │   <task>   │     │  • K8s pod lifecycle                                │   │
-│   └────────────┘     │  • WebSocket hub for log streaming                  │   │
-│         ▲            │  • Token/cost tracking                              │   │
-│         │            │  • Watchdog (30min idle alerts)                     │   │
-│         │            └─────────────────────────────────────────────────────┘   │
-│         │                              │                                        │
-│         │              ┌───────────────┼───────────────┐                        │
-│         │              ▼               ▼               ▼                        │
-│         │         ┌─────────┐    ┌──────────┐    ┌──────────┐                   │
-│         │         │ Pod #1  │    │ Pod #2   │    │ Pod #N   │                   │
-│         │         │         │    │          │    │          │                   │
-│         │         │opencode │    │opencode  │    │opencode  │                   │
-│         │         │ serve   │    │ serve    │    │ serve    │                   │
-│         │         │ :4096   │    │ :4096    │    │ :4096    │                   │
-│         │         └────┬────┘    └──────────┘    └──────────┘                   │
-│         │              │                                                        │
-│         │              │ SSE events                                             │
-│         │              ▼                                                        │
-│         └──────────────┴──── PR URL / termination / errors ────────────────────│
+│   Discord              Matrix               GitHub PR                           │
+│   ┌────────────┐       ┌────────────┐       ┌────────────┐                      │
+│   │   @minion  │       │   @minion  │       │  @minion   │                      │
+│   │   --repo   │       │   --repo   │       │  (comment) │                      │
+│   │   <task>   │       │   <task>   │       └─────┬──────┘                      │
+│   └─────┬──────┘       └─────┬──────┘             │                             │
+│         │                    │                    │                             │
+│         ▼                    ▼                    ▼                             │
+│   ┌────────────┐       ┌────────────┐       ┌────────────┐                      │
+│   │ discord-bot│       │ matrix-bot │       │github-webhk│                      │
+│   └─────┬──────┘       └─────┬──────┘       └─────┬──────┘                      │
+│         │                    │                    │                             │
+│         └────────────────────┴────────────────────┘                             │
+│                              │                                                  │
+│                              ▼                                                  │
+│         ┌─────────────────────────────────────────────────────┐                 │
+│         │              Orchestrator (Go)                      │                 │
+│         │  • REST API                                         │                 │
+│         │  • K8s pod lifecycle                                │                 │
+│         │  • WebSocket hub for log streaming                  │                 │
+│         │  • Token/cost tracking                              │                 │
+│         │  • Watchdog (30min idle alerts)                     │                 │
+│         └─────────────────────────────────────────────────────┘                 │
+│                              │                                                  │
+│              ┌───────────────┼───────────────┐                                  │
+│              ▼               ▼               ▼                                  │
+│         ┌─────────┐    ┌──────────┐    ┌──────────┐                             │
+│         │ Pod #1  │    │ Pod #2   │    │ Pod #N   │                             │
+│         │         │    │          │    │          │                             │
+│         │opencode │    │opencode  │    │opencode  │                             │
+│         │ serve   │    │ serve    │    │ serve    │                             │
+│         │ :4096   │    │ :4096    │    │ :4096    │                             │
+│         └────┬────┘    └──────────┘    └──────────┘                             │
+│              │                                                                  │
+│              │ SSE events                                                       │
+│              ▼                                                                  │
+│              └──── PR URL / termination / errors ──────────────────────────────│
 │                                                                                 │
 │   ┌────────────────────────────────────────────────────────────────────────┐   │
 │   │                    Control Panel (Next.js + React)                      │   │
-│   │  • Discord OAuth login                                                  │   │
+│   │  • OIDC login (any OIDC-compliant provider)                             │   │
 │   │  • List all minions (any authed user sees all)                          │   │
 │   │  • Live event log (WebSocket)                                           │   │
 │   │  • Terminate button                                                     │   │
@@ -52,14 +66,15 @@
 
 ## Data Flow
 
-### 1. Command Invocation
+### 1. Command Invocation (Discord/Matrix)
 
 ```
 User: @minion --repo ImDevinC/go-fifa Add a /health endpoint
                     │
                     ▼
          ┌──────────────────┐
-         │   Discord Bot    │
+         │ Discord/Matrix   │
+         │     Bot          │
          │                  │
          │ 1. Parse command │
          │ 2. Insert minion │
@@ -81,11 +96,41 @@ User: @minion --repo ImDevinC/go-fifa Add a /health endpoint
    [Question]          [READY]
         │                   │
         ▼                   ▼
-   Reply to Discord    Spawn Minion
+   Reply to chat       Spawn Minion
    Wait for answer          │
         │                   │
         ▼                   │
    User replies ────────────┘
+```
+
+### 1b. PR Feedback Invocation (GitHub Webhook)
+
+```
+PR Comment: "@minions-bot please fix the typo"
+                    │
+                    ▼
+         ┌──────────────────┐
+         │  GitHub Webhook  │
+         │                  │
+         │ 1. Verify sig    │
+         │ 2. Check repo    │
+         │    allowlist     │
+         │ 3. Extract task  │
+         │    from comment  │
+         └────────┬─────────┘
+                  │
+                  ▼
+         ┌──────────────────┐
+         │  Orchestrator    │
+         │                  │
+         │ Spawn minion     │
+         │ with PR branch   │
+         │ (no clarify)     │
+         └────────┬─────────┘
+                  │
+                  ▼
+         Minion pushes fix
+         to existing PR branch
 ```
 
 ### 2. Pod Lifecycle
@@ -207,18 +252,19 @@ Minions run until completion, failure, or manual termination. A watchdog alerts 
 
 ### Tables
 
-**users**: Discord OAuth sessions
+**users**: User accounts (multi-platform)
 ```sql
-id, discord_id, discord_username, avatar_url, created_at
+id, discord_id, discord_username, matrix_id, github_id, github_username,
+avatar_url, created_at
 ```
 
 **minions**: Task runs
 ```sql
-id, status, repo, task,
+id, status, repo, task, branch, source_pr_url,
 clarification_state, clarification_question, clarification_answer, clarification_message_id,
-model, discord_*, pod_*, session_id,
-pr_url, error_message, terminated_by_discord_id,
-input_tokens, output_tokens, estimated_cost_usd,
+model, discord_*, matrix_*, github_*, pod_*, session_id,
+pr_url, error_message, terminated_by_user_id,
+input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens, cost_usd,
 last_activity_at, created_at, started_at, completed_at
 ```
 
@@ -257,20 +303,26 @@ id, minion_id, timestamp, event_type, content (JSONB)
 │                                                         │   │
 │   ┌─────────────┐     ┌─────────────┐                   │   │
 │   │ Discord Bot │     │Control Panel│                   │   │
-│   │             │────▶│   :3000     │                   │   │
+│   │   :8081     │     │   :3000     │                   │   │
+│   └─────────────┘     └─────────────┘                   │   │
+│                                                         │   │
+│   ┌─────────────┐     ┌─────────────┐                   │   │
+│   │ Matrix Bot  │     │github-webhk │                   │   │
+│   │   :8081     │     │   :8080     │                   │   │
 │   └─────────────┘     └─────────────┘                   │   │
 │                                                         │   │
 └─────────────────────────────────────────────────────────────┘
 
 External:
   - Discord API (bot commands, webhooks)
-  - GitHub API (clone, push, PR)
-  - LLM APIs (Anthropic, OpenAI)
+  - Matrix homeservers (bot sync, messages)
+  - GitHub API (clone, push, PR, webhooks)
+  - LLM APIs (Anthropic, OpenAI via OpenRouter)
 ```
 
 ## Security Considerations
 
-1. **API Authentication**: Orchestrator API protected by shared secret (`INTERNAL_API_TOKEN`). Discord bot and control panel must include `Authorization: Bearer <token>` header.
+1. **API Authentication**: Orchestrator API protected by shared secret (`INTERNAL_API_TOKEN`). All services (Discord bot, Matrix bot, github-webhook, control panel) must include `Authorization: Bearer <token>` header.
 2. **Pod Security Context**: Devbox pods run with restricted privileges:
    - `runAsNonRoot: true`
    - `allowPrivilegeEscalation: false`
@@ -281,7 +333,9 @@ External:
 5. **Network policies**: Devbox pods can only reach DNS (53), HTTPS (443), and orchestrator (8080)
 6. **Rate limiting**: Max 10 minions/hour per user, max 3 concurrent per user
 7. **No secrets in logs**: Token values never logged, only usage counts
-8. **Auth on control panel**: Discord OAuth required, any authed user can view/terminate (MVP)
+8. **Auth on control panel**: OIDC authentication required, any authed user can view/terminate (MVP)
+9. **GitHub webhook verification**: All webhook payloads verified using HMAC signature
+10. **Approved repos**: GitHub webhook only processes events from explicitly approved repositories
 
 ## Failure Modes
 

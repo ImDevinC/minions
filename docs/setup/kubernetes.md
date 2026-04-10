@@ -20,6 +20,16 @@ Deploy minions to a Kubernetes cluster. This guide walks through namespace setup
 │  │    :8080     │      │     :8081       │                  │
 │  └──────────────┘      └─────────────────┘                  │
 │         │                                                    │
+│         │              ┌─────────────────┐                  │
+│         │◄────────────►│   matrix-bot    │                  │
+│         │              │     :8081       │                  │
+│         │              └─────────────────┘                  │
+│         │                                                    │
+│         │              ┌─────────────────┐                  │
+│         │◄────────────►│ github-webhook  │                  │
+│         │              │     :8080       │                  │
+│         │              └─────────────────┘                  │
+│         │                                                    │
 │         ▼                                                    │
 │  ┌──────────────────────────────────────┐                   │
 │  │         devbox pods (ephemeral)       │                   │
@@ -134,15 +144,34 @@ kubectl create secret generic minions-llm-keys -n minions \
 # GitHub App (use --from-file for PEM key)
 kubectl create secret generic minions-github-app -n minions \
   --from-literal=GITHUB_APP_ID='123456' \
-  --from-file=GITHUB_APP_PRIVATE_KEY=./private-key.pem
+  --from-file=GITHUB_APP_PRIVATE_KEY=./private-key.pem \
+  --from-literal=GITHUB_WEBHOOK_SECRET="$(openssl rand -hex 32)"
+
+# GitHub webhook approved repos (create ConfigMap)
+kubectl create configmap github-webhook-repos -n minions \
+  --from-file=approved-repos.txt=./approved-repos.txt
 
 # Discord bot
 kubectl create secret generic minions-discord-bot -n minions \
   --from-literal=DISCORD_BOT_TOKEN='MTIz...'
 
+# Matrix bot
+kubectl create secret generic minions-matrix-bot -n minions \
+  --from-literal=MATRIX_HOMESERVER_URL='https://matrix.org' \
+  --from-literal=MATRIX_BOT_USER_ID='@minion:matrix.org' \
+  --from-literal=MATRIX_BOT_ACCESS_TOKEN='syt_xxxxx...'
+
 # Internal API token (generate with: openssl rand -hex 32)
 kubectl create secret generic minions-internal-api -n minions \
   --from-literal=INTERNAL_API_TOKEN="$(openssl rand -hex 32)"
+
+# Control panel (OIDC)
+kubectl create secret generic minions-control-panel -n minions \
+  --from-literal=NEXTAUTH_SECRET="$(openssl rand -hex 32)" \
+  --from-literal=NEXTAUTH_URL='https://control-panel.example.com' \
+  --from-literal=OIDC_ISSUER='https://your-oidc-provider.example.com' \
+  --from-literal=OIDC_CLIENT_ID='your-client-id' \
+  --from-literal=OIDC_CLIENT_SECRET='your-client-secret'
 ```
 
 ### Option B: Template manifests
@@ -470,6 +499,186 @@ spec:
       targetPort: http
 ```
 
+### Matrix Bot
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: matrix-bot
+  namespace: minions
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate  # Matrix sync doesn't support dual connections
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: matrix-bot
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: matrix-bot
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: matrix-bot
+          image: ghcr.io/imdevinc/minions/matrix-bot:latest
+          ports:
+            - name: http
+              containerPort: 8081
+          env:
+            - name: PORT
+              value: "8081"
+            - name: ORCHESTRATOR_URL
+              value: "http://orchestrator.minions.svc.cluster.local:8080"
+          envFrom:
+            - secretRef:
+                name: minions-matrix-bot
+            - secretRef:
+                name: minions-internal-api
+            - secretRef:
+                name: minions-llm-keys
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: matrix-bot
+  namespace: minions
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: matrix-bot
+  ports:
+    - name: http
+      port: 8081
+      targetPort: http
+```
+
+### GitHub Webhook
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: github-webhook-repos
+  namespace: minions
+data:
+  approved-repos.txt: |
+    # Add approved repos here, one per line
+    # myorg/myrepo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: github-webhook
+  namespace: minions
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: github-webhook
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: github-webhook
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: github-webhook
+          image: ghcr.io/imdevinc/minions/github-webhook:latest
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: PORT
+              value: "8080"
+            - name: ORCHESTRATOR_URL
+              value: "http://orchestrator.minions.svc.cluster.local:8080"
+            - name: APPROVED_REPOS_PATH
+              value: "/config/approved-repos.txt"
+          envFrom:
+            - secretRef:
+                name: minions-github-app
+            - secretRef:
+                name: minions-internal-api
+          volumeMounts:
+            - name: repos-config
+              mountPath: /config
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: repos-config
+          configMap:
+            name: github-webhook-repos
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: github-webhook
+  namespace: minions
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: github-webhook
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+```
+
 Apply:
 
 ```bash
@@ -481,15 +690,19 @@ kubectl apply -f infra/deployments.yaml
 ```bash
 # Check pods
 kubectl get pods -n minions
-# NAME                            READY   STATUS    RESTARTS   AGE
-# orchestrator-xxx                1/1     Running   0          1m
-# discord-bot-xxx                 1/1     Running   0          1m
+# NAME                              READY   STATUS    RESTARTS   AGE
+# orchestrator-xxx                  1/1     Running   0          1m
+# discord-bot-xxx                   1/1     Running   0          1m
+# matrix-bot-xxx                    1/1     Running   0          1m
+# github-webhook-xxx                1/1     Running   0          1m
 
 # Check services
 kubectl get svc -n minions
-# NAME           TYPE        CLUSTER-IP       PORT(S)
-# orchestrator   ClusterIP   10.96.xxx.xxx    8080/TCP
-# discord-bot    ClusterIP   10.96.xxx.xxx    8081/TCP
+# NAME             TYPE        CLUSTER-IP       PORT(S)
+# orchestrator     ClusterIP   10.96.xxx.xxx    8080/TCP
+# discord-bot      ClusterIP   10.96.xxx.xxx    8081/TCP
+# matrix-bot       ClusterIP   10.96.xxx.xxx    8081/TCP
+# github-webhook   ClusterIP   10.96.xxx.xxx    8080/TCP
 
 # Test health endpoints
 kubectl run curl --rm -it --image=curlimages/curl --restart=Never -n minions -- \
@@ -499,6 +712,8 @@ kubectl run curl --rm -it --image=curlimages/curl --restart=Never -n minions -- 
 # Check logs
 kubectl logs -n minions deployment/orchestrator -f
 kubectl logs -n minions deployment/discord-bot -f
+kubectl logs -n minions deployment/matrix-bot -f
+kubectl logs -n minions deployment/github-webhook -f
 ```
 
 ## 7. Expose Externally (Optional)
