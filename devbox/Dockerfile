@@ -34,12 +34,20 @@ RUN curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /
 # Install Buildah and Skopeo for rootless container image building and inspection
 # Buildah can build OCI/Docker images without requiring a daemon or root privileges
 # Skopeo can inspect and copy container images for validation
+# libcap2-bin provides setcap command for setting file capabilities
 RUN apt-get update && apt-get install -y --no-install-recommends \
     buildah \
     skopeo \
     fuse-overlayfs \
     uidmap \
+    libcap2-bin \
     && rm -rf /var/lib/apt/lists/*
+
+# Set file capabilities on newuidmap/newgidmap for rootless user namespace mapping
+# These binaries need CAP_SETUID and CAP_SETGID to write to /proc/self/uid_map
+# File capabilities work with non-root users (unlike pod-level capabilities)
+RUN setcap cap_setuid,cap_setgid=ep /usr/bin/newuidmap \
+    && setcap cap_setuid,cap_setgid=ep /usr/bin/newgidmap
 
 # Install Go
 RUN ARCH=$(dpkg --print-architecture) \

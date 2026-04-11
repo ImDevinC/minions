@@ -210,8 +210,8 @@ func (c *Client) deleteTaskConfigMap(ctx context.Context, minionID string) error
 //
 // Security context enforces:
 //   - runAsNonRoot: true (pod must run as non-root user)
-//   - allowPrivilegeEscalation: true (required for newuidmap/newgidmap setuid binaries)
-//   - All capabilities dropped, except SETUID/SETGID for buildah rootless builds
+//   - allowPrivilegeEscalation: true (required for file capabilities on newuidmap/newgidmap)
+//   - All capabilities dropped (newuidmap/newgidmap use file capabilities instead)
 //   - Read-only root filesystem (with writable tmpfs mounts)
 func (c *Client) SpawnPod(ctx context.Context, params SpawnParams) (string, error) {
 	minionIDStr := params.MinionID.String()
@@ -333,16 +333,15 @@ func (c *Client) SpawnPod(ctx context.Context, params SpawnParams) (string, erro
 						RunAsNonRoot: &trueVal,
 						RunAsUser:    &nonRootUID,
 						RunAsGroup:   &nonRootGID,
-						// Allow privilege escalation for newuidmap/newgidmap (rootless buildah)
-						// These setuid binaries need to elevate to write /proc/self/uid_map
-						// This is safe: still running as non-root, only SETUID/SETGID caps
+						// Allow privilege escalation for file capabilities on newuidmap/newgidmap
+						// These binaries have cap_setuid,cap_setgid=ep set via setcap in image
+						// They need privilege escalation to use these capabilities
 						AllowPrivilegeEscalation: &trueVal,
 						ReadOnlyRootFilesystem:   &trueVal,
 						Capabilities: &corev1.Capabilities{
+							// Drop all capabilities - newuidmap/newgidmap use file capabilities
+							// Pod-level capabilities don't work for non-root users (cleared on UID transition)
 							Drop: []corev1.Capability{"ALL"},
-							// Add minimal capabilities for buildah rootless container builds
-							// SETUID/SETGID enable user namespace mapping (newuidmap/newgidmap)
-							Add: []corev1.Capability{"SETUID", "SETGID"},
 						},
 					},
 					Env: c.buildEnvVars(params),
