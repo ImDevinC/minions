@@ -108,10 +108,12 @@ RUN ARCH=$(dpkg --print-architecture) \
 RUN groupadd -g 1000 minion \
     && useradd -u 1000 -g minion -m -s /bin/bash minion \
     && echo "minion:100000:65536" >> /etc/subuid \
-    && echo "minion:100000:65536" >> /etc/subgid
+    && echo "minion:100000:65536" >> /etc/subgid \
+    && echo "root:100000:65536" >> /etc/subuid \
+    && echo "root:100000:65536" >> /etc/subgid
 
 # Create workspace directory
-RUN mkdir -p /workspace && chown minion:minion /workspace
+RUN mkdir -p /workspace
 
 # Copy OpenCode configuration to /etc/opencode (read-only in image)
 # entrypoint.sh copies this to ~/.config/opencode/ at runtime since
@@ -124,9 +126,6 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # Set working directory
 WORKDIR /workspace
-
-# Switch to non-root user
-USER minion
 
 # Verify installations
 RUN git --version \
