@@ -240,7 +240,6 @@ buildah images
 - **Rootless builds** - Buildah uses VFS storage with user namespace mapping
 - **Ephemeral storage** - Images are lost when the container terminates
 - **No special flags needed** - User namespaces are properly configured
-- **No special flags needed** - User namespaces are properly configured
 - **Use buildah, not docker** - Docker daemon is not available; use `buildah` commands
 
 If a task involves building container images, use buildah to verify the build succeeds

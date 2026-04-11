@@ -210,7 +210,7 @@ func (c *Client) deleteTaskConfigMap(ctx context.Context, minionID string) error
 //
 // Security context enforces:
 //   - runAsNonRoot: true (pod must run as non-root user)
-//   - allowPrivilegeEscalation: false
+//   - allowPrivilegeEscalation: true (required for newuidmap/newgidmap setuid binaries)
 //   - All capabilities dropped, except SETUID/SETGID for buildah rootless builds
 //   - Read-only root filesystem (with writable tmpfs mounts)
 func (c *Client) SpawnPod(ctx context.Context, params SpawnParams) (string, error) {
@@ -226,7 +226,6 @@ func (c *Client) SpawnPod(ctx context.Context, params SpawnParams) (string, erro
 	// Non-root UID (matches devbox Dockerfile user)
 	nonRootUID := int64(1000)
 	nonRootGID := int64(1000)
-	falseVal := false
 	trueVal := true
 
 	// Build volume mounts - base mounts plus optional auth PVC
@@ -331,10 +330,13 @@ func (c *Client) SpawnPod(ctx context.Context, params SpawnParams) (string, erro
 					ImagePullPolicy: corev1.PullAlways,
 					// Container-level security context (stricter)
 					SecurityContext: &corev1.SecurityContext{
-						RunAsNonRoot:             &trueVal,
-						RunAsUser:                &nonRootUID,
-						RunAsGroup:               &nonRootGID,
-						AllowPrivilegeEscalation: &falseVal,
+						RunAsNonRoot: &trueVal,
+						RunAsUser:    &nonRootUID,
+						RunAsGroup:   &nonRootGID,
+						// Allow privilege escalation for newuidmap/newgidmap (rootless buildah)
+						// These setuid binaries need to elevate to write /proc/self/uid_map
+						// This is safe: still running as non-root, only SETUID/SETGID caps
+						AllowPrivilegeEscalation: &trueVal,
 						ReadOnlyRootFilesystem:   &trueVal,
 						Capabilities: &corev1.Capabilities{
 							Drop: []corev1.Capability{"ALL"},
