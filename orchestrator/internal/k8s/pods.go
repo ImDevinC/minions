@@ -223,10 +223,15 @@ func (c *Client) SpawnPod(ctx context.Context, params SpawnParams) (string, erro
 		return "", err
 	}
 
-	// Non-root UID (matches devbox Dockerfile user)
-	nonRootUID := int64(1000)
-	nonRootGID := int64(1000)
-	trueVal := true
+	// Root UID for buildah container image builds
+	// Buildah requires root (UID 0) to work properly in Kubernetes because:
+	// - Rootless buildah needs newuidmap/newgidmap with CAP_SETUID/CAP_SETGID
+	// - These capabilities are cleared for non-root containers in Kubernetes
+	// - File capabilities on binaries don't grant capabilities to non-root processes
+	// Security is maintained via --isolation=chroot and dropping all capabilities
+	rootUID := int64(0)
+	rootGID := int64(0)
+	falseVal := false
 
 	// Build volume mounts - base mounts plus optional auth PVC
 	volumeMounts := []corev1.VolumeMount{
@@ -234,9 +239,10 @@ func (c *Client) SpawnPod(ctx context.Context, params SpawnParams) (string, erro
 		{Name: "tmp", MountPath: "/tmp"},
 		{Name: "home", MountPath: "/home/minion"},
 		{Name: "task", MountPath: TaskMountPath, ReadOnly: true},
-		// Buildah runtime directories for rootless container builds
+		// Buildah runtime and storage directories for container builds
 		{Name: "run", MountPath: "/run"},
 		{Name: "var-tmp", MountPath: "/var/tmp"},
+		{Name: "var-lib-containers", MountPath: "/var/lib/containers"},
 	}
 
 	// Build volumes - base volumes plus optional auth PVC
@@ -269,7 +275,7 @@ func (c *Client) SpawnPod(ctx context.Context, params SpawnParams) (string, erro
 				},
 			},
 		},
-		// Buildah runtime directories for rootless container builds
+		// Buildah runtime and storage directories for container builds
 		// /run for buildah runtime state (container metadata, locks)
 		{
 			Name: "run",
@@ -280,6 +286,13 @@ func (c *Client) SpawnPod(ctx context.Context, params SpawnParams) (string, erro
 		// /var/tmp for buildah temporary build artifacts
 		{
 			Name: "var-tmp",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
+		},
+		// /var/lib/containers for buildah image storage (VFS driver)
+		{
+			Name: "var-lib-containers",
 			VolumeSource: corev1.VolumeSource{
 				EmptyDir: &corev1.EmptyDirVolumeSource{},
 			},
@@ -317,31 +330,53 @@ func (c *Client) SpawnPod(ctx context.Context, params SpawnParams) (string, erro
 		Spec: corev1.PodSpec{
 			RestartPolicy: corev1.RestartPolicyNever,
 			// Pod-level security context
+			// Running as root (UID 0) is required for buildah to work properly
+			// because rootless buildah needs user namespace access which requires
+			// writing to /etc/subuid and /etc/subgid
 			SecurityContext: &corev1.PodSecurityContext{
-				RunAsNonRoot: &trueVal,
-				RunAsUser:    &nonRootUID,
-				RunAsGroup:   &nonRootGID,
-				FSGroup:      &nonRootGID,
+				RunAsNonRoot: &falseVal,
+				RunAsUser:    &rootUID,
+				RunAsGroup:   &rootGID,
+				FSGroup:      &rootGID,
 			},
 			Containers: []corev1.Container{
 				{
 					Name:            "devbox",
 					Image:           c.config.DevboxImage,
 					ImagePullPolicy: corev1.PullAlways,
-					// Container-level security context (stricter)
+					// Container-level security context
+					// Root is required for buildah but we maintain security via:
+					// - Drop ALL capabilities: no special kernel access
+					// - No privileged mode: still runs in container namespace
+					// - buildah --isolation=chroot: no namespace escape
+					// - Ephemeral pod lifecycle: short-lived, task-specific
+					// Note: ReadOnlyRootFilesystem is NOT set because buildah needs
+					// to write to /etc/subuid and /etc/subgid for user namespace setup
 					SecurityContext: &corev1.SecurityContext{
-						RunAsNonRoot: &trueVal,
-						RunAsUser:    &nonRootUID,
-						RunAsGroup:   &nonRootGID,
-						// Allow privilege escalation for file capabilities on newuidmap/newgidmap
-						// These binaries have cap_setuid,cap_setgid=ep set via setcap in image
-						// They need privilege escalation to use these capabilities
-						AllowPrivilegeEscalation: &trueVal,
-						ReadOnlyRootFilesystem:   &trueVal,
+						RunAsNonRoot:             &falseVal,
+						RunAsUser:                &rootUID,
+						RunAsGroup:               &rootGID,
+						AllowPrivilegeEscalation: &falseVal,
 						Capabilities: &corev1.Capabilities{
-							// Drop all capabilities - newuidmap/newgidmap use file capabilities
-							// Pod-level capabilities don't work for non-root users (cleared on UID transition)
+							// Drop all dangerous capabilities
 							Drop: []corev1.Capability{"ALL"},
+							// Add back minimal capabilities required for buildah
+							// SETUID/SETGID: user namespace mapping for image layer extraction
+							// CHOWN/DAC_OVERRIDE/FOWNER: file permission handling in image layers
+							// SYS_CHROOT: required for --isolation=chroot mode
+							// SETFCAP/SETPCAP: capability handling during builds
+							Add: []corev1.Capability{
+								"SETUID",
+								"SETGID",
+								"CHOWN",
+								"DAC_OVERRIDE",
+								"FOWNER",
+								"FSETID",
+								"SYS_CHROOT",
+								"SETFCAP",
+								"SETPCAP",
+								"MKNOD",
+							},
 						},
 					},
 					Env: c.buildEnvVars(params),

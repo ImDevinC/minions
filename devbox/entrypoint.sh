@@ -68,14 +68,14 @@ setup_config() {
     # These tools need config files in ~/.config/containers/
     if [[ -d /etc/opencode/containers ]]; then
         log "Setting up containers configuration for Buildah/Skopeo"
-        mkdir -p ~/.config/containers
-        cp -r /etc/opencode/containers/* ~/.config/containers/
+        mkdir -p /etc/containers
+        cp -r /etc/opencode/containers/* /etc/containers/
         
         # Create required directories for rootless container storage
         # - /run/containers for runtime state (mounted as emptyDir in pod spec)
-        # - ~/.local/share/containers/storage for image/container storage
+        # - /var/lib/containers/storage for image/container storage
         mkdir -p /run/containers
-        mkdir -p ~/.local/share/containers/storage
+        mkdir -p /var/lib/containers/storage
         log "Containers configuration ready for rootless builds"
     fi
 }
