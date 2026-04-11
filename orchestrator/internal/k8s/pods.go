@@ -559,6 +559,10 @@ func (c *Client) buildEnvVars(params SpawnParams) []corev1.EnvVar {
 		{Name: "GITHUB_TOKEN", Value: params.GitHubToken},
 		{Name: "ORCHESTRATOR_URL", Value: params.OrchestratorURL},
 		{Name: "INTERNAL_API_TOKEN", Value: params.InternalAPIToken},
+		// Buildah requires chroot isolation in Kubernetes since OCI isolation
+		// tries to create nested namespaces which requires CAP_SYS_ADMIN.
+		// containers.conf isn't reliably read by buildah 1.28, so use env var.
+		{Name: "BUILDAH_ISOLATION", Value: "chroot"},
 	}
 
 	// Add branch for PR feedback flow (optional)
