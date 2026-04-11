@@ -72,8 +72,10 @@ setup_config() {
         cp -r /etc/opencode/containers/* ~/.config/containers/
         
         # Create required directories for rootless container storage
-        # These are used by Buildah's VFS storage driver
-        mkdir -p /tmp/containers/run /tmp/containers/storage
+        # - /run/containers for runtime state (mounted as emptyDir in pod spec)
+        # - ~/.local/share/containers/storage for image/container storage
+        mkdir -p /run/containers
+        mkdir -p ~/.local/share/containers/storage
         log "Containers configuration ready for rootless builds"
     fi
 }
