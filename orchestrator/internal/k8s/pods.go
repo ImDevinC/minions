@@ -211,8 +211,8 @@ func (c *Client) deleteTaskConfigMap(ctx context.Context, minionID string) error
 // Security context enforces:
 //   - runAsNonRoot: true (pod must run as non-root user)
 //   - allowPrivilegeEscalation: false
-//   - All capabilities dropped
-//   - Read-only root filesystem
+//   - All capabilities dropped, except SETUID/SETGID for buildah rootless builds
+//   - Read-only root filesystem (with writable tmpfs mounts)
 func (c *Client) SpawnPod(ctx context.Context, params SpawnParams) (string, error) {
 	minionIDStr := params.MinionID.String()
 	podName := fmt.Sprintf("minion-%s", minionIDStr)
@@ -235,6 +235,9 @@ func (c *Client) SpawnPod(ctx context.Context, params SpawnParams) (string, erro
 		{Name: "tmp", MountPath: "/tmp"},
 		{Name: "home", MountPath: "/home/minion"},
 		{Name: "task", MountPath: TaskMountPath, ReadOnly: true},
+		// Buildah runtime directories for rootless container builds
+		{Name: "run", MountPath: "/run"},
+		{Name: "var-tmp", MountPath: "/var/tmp"},
 	}
 
 	// Build volumes - base volumes plus optional auth PVC
@@ -265,6 +268,21 @@ func (c *Client) SpawnPod(ctx context.Context, params SpawnParams) (string, erro
 						Name: taskConfigMapName(minionIDStr),
 					},
 				},
+			},
+		},
+		// Buildah runtime directories for rootless container builds
+		// /run for buildah runtime state (container metadata, locks)
+		{
+			Name: "run",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
+		},
+		// /var/tmp for buildah temporary build artifacts
+		{
+			Name: "var-tmp",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
 			},
 		},
 	}
@@ -320,6 +338,9 @@ func (c *Client) SpawnPod(ctx context.Context, params SpawnParams) (string, erro
 						ReadOnlyRootFilesystem:   &trueVal,
 						Capabilities: &corev1.Capabilities{
 							Drop: []corev1.Capability{"ALL"},
+							// Add minimal capabilities for buildah rootless container builds
+							// SETUID/SETGID enable user namespace mapping (newuidmap/newgidmap)
+							Add: []corev1.Capability{"SETUID", "SETGID"},
 						},
 					},
 					Env: c.buildEnvVars(params),

@@ -196,6 +196,53 @@ EOF
 
 ---
 
+## Available Tools
+
+### Container Image Building
+
+**Buildah is the preferred tool for building and testing container images** in this environment.
+
+This environment runs as a rootless, non-privileged container with minimal capabilities. Buildah is configured for rootless operation with user namespace mapping.
+
+#### Building Images
+
+```bash
+# Build from Dockerfile
+buildah bud -t myimage:latest /path/to/context
+
+# Build with build args
+buildah bud -t myimage:latest --build-arg VERSION=1.0 .
+
+# Build with specific file
+buildah bud -f Dockerfile.custom -t myimage:latest .
+```
+
+#### Testing Built Images
+
+All images are stored locally. Use buildah to run commands in built images for testing:
+
+```bash
+# Run a command in the built image
+buildah run myimage:latest /bin/sh -c "command-to-test"
+
+# Inspect the image
+buildah inspect myimage:latest
+
+# List built images
+buildah images
+```
+
+#### Important Notes
+
+- **No registry pushes** - All images remain local to this container
+- **Rootless builds** - Buildah uses VFS storage driver and user namespaces
+- **Ephemeral storage** - Images are lost when the container terminates
+- **Use buildah, not docker** - Docker daemon is not available; use `buildah` commands
+
+If a task involves building container images, use buildah to verify the build succeeds and the image works as expected.
+
+---
+
 ## If Truly Blocked
 
 If you encounter a genuine blocker (missing API keys, external service unavailable, ambiguous requirements that cannot be reasonably interpreted):
