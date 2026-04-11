@@ -202,7 +202,9 @@ EOF
 
 **Buildah is the preferred tool for building and testing container images** in this environment.
 
-This environment runs as a rootless, non-privileged container with minimal capabilities. Buildah is configured for rootless operation with user namespace mapping.
+This environment is configured for rootless container builds with proper user namespace
+mapping. The minion user has subordinate UID/GID ranges (100000-165535) configured in
+/etc/subuid and /etc/subgid, enabling buildah to properly map multi-user images.
 
 #### Building Images
 
@@ -235,11 +237,14 @@ buildah images
 #### Important Notes
 
 - **No registry pushes** - All images remain local to this container
-- **Rootless builds** - Buildah uses VFS storage driver and user namespaces
+- **Rootless builds** - Buildah uses VFS storage with user namespace mapping
 - **Ephemeral storage** - Images are lost when the container terminates
+- **No special flags needed** - User namespaces are properly configured
+- **No special flags needed** - User namespaces are properly configured
 - **Use buildah, not docker** - Docker daemon is not available; use `buildah` commands
 
-If a task involves building container images, use buildah to verify the build succeeds and the image works as expected.
+If a task involves building container images, use buildah to verify the build succeeds
+and the image works as expected.
 
 ---
 

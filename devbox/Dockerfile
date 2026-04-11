@@ -95,8 +95,12 @@ RUN ARCH=$(dpkg --print-architecture) \
 
 # Create non-root user with UID 1000
 # This matches the UID used by most container runtimes and avoids permission issues
+# Add subordinate UID/GID ranges for rootless container user namespace mapping
+# Gives minion user access to UIDs/GIDs 100000-165535 for buildah/podman
 RUN groupadd -g 1000 minion \
-    && useradd -u 1000 -g minion -m -s /bin/bash minion
+    && useradd -u 1000 -g minion -m -s /bin/bash minion \
+    && echo "minion:100000:65536" >> /etc/subuid \
+    && echo "minion:100000:65536" >> /etc/subgid
 
 # Create workspace directory
 RUN mkdir -p /workspace && chown minion:minion /workspace
