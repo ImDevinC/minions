@@ -204,7 +204,9 @@ EOF
 
 This environment is configured for rootless container builds with proper user namespace
 mapping. The minion user has subordinate UID/GID ranges (100000-165535) configured in
-/etc/subuid and /etc/subgid, enabling buildah to properly map multi-user images.
+/etc/subuid and /etc/subgid, enabling buildah to properly map multi-user images. The
+newuidmap and newgidmap binaries have file capabilities set (cap_setuid,cap_setgid=ep)
+to enable user namespace mapping without running as root.
 
 #### Building Images
 
