@@ -985,7 +985,7 @@ func (s *MinionStore) ListClarificationTimeouts(ctx context.Context, timeout tim
 // Used for clarification reply validation.
 type MinionWithOwner struct {
 	Minion
-	OwnerDiscordID string
+	OwnerDiscordID *string // Nullable for Matrix-only and GitHub-only users
 	OwnerMatrixID  *string
 }
 
