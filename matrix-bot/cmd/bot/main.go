@@ -27,8 +27,13 @@ var Version = "dev"
 
 func main() {
 	// Configure structured logging with JSON output for production
+	// Set LOG_LEVEL=debug for verbose logging during troubleshooting
+	logLevel := slog.LevelInfo
+	if os.Getenv("LOG_LEVEL") == "debug" {
+		logLevel = slog.LevelDebug
+	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
+		Level: logLevel,
 	}))
 	slog.SetDefault(logger)
 
