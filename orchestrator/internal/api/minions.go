@@ -1065,6 +1065,11 @@ func (h *MinionHandler) HandleGetByClarificationMessageID(w http.ResponseWriter,
 	}
 
 	// Return a minimal response with just the fields needed for reply handling
+	var discordUserID string
+	if minion.OwnerDiscordID != nil {
+		discordUserID = *minion.OwnerDiscordID
+	}
+
 	resp := struct {
 		ID                    string  `json:"id"`
 		Repo                  string  `json:"repo"`
@@ -1082,7 +1087,7 @@ func (h *MinionHandler) HandleGetByClarificationMessageID(w http.ResponseWriter,
 		Status:                string(minion.Status),
 		ClarificationQuestion: minion.ClarificationQuestion,
 		DiscordChannelID:      minion.DiscordChannelID,
-		DiscordUserID:         minion.OwnerDiscordID,
+		DiscordUserID:         discordUserID,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
