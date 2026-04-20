@@ -290,26 +290,44 @@ func (h *MessageHandler) Handle(ctx context.Context, evt *event.Event) {
 func (h *MessageHandler) HandleReply(ctx context.Context, evt *event.Event) {
 	// Ignore messages from ourselves
 	if evt.Sender == h.botUserID {
+		h.logger.Debug("HandleReply: ignoring own message", "event_id", evt.ID)
 		return
 	}
 
 	// Ignore messages from before bot startup to prevent reprocessing on restart
 	if evt.Timestamp < h.startupTime {
+		h.logger.Debug("HandleReply: ignoring old message",
+			"event_id", evt.ID,
+			"event_timestamp", evt.Timestamp,
+			"startup_time", h.startupTime,
+		)
 		return
 	}
 
 	// Check room restrictions
 	if !h.isRoomAllowed(evt.RoomID) {
+		h.logger.Debug("HandleReply: room not allowed",
+			"event_id", evt.ID,
+			"room_id", evt.RoomID,
+		)
 		return
 	}
 
 	// Check user restrictions
 	if !h.isUserAllowed(evt.Sender) {
+		h.logger.Debug("HandleReply: user not allowed",
+			"event_id", evt.ID,
+			"sender", evt.Sender,
+		)
 		return
 	}
 
 	content := evt.Content.AsMessage()
 	if content == nil {
+		h.logger.Debug("HandleReply: nil message content",
+			"event_id", evt.ID,
+			"event_type", evt.Type,
+		)
 		return
 	}
 
@@ -318,6 +336,11 @@ func (h *MessageHandler) HandleReply(ctx context.Context, evt *event.Event) {
 	// returning the event ID the user clicked "reply" on
 	replyToEventID := content.RelatesTo.GetReplyTo()
 	if replyToEventID == "" {
+		h.logger.Debug("HandleReply: not a reply message",
+			"event_id", evt.ID,
+			"sender", evt.Sender,
+			"has_relates_to", content.RelatesTo != nil,
+		)
 		return
 	}
 
@@ -325,11 +348,20 @@ func (h *MessageHandler) HandleReply(ctx context.Context, evt *event.Event) {
 	opCtx, cancel := context.WithTimeout(ctx, OperationTimeout)
 	defer cancel()
 
+	h.logger.Debug("HandleReply: looking up clarification",
+		"event_id", evt.ID,
+		"reply_to_event_id", replyToEventID,
+	)
+
 	// Look up minion by the referenced event ID (could be a clarification question)
 	minion, err := h.orchestrator.GetByMatrixClarificationEventID(opCtx, string(replyToEventID))
 	if err != nil {
 		if errors.Is(err, orchestrator.ErrClarificationNotFound) {
 			// Not a clarification message, ignore silently - this is expected for most replies
+			h.logger.Debug("HandleReply: not a clarification message",
+				"event_id", evt.ID,
+				"reply_to_event_id", replyToEventID,
+			)
 			return
 		}
 		h.logger.Error("failed to look up clarification",
