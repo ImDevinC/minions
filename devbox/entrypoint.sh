@@ -44,6 +44,16 @@ die() {
     exit 1
 }
 
+# Upgrade OpenCode to latest version
+upgrade_opencode() {
+    log "Upgrading OpenCode to latest version"
+    if opencode upgrade; then
+        log "OpenCode upgraded successfully"
+    else
+        log "OpenCode upgrade failed, continuing with current version"
+    fi
+}
+
 # Copy OpenCode config from image to writable home directory
 # Required because /home/minion is mounted as emptyDir for writable home
 setup_config() {
@@ -543,6 +553,7 @@ handle_completion() {
 # Main execution
 main() {
     validate_env
+    upgrade_opencode
     setup_config
     clone_repo
     start_opencode
