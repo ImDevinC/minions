@@ -78,9 +78,21 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     && apt-get install -y gh \
     && rm -rf /var/lib/apt/lists/*
 
-# Install OpenCode binary
+# Create non-root user with UID 1000
+# This matches the UID used by most container runtimes and avoids permission issues
+# Add subordinate UID/GID ranges for rootless container user namespace mapping
+# Gives minion user access to UIDs/GIDs 100000-165535 for buildah/podman
+RUN groupadd -g 1000 minion \
+    && useradd -u 1000 -g minion -m -s /bin/bash minion \
+    && echo "minion:100000:65536" >> /etc/subuid \
+    && echo "minion:100000:65536" >> /etc/subgid \
+    && echo "root:100000:65536" >> /etc/subuid \
+    && echo "root:100000:65536" >> /etc/subgid
+
+# Install OpenCode binary to user-specific directory
 # Using latest release from GitHub
 # Asset naming: opencode-linux-x64.tar.gz (amd64), opencode-linux-arm64.tar.gz (arm64)
+# Install to /home/minion/.local/bin to avoid sudo prompts on upgrade
 ARG OPENCODE_VERSION=latest
 RUN ARCH=$(dpkg --print-architecture) \
     && case "$ARCH" in \
@@ -96,21 +108,15 @@ RUN ARCH=$(dpkg --print-architecture) \
         DOWNLOAD_URL="https://github.com/anomalyco/opencode/releases/download/${OPENCODE_VERSION}/${ASSET_NAME}"; \
     fi \
     && echo "Downloading OpenCode from: $DOWNLOAD_URL" \
+    && mkdir -p /home/minion/.local/bin \
     && curl -fsSL "$DOWNLOAD_URL" -o /tmp/opencode.tar.gz \
-    && tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin \
-    && chmod +x /usr/local/bin/opencode \
+    && tar -xzf /tmp/opencode.tar.gz -C /home/minion/.local/bin \
+    && chmod +x /home/minion/.local/bin/opencode \
+    && chown -R minion:minion /home/minion/.local \
     && rm /tmp/opencode.tar.gz
 
-# Create non-root user with UID 1000
-# This matches the UID used by most container runtimes and avoids permission issues
-# Add subordinate UID/GID ranges for rootless container user namespace mapping
-# Gives minion user access to UIDs/GIDs 100000-165535 for buildah/podman
-RUN groupadd -g 1000 minion \
-    && useradd -u 1000 -g minion -m -s /bin/bash minion \
-    && echo "minion:100000:65536" >> /etc/subuid \
-    && echo "minion:100000:65536" >> /etc/subgid \
-    && echo "root:100000:65536" >> /etc/subuid \
-    && echo "root:100000:65536" >> /etc/subgid
+# Add user bin directory to PATH
+ENV PATH="/home/minion/.local/bin:${PATH}"
 
 # Create workspace directory
 RUN mkdir -p /workspace
@@ -126,6 +132,9 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # Set working directory
 WORKDIR /workspace
+
+# Switch to minion user for verification and remaining steps
+USER minion
 
 # Verify installations
 RUN git --version \

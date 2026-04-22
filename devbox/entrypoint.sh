@@ -134,6 +134,19 @@ clone_repo() {
     cd /workspace/repo
 }
 
+# Upgrade OpenCode to latest version
+upgrade_opencode() {
+    log "Upgrading OpenCode to latest version"
+    
+    if opencode upgrade 2>&1 | tee /tmp/opencode-upgrade.log; then
+        log "OpenCode upgrade completed successfully"
+    else
+        log "OpenCode upgrade failed, continuing with existing version"
+        log "Upgrade logs:"
+        cat /tmp/opencode-upgrade.log >&2 || true
+    fi
+}
+
 # Start OpenCode serve in background
 start_opencode() {
     log "Starting OpenCode serve on port ${OPENCODE_PORT}"
@@ -545,6 +558,7 @@ handle_completion() {
 main() {
     validate_env
     setup_config
+    upgrade_opencode
     clone_repo
     start_opencode
     wait_for_health
