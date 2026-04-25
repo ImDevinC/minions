@@ -141,7 +141,7 @@ clone_repo() {
 upgrade_opencode() {
     log "Upgrading OpenCode to latest version"
     
-    if opencode upgrade 2>&1 | tee /tmp/opencode-upgrade.log; then
+    if opencode upgrade --method curl 2>&1 | tee /tmp/opencode-upgrade.log; then
         log "OpenCode upgrade completed successfully"
     else
         log "OpenCode upgrade failed, continuing with existing version"
