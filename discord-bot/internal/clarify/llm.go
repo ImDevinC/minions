@@ -26,17 +26,18 @@ type LLM interface {
 	Evaluate(ctx context.Context, repo, task string) (*LLMResponse, error)
 }
 
-// OpenRouterClient calls the OpenRouter API for clarification evaluation.
-// OpenRouter provides a unified API to access models from Anthropic, OpenAI, and others.
-type OpenRouterClient struct {
+// OpenAIClient calls an OpenAI-compatible API for clarification evaluation.
+type OpenAIClient struct {
+	baseURL    string
 	apiKey     string
 	httpClient *http.Client
 	model      string
 }
 
-// NewOpenRouterClient creates a new OpenRouter clarification client.
-func NewOpenRouterClient(apiKey, model string) *OpenRouterClient {
-	return &OpenRouterClient{
+// NewOpenAIClient creates a new OpenAI-compatible clarification client.
+func NewOpenAIClient(baseURL, apiKey, model string) *OpenAIClient {
+	return &OpenAIClient{
+		baseURL: baseURL,
 		apiKey: apiKey,
 		httpClient: &http.Client{
 			Timeout: 60 * time.Second,
@@ -101,8 +102,8 @@ var codebaseStructureQuestionPhrases = []string{
 	"codebase structure",
 }
 
-// openRouterRequest is the request body for the OpenRouter API (OpenAI-compatible format).
-type openRouterRequest struct {
+// openAIRequest is the request body for the OpenAI-compatible API.
+type openAIRequest struct {
 	Model     string    `json:"model"`
 	MaxTokens int       `json:"max_tokens"`
 	Messages  []message `json:"messages"`
@@ -113,8 +114,8 @@ type message struct {
 	Content string `json:"content"`
 }
 
-// openRouterResponse is the response body from the OpenRouter API (OpenAI-compatible format).
-type openRouterResponse struct {
+// openAIResponse is the response body from the OpenAI-compatible API.
+type openAIResponse struct {
 	Choices []struct {
 		Message struct {
 			Content string `json:"content"`
@@ -127,11 +128,11 @@ type openRouterResponse struct {
 	} `json:"error,omitempty"`
 }
 
-// Evaluate sends the task to Claude via OpenRouter and returns whether it's ready or needs clarification.
-func (c *OpenRouterClient) Evaluate(ctx context.Context, repo, task string) (*LLMResponse, error) {
+// Evaluate sends the task to the LLM and returns whether it's ready or needs clarification.
+func (c *OpenAIClient) Evaluate(ctx context.Context, repo, task string) (*LLMResponse, error) {
 	userContent := fmt.Sprintf("Repository: %s\n\nTask: %s", repo, task)
 
-	reqBody := openRouterRequest{
+	reqBody := openAIRequest{
 		Model:     c.model,
 		MaxTokens: 256, // Clarification responses should be short
 		Messages: []message{
@@ -145,15 +146,13 @@ func (c *OpenRouterClient) Evaluate(ctx context.Context, repo, task string) (*LL
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://openrouter.ai/api/v1/chat/completions", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	req.Header.Set("HTTP-Referer", "https://github.com/imdevinc/minions")
-	req.Header.Set("X-Title", "Minions Discord Bot")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -167,20 +166,20 @@ func (c *OpenRouterClient) Evaluate(ctx context.Context, repo, task string) (*LL
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		var apiResp openRouterResponse
+		var apiResp openAIResponse
 		if err := json.Unmarshal(respBody, &apiResp); err == nil && apiResp.Error != nil {
-			return nil, fmt.Errorf("openrouter error: %s - %s", apiResp.Error.Type, apiResp.Error.Message)
+			return nil, fmt.Errorf("llm API error: %s - %s", apiResp.Error.Type, apiResp.Error.Message)
 		}
-		return nil, fmt.Errorf("openrouter error: status %d: %s", resp.StatusCode, string(respBody))
+		return nil, fmt.Errorf("llm API error: status %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	var apiResp openRouterResponse
+	var apiResp openAIResponse
 	if err := json.Unmarshal(respBody, &apiResp); err != nil {
 		return nil, fmt.Errorf("unmarshal response: %w", err)
 	}
 
 	if len(apiResp.Choices) == 0 {
-		return nil, fmt.Errorf("empty response from openrouter")
+		return nil, fmt.Errorf("empty response from llm API")
 	}
 
 	text := apiResp.Choices[0].Message.Content
