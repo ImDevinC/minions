@@ -80,17 +80,24 @@ func main() {
 		os.Exit(1)
 	}
 
-	// OPENROUTER_API_KEY is required for clarification LLM
-	openrouterKey := os.Getenv("OPENROUTER_API_KEY")
-	if openrouterKey == "" {
-		logger.Error("OPENROUTER_API_KEY environment variable is required")
+	// OPENAI_BASE_URL is required for clarification LLM
+	openaiBaseURL := os.Getenv("OPENAI_BASE_URL")
+	if openaiBaseURL == "" {
+		logger.Error("OPENAI_BASE_URL environment variable is required")
 		os.Exit(1)
 	}
 
-	// OPENROUTER_CLARIFICATION_MODEL is required for clarification LLM model selection
-	clarificationModel := os.Getenv("OPENROUTER_CLARIFICATION_MODEL")
+	// OPENAI_API_KEY is required for clarification LLM
+	openaiAPIKey := os.Getenv("OPENAI_API_KEY")
+	if openaiAPIKey == "" {
+		logger.Error("OPENAI_API_KEY environment variable is required")
+		os.Exit(1)
+	}
+
+	// CLARIFICATION_MODEL is required for clarification LLM model selection
+	clarificationModel := os.Getenv("CLARIFICATION_MODEL")
 	if clarificationModel == "" {
-		logger.Error("OPENROUTER_CLARIFICATION_MODEL environment variable is required")
+		logger.Error("CLARIFICATION_MODEL environment variable is required")
 		os.Exit(1)
 	}
 
@@ -133,7 +140,7 @@ func main() {
 	orchClient := orchestrator.NewClient(orchestratorURL, apiToken)
 
 	// Create clarification LLM client and handler
-	llmClient := clarify.NewOpenRouterClient(openrouterKey, clarificationModel)
+	llmClient := clarify.NewOpenAIClient(openaiBaseURL, openaiAPIKey, clarificationModel)
 	clarifyHandler := clarify.NewHandler(llmClient, logger)
 
 	// Create Matrix client

@@ -137,8 +137,9 @@ export MATRIX_BOT_USER_ID="@minion:matrix.org"
 export MATRIX_BOT_ACCESS_TOKEN="syt_xxxxx..."
 export ORCHESTRATOR_URL="http://localhost:8080"
 export INTERNAL_API_TOKEN="your-internal-token"
-export OPENROUTER_API_KEY="your-openrouter-key"
-export OPENROUTER_CLARIFICATION_MODEL="anthropic/claude-sonnet-4"
+export OPENAI_BASE_URL="https://api.openai.com"
+export OPENAI_API_KEY="your-openai-key"
+export CLARIFICATION_MODEL="gpt-4o"
 
 go run ./cmd/bot
 ```
@@ -229,8 +230,9 @@ If you see 429 errors, the homeserver is rate limiting requests. The bot will au
 | `MATRIX_BOT_ACCESS_TOKEN` | Yes | Bot access token |
 | `ORCHESTRATOR_URL` | Yes | URL of orchestrator service |
 | `INTERNAL_API_TOKEN` | Yes | Shared secret for service auth |
-| `OPENROUTER_API_KEY` | Yes | API key for clarification LLM (OpenRouter) |
-| `OPENROUTER_CLARIFICATION_MODEL` | Yes | OpenRouter model used for clarification checks |
+| `OPENAI_BASE_URL` | Yes | Base URL for the OpenAI-compatible API used by the clarification LLM |
+| `OPENAI_API_KEY` | Yes | API key for the clarification LLM |
+| `CLARIFICATION_MODEL` | Yes | Model name used for clarification checks |
 | `MATRIX_ALLOWED_ROOMS` | No | Comma-separated room IDs to restrict to |
 | `MATRIX_ALLOWED_USERS` | No | Comma-separated user IDs to allow |
 | `CONTROL_PANEL_URL` | No | URL for minion status page links in messages |

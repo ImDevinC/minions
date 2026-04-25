@@ -87,8 +87,9 @@ The bot will appear offline until you start the discord-bot service.
 export DISCORD_BOT_TOKEN="your-token"
 export ORCHESTRATOR_URL="http://localhost:8080"
 export INTERNAL_API_TOKEN="your-internal-token"
-export OPENROUTER_API_KEY="your-openrouter-key"
-export OPENROUTER_CLARIFICATION_MODEL="anthropic/claude-sonnet-4"
+export OPENAI_BASE_URL="https://api.openai.com"
+export OPENAI_API_KEY="your-openai-key"
+export CLARIFICATION_MODEL="gpt-4o"
 
 go run ./cmd/bot
 ```
@@ -128,8 +129,9 @@ Message Content Intent is probably disabled. Go to Bot > Privileged Gateway Inte
 | `DISCORD_BOT_TOKEN` | Bot token from Developer Portal |
 | `ORCHESTRATOR_URL` | URL of orchestrator service |
 | `INTERNAL_API_TOKEN` | Shared secret for service auth |
-| `OPENROUTER_API_KEY` | API key for clarification LLM (OpenRouter) |
-| `OPENROUTER_CLARIFICATION_MODEL` | OpenRouter model used for clarification checks |
+| `OPENAI_BASE_URL` | Base URL for the OpenAI-compatible API used by the clarification LLM |
+| `OPENAI_API_KEY` | API key for the clarification LLM |
+| `CLARIFICATION_MODEL` | Model name used for clarification checks |
 | `DISCORD_ALLOWED_GUILD_ID` | Optional guild ID restriction for command acceptance |
 | `DISCORD_ALLOWED_ROLE_ID` | Optional role ID restriction for command acceptance |
 
