@@ -89,10 +89,11 @@ RUN groupadd -g 1000 minion \
     && echo "root:100000:65536" >> /etc/subuid \
     && echo "root:100000:65536" >> /etc/subgid
 
-# Install OpenCode binary to user-specific directory
+# Install OpenCode binary
 # Using latest release from GitHub
 # Asset naming: opencode-linux-x64.tar.gz (amd64), opencode-linux-arm64.tar.gz (arm64)
-# Install to /home/minion/.local/bin to avoid sudo prompts on upgrade
+# Install base version to /opt/opencode/bin so it survives the /home/minion EmptyDir mount
+# Upgrades can write to /home/minion/.local/bin which is first in PATH
 ARG OPENCODE_VERSION=latest
 RUN ARCH=$(dpkg --print-architecture) \
     && case "$ARCH" in \
@@ -108,15 +109,17 @@ RUN ARCH=$(dpkg --print-architecture) \
         DOWNLOAD_URL="https://github.com/anomalyco/opencode/releases/download/${OPENCODE_VERSION}/${ASSET_NAME}"; \
     fi \
     && echo "Downloading OpenCode from: $DOWNLOAD_URL" \
+    && mkdir -p /opt/opencode/bin \
     && mkdir -p /home/minion/.local/bin \
     && curl -fsSL "$DOWNLOAD_URL" -o /tmp/opencode.tar.gz \
-    && tar -xzf /tmp/opencode.tar.gz -C /home/minion/.local/bin \
-    && chmod +x /home/minion/.local/bin/opencode \
+    && tar -xzf /tmp/opencode.tar.gz -C /opt/opencode/bin \
+    && chmod +x /opt/opencode/bin/opencode \
+    && chown -R minion:minion /opt/opencode \
     && chown -R minion:minion /home/minion/.local \
     && rm /tmp/opencode.tar.gz
 
-# Add user bin directory to PATH
-ENV PATH="/home/minion/.local/bin:${PATH}"
+# Add both directories to PATH; ~/.local/bin first so upgrades take precedence
+ENV PATH="/home/minion/.local/bin:/opt/opencode/bin:${PATH}"
 
 # Create workspace directory
 RUN mkdir -p /workspace
