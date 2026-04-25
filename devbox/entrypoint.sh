@@ -25,6 +25,9 @@
 
 set -euo pipefail
 
+# Ensure PATH includes user bin directories (defensive for subshells)
+export PATH="/home/minion/.local/bin:/opt/opencode/bin:${PATH}"
+
 # Config
 OPENCODE_PORT="${OPENCODE_PORT:-4096}"
 OPENCODE_BASE="http://127.0.0.1:${OPENCODE_PORT}"
