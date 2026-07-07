@@ -199,6 +199,11 @@ func parseClarificationResponse(text string) *LLMResponse {
 		return &LLMResponse{Ready: true}
 	}
 
+	// Empty response means the LLM couldn't clarify — treat as ready.
+	if trimmed == "" {
+		return &LLMResponse{Ready: true}
+	}
+
 	// Otherwise, the text is a clarification question.
 	return &LLMResponse{Ready: false, Question: trimmed}
 }
