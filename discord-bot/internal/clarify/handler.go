@@ -61,6 +61,14 @@ func (h *Handler) EvaluateWithRetry(ctx context.Context, repo, task string) (*Re
 				"has_question", resp.Question != "",
 				"attempt", attempt,
 			)
+
+			if !resp.Ready && resp.Question == "" {
+				h.logger.Warn("clarification LLM returned empty question, treating as ready",
+					"attempt", attempt,
+				)
+				return &Result{Ready: true, Question: ""}, nil
+			}
+
 			return &Result{
 				Ready:    resp.Ready,
 				Question: resp.Question,
