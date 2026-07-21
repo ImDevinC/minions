@@ -149,7 +149,7 @@ export function MinionCard({ minion }: { minion: MinionSummary }) {
 
       {/* Error or PR link indicator with platform icon */}
       <div className="mt-3 flex items-center justify-between">
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           {minion.error && (
             <div className="text-xs text-red-400 truncate">
               Error: {minion.error}
