@@ -4,11 +4,7 @@
   "share": "disabled",
   "model": "{env:OPENCODE_MODEL}",
   "default_agent": "minion",
-  "permission": {
-    "edit": "allow",
-    "bash": "allow",
-    "webfetch": "allow"
-  },
+  "permission": "allow",
   "agent": {
     "minion": {
       "description": "Autonomous headless agent for completing tasks and creating PRs",
