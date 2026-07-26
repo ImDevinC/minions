@@ -1,20 +1,17 @@
 "use client";
 
 import { useState } from "react";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Typography from "@mui/material/Typography";
+import Collapse from "@mui/material/Collapse";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 
 interface ThinkingBlockProps {
-  /** The reasoning/thinking text content */
   content: string;
 }
 
-/**
- * ThinkingBlock renders collapsible reasoning content.
- *
- * Features:
- * - Default state is collapsed showing "▶ Thinking..."
- * - Clicking expands to show full reasoning text
- * - Collapsed state has muted, smaller styling
- */
 export function ThinkingBlock({ content }: ThinkingBlockProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -23,39 +20,34 @@ export function ThinkingBlock({ content }: ThinkingBlockProps) {
   }
 
   return (
-    <div className="mb-3">
-      <button
-        type="button"
+    <Box sx={{ mb: 2 }}>
+      <Button
+        size="small"
+        color="inherit"
         onClick={() => setIsExpanded(!isExpanded)}
-        className={`
-          flex items-center gap-1.5 w-full text-left
-          transition-colors duration-150
-          ${isExpanded 
-            ? "text-gray-300" 
-            : "text-gray-500 hover:text-gray-400"
-          }
-        `}
+        startIcon={isExpanded ? <ExpandMoreIcon /> : <ChevronRightIcon />}
+        sx={{ textTransform: "none", color: "text.secondary" }}
       >
-        <span
-          className={`
-            text-xs transition-transform duration-150
-            ${isExpanded ? "rotate-90" : ""}
-          `}
+        Thinking...
+      </Button>
+      <Collapse in={isExpanded}>
+        <Box
+          sx={{
+            mt: 1,
+            pl: 2,
+            borderLeft: 2,
+            borderColor: "divider",
+          }}
         >
-          ▶
-        </span>
-        <span className={`text-sm ${isExpanded ? "" : "text-xs"}`}>
-          Thinking...
-        </span>
-      </button>
-
-      {isExpanded && (
-        <div className="mt-2 pl-3 md:pl-4 border-l-2 border-gray-700">
-          <p className="text-xs md:text-sm text-gray-400 leading-relaxed whitespace-pre-wrap break-words">
+          <Typography
+            variant="body2"
+            color="text.secondary"
+            sx={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}
+          >
             {content}
-          </p>
-        </div>
-      )}
-    </div>
+          </Typography>
+        </Box>
+      </Collapse>
+    </Box>
   );
 }
