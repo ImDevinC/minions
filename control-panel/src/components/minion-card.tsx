@@ -2,66 +2,31 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import Card from "@mui/material/Card";
+import CardContent from "@mui/material/CardContent";
+import Chip from "@mui/material/Chip";
+import Typography from "@mui/material/Typography";
+import Box from "@mui/material/Box";
+import Skeleton from "@mui/material/Skeleton";
+import PullRequestIcon from "@mui/icons-material/CallMerge";
+import ErrorIcon from "@mui/icons-material/ErrorOutlined";
 import { MinionSummary, MinionStatus } from "@/types/minion";
 import { PlatformBadge } from "./platform-icon";
 
 interface StatusConfig {
-  bg: string;
-  text: string;
+  color: "default" | "primary" | "success" | "error" | "warning";
   label: string;
   pulse?: boolean;
 }
 
 const STATUS_CONFIGS: Record<MinionStatus, StatusConfig> = {
-  pending: {
-    bg: "bg-gray-500",
-    text: "text-gray-200",
-    label: "Pending",
-  },
-  awaiting_clarification: {
-    bg: "bg-yellow-500",
-    text: "text-yellow-200",
-    label: "Awaiting Clarification",
-  },
-  running: {
-    bg: "bg-blue-500",
-    text: "text-blue-200",
-    label: "Running",
-    pulse: true,
-  },
-  completed: {
-    bg: "bg-green-500",
-    text: "text-green-200",
-    label: "Completed",
-  },
-  failed: {
-    bg: "bg-red-500",
-    text: "text-red-200",
-    label: "Failed",
-  },
-  terminated: {
-    bg: "bg-orange-500",
-    text: "text-orange-200",
-    label: "Terminated",
-  },
+  pending: { color: "default", label: "Pending" },
+  awaiting_clarification: { color: "warning", label: "Awaiting Clarification" },
+  running: { color: "primary", label: "Running", pulse: true },
+  completed: { color: "success", label: "Completed" },
+  failed: { color: "error", label: "Failed" },
+  terminated: { color: "warning", label: "Terminated" },
 };
-
-function StatusBadge({ status }: { status: MinionStatus }) {
-  const config = STATUS_CONFIGS[status];
-  return (
-    <span
-      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${config.bg} ${config.text}`}
-    >
-      {config.pulse && (
-        <span className="relative flex h-2 w-2">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-current opacity-75"></span>
-          <span className="relative inline-flex rounded-full h-2 w-2 bg-current"></span>
-        </span>
-      )}
-      {config.label}
-    </span>
-  );
-}
 
 function formatRelativeTime(dateString: string): string {
   const date = new Date(dateString);
@@ -79,16 +44,11 @@ function formatRelativeTime(dateString: string): string {
   return date.toLocaleDateString("en-US");
 }
 
-/**
- * Hook for client-side relative time display.
- * Returns empty string on server, formatted time on client.
- */
 function useRelativeTime(dateString: string): string {
   const [relativeTime, setRelativeTime] = useState("");
 
   useEffect(() => {
     setRelativeTime(formatRelativeTime(dateString));
-    // Update every minute for running minions
     const interval = setInterval(() => {
       setRelativeTime(formatRelativeTime(dateString));
     }, 60000);
@@ -103,86 +63,113 @@ function truncateTask(task: string, maxLen = 120): string {
   return task.slice(0, maxLen - 3) + "...";
 }
 
+function StatusChip({ status }: { status: MinionStatus }) {
+  const config = STATUS_CONFIGS[status];
+  return (
+    <Chip
+      size="small"
+      color={config.color}
+      label={config.label}
+      sx={
+        config.pulse
+          ? {
+              animation: "pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite",
+              "@keyframes pulse": {
+                "0%, 100%": { opacity: 1 },
+                "50%": { opacity: 0.7 },
+              },
+            }
+          : undefined
+      }
+    />
+  );
+}
+
 export function MinionCard({ minion }: { minion: MinionSummary }) {
   const [owner, ...repoParts] = minion.repo.split("/");
   const repoName = repoParts.join("/");
   const relativeTime = useRelativeTime(minion.created_at);
 
   return (
-    <Link
+    <Card
+      component={Link}
       href={`/minions/${minion.id}`}
-      className="block bg-gray-800 hover:bg-gray-750 border border-gray-700 rounded-lg p-4 transition-colors min-w-0"
+      sx={{
+        textDecoration: "none",
+        display: "block",
+        height: "100%",
+        transition: "transform 0.15s ease, box-shadow 0.15s ease",
+        "&:hover": {
+          transform: "translateY(-2px)",
+          boxShadow: 6,
+        },
+      }}
     >
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex-1 min-w-0">
-          {/* Repo */}
-          <div className="flex items-center gap-2 text-sm text-gray-400 mb-1">
-            <svg
-              className="w-4 h-4 flex-shrink-0"
-              fill="currentColor"
-              viewBox="0 0 16 16"
-            >
-              <path d="M2 2.5A2.5 2.5 0 014.5 0h8.75a.75.75 0 01.75.75v12.5a.75.75 0 01-.75.75h-2.5a.75.75 0 110-1.5h1.75v-2h-8a1 1 0 00-.714 1.7.75.75 0 01-1.072 1.05A2.495 2.495 0 012 11.5v-9zm10.5-1V9h-8c-.356 0-.694.074-1 .208V2.5a1 1 0 011-1h8zM5 12.25v3.25a.25.25 0 00.4.2l1.45-1.087a.25.25 0 01.3 0L8.6 15.7a.25.25 0 00.4-.2v-3.25a.25.25 0 00-.25-.25h-3.5a.25.25 0 00-.25.25z" />
-            </svg>
-            <span className="truncate">
-              <span className="text-gray-500">{owner}/</span>
-              <span className="text-gray-300">{repoName}</span>
-            </span>
-          </div>
+      <CardContent>
+        <Box sx={{ display: "flex", justifyContent: "space-between", gap: 1, mb: 1 }}>
+          <Box sx={{ minWidth: 0, flex: 1 }}>
+            <Typography variant="body2" color="text.secondary" noWrap>
+              <Box component="span" color="text.disabled">
+                {owner}/
+              </Box>
+              {repoName}
+            </Typography>
+          </Box>
+          <StatusChip status={minion.status} />
+        </Box>
 
-          {/* Task preview */}
-          <p className="text-white text-sm line-clamp-2 mb-2">
-            {truncateTask(minion.task)}
-          </p>
+        <Typography variant="body1" color="text.primary" sx={{ mb: 2, minHeight: 48 }}>
+          {truncateTask(minion.task)}
+        </Typography>
 
-          {/* Model and time */}
-          <div className="flex items-center gap-3 text-xs text-gray-500">
-            <span className="truncate min-w-0">{minion.model}</span>
-            <span>·</span>
-            <span>{relativeTime}</span>
-          </div>
-        </div>
+        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0, flex: 1 }}>
+            <Typography variant="caption" color="text.secondary" noWrap>
+              {minion.model}
+            </Typography>
+            <Typography variant="caption" color="text.disabled">
+              •
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              {relativeTime}
+            </Typography>
+          </Box>
+          <PlatformBadge platform={minion.platform} size="small" />
+        </Box>
 
-        {/* Status */}
-        <StatusBadge status={minion.status} />
-      </div>
-
-      {/* Error or PR link indicator with platform icon */}
-      <div className="mt-3 flex items-center justify-between">
-        <div className="flex-1 min-w-0">
-          {minion.error && (
-            <div className="text-xs text-red-400 break-words">
-              Error: {minion.error}
-            </div>
-          )}
-          {minion.pr_url && (
-            <div className="flex items-center gap-1.5 text-xs text-green-400">
-              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 16 16">
-                <path d="M1.5 3.25a2.25 2.25 0 113 2.122v5.256a2.251 2.251 0 11-1.5 0V5.372A2.25 2.25 0 011.5 3.25zm5.677-.177L9.573.677A.25.25 0 0110 .854V2.5h1A2.5 2.5 0 0113.5 5v5.628a2.251 2.251 0 11-1.5 0V5a1 1 0 00-1-1h-1v1.646a.25.25 0 01-.427.177L7.177 3.427a.25.25 0 010-.354zM3.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm0 9.5a.75.75 0 100 1.5.75.75 0 000-1.5zm8.25.75a.75.75 0 101.5 0 .75.75 0 00-1.5 0z" />
-              </svg>
-              PR created
-            </div>
-          )}
-        </div>
-        {/* Platform icon in lower right */}
-        <PlatformBadge platform={minion.platform} size="sm" />
-      </div>
-    </Link>
+        {(minion.error || minion.pr_url) && (
+          <Box sx={{ mt: 2, display: "flex", alignItems: "center", gap: 1 }}>
+            {minion.error && (
+              <Typography variant="caption" color="error" sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                <ErrorIcon fontSize="inherit" />
+                Error: {minion.error}
+              </Typography>
+            )}
+            {minion.pr_url && (
+              <Typography variant="caption" color="success.main" sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                <PullRequestIcon fontSize="inherit" />
+                PR created
+              </Typography>
+            )}
+          </Box>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
 export function MinionCardSkeleton() {
   return (
-    <div className="bg-gray-800 border border-gray-700 rounded-lg p-4 animate-pulse">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex-1">
-          <div className="h-4 bg-gray-700 rounded w-1/3 mb-2"></div>
-          <div className="h-4 bg-gray-700 rounded w-full mb-1"></div>
-          <div className="h-4 bg-gray-700 rounded w-2/3 mb-2"></div>
-          <div className="h-3 bg-gray-700 rounded w-1/4"></div>
-        </div>
-        <div className="h-5 bg-gray-700 rounded-full w-16"></div>
-      </div>
-    </div>
+    <Card>
+      <CardContent>
+        <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
+          <Skeleton width="40%" height={20} />
+          <Skeleton width={60} height={24} variant="rounded" />
+        </Box>
+        <Skeleton width="100%" height={20} />
+        <Skeleton width="66%" height={20} sx={{ mb: 2 }} />
+        <Skeleton width="30%" height={16} />
+      </CardContent>
+    </Card>
   );
 }

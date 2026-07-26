@@ -1,10 +1,17 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { SignOutButton } from "@/components/sign-out-button";
 import { MinionCard, MinionCardSkeleton } from "@/components/minion-card";
 import { listMinions, OrchestratorError } from "@/lib/orchestrator";
 import { Suspense } from "react";
+import { AppHeader } from "@/components/app-header";
+import Container from "@mui/material/Container";
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
+import Button from "@mui/material/Button";
+import Grid from "@mui/material/Grid";
+import Alert from "@mui/material/Alert";
+import MailIcon from "@mui/icons-material/Mail";
 import Link from "next/link";
 
 const ACTIVE_PAGE_SIZE = 9;
@@ -19,61 +26,47 @@ function parsePositivePage(value?: string | string[]): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
 }
 
-function buildActivePageHref(
-  page: number,
-  completedPage: number
-): string {
+function buildHref(activePage: number, completedPage: number): string {
   const params = new URLSearchParams();
-  if (page > 1) params.set("activePage", String(page));
+  if (activePage > 1) params.set("activePage", String(activePage));
   if (completedPage > 1) params.set("completedPage", String(completedPage));
   const qs = params.toString();
   return qs ? `/?${qs}` : "/";
 }
 
-function buildCompletedPageHref(
-  activePage: number,
-  page: number
-): string {
-  const params = new URLSearchParams();
-  if (activePage > 1) params.set("activePage", String(activePage));
-  if (page > 1) params.set("completedPage", String(page));
-  const qs = params.toString();
-  return qs ? `/?${qs}` : "/";
-}
-
-function PaginationControls({
-  currentPage,
-  hasNextPage,
-  buildHref,
-}: {
+interface PaginationControlsProps {
   currentPage: number;
   hasNextPage: boolean;
   buildHref: (page: number) => string;
-}) {
+}
+
+function PaginationControls({ currentPage, hasNextPage, buildHref }: PaginationControlsProps) {
+  if (currentPage <= 1 && !hasNextPage) return null;
+
   return (
-    <div className="flex items-center justify-between mt-6">
-      {currentPage > 1 ? (
-        <Link
-          href={buildHref(currentPage - 1)}
-          className="px-3 py-2 text-sm rounded-md border border-gray-700 text-gray-200 hover:bg-gray-800"
-        >
-          Previous
-        </Link>
-      ) : (
-        <span />
-      )}
-      <span className="text-sm text-gray-400">Page {currentPage}</span>
-      {hasNextPage ? (
-        <Link
-          href={buildHref(currentPage + 1)}
-          className="px-3 py-2 text-sm rounded-md border border-gray-700 text-gray-200 hover:bg-gray-800"
-        >
-          Next
-        </Link>
-      ) : (
-        <span />
-      )}
-    </div>
+    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mt: 3 }}>
+      <Button
+        component={Link}
+        href={buildHref(currentPage - 1)}
+        disabled={currentPage <= 1}
+        variant="outlined"
+        size="small"
+      >
+        Previous
+      </Button>
+      <Typography variant="body2" color="text.secondary">
+        Page {currentPage}
+      </Typography>
+      <Button
+        component={Link}
+        href={buildHref(currentPage + 1)}
+        disabled={!hasNextPage}
+        variant="outlined"
+        size="small"
+      >
+        Next
+      </Button>
+    </Box>
   );
 }
 
@@ -94,66 +87,58 @@ async function ActiveMinionList({
 
     const hasNextPage = minions.length > ACTIVE_PAGE_SIZE;
     const pageItems = hasNextPage ? minions.slice(0, ACTIVE_PAGE_SIZE) : minions;
-
     if (pageItems.length === 0 && page === 1) {
       return (
-        <div className="text-center py-12 text-gray-400">
-          <svg
-            className="w-16 h-16 mx-auto mb-4 text-gray-600"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={1.5}
-              d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"
-            />
-          </svg>
-          <p className="text-lg">No active minions</p>
-          <p className="text-sm mt-1">
+        <Box sx={{ textAlign: "center", py: 8 }}>
+          <MailIcon sx={{ fontSize: 64, color: "text.disabled", mb: 2 }} />
+          <Typography variant="h6" color="text.secondary">
+            No active minions
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
             Spawn one from Discord with @minion --repo owner/repo &lt;task&gt;
-          </p>
-        </div>
+          </Typography>
+        </Box>
       );
     }
 
     if (pageItems.length === 0) {
       return (
-        <div className="text-center py-12 text-gray-400">
-          <p className="text-lg">No active minions on this page</p>
-          <Link
-            href={buildActivePageHref(1, completedPage)}
-            className="text-sm mt-2 inline-block text-blue-400 hover:text-blue-300"
-          >
-            Return to page 1
-          </Link>
-        </div>
+        <Box sx={{ textAlign: "center", py: 8 }}>
+          <Typography variant="h6" color="text.secondary">
+            No active minions on this page
+          </Typography>
+          <PaginationControls
+            currentPage={page}
+            hasNextPage={hasNextPage}
+            buildHref={() => buildHref(1, completedPage)}
+          />
+        </Box>
       );
     }
 
     return (
       <>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <Grid container spacing={2}>
           {pageItems.map((minion) => (
-            <MinionCard key={minion.id} minion={minion} />
+            <Grid key={minion.id} size={{ xs: 12, md: 6, lg: 4 }}>
+              <MinionCard minion={minion} />
+            </Grid>
           ))}
-        </div>
+        </Grid>
         <PaginationControls
           currentPage={page}
           hasNextPage={hasNextPage}
-          buildHref={(p) => buildActivePageHref(p, completedPage)}
+          buildHref={(p) => buildHref(p, completedPage)}
         />
       </>
     );
   } catch (error) {
     if (error instanceof OrchestratorError) {
       return (
-        <div className="bg-red-900/30 border border-red-700 rounded-lg p-4 text-red-300">
-          <p className="font-medium">Failed to load active minions</p>
-          <p className="text-sm mt-1">{error.message}</p>
-        </div>
+        <Alert severity="error">
+          <Typography variant="subtitle2">Failed to load active minions</Typography>
+          <Typography variant="body2">{error.message}</Typography>
+        </Alert>
       );
     }
     throw error;
@@ -176,49 +161,53 @@ async function CompletedMinionList({
     });
 
     const hasNextPage = minions.length > COMPLETED_PAGE_SIZE;
-    const pageItems = hasNextPage
-      ? minions.slice(0, COMPLETED_PAGE_SIZE)
-      : minions;
-
+    const pageItems = hasNextPage ? minions.slice(0, COMPLETED_PAGE_SIZE) : minions;
     if (pageItems.length === 0 && page === 1) {
-      return <p className="text-gray-500">No completed minions yet.</p>;
+      return (
+        <Typography variant="body2" color="text.secondary">
+          No completed minions yet.
+        </Typography>
+      );
     }
 
     if (pageItems.length === 0) {
       return (
-        <div className="text-center py-12 text-gray-400">
-          <p className="text-lg">No completed minions on this page</p>
-          <Link
-            href={buildCompletedPageHref(activePage, 1)}
-            className="text-sm mt-2 inline-block text-blue-400 hover:text-blue-300"
-          >
-            Return to page 1
-          </Link>
-        </div>
+        <Box sx={{ textAlign: "center", py: 8 }}>
+          <Typography variant="h6" color="text.secondary">
+            No completed minions on this page
+          </Typography>
+          <PaginationControls
+            currentPage={page}
+            hasNextPage={hasNextPage}
+            buildHref={() => buildHref(activePage, 1)}
+          />
+        </Box>
       );
     }
 
     return (
       <>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <Grid container spacing={2}>
           {pageItems.map((minion) => (
-            <MinionCard key={minion.id} minion={minion} />
+            <Grid key={minion.id} size={{ xs: 12, md: 6, lg: 4 }}>
+              <MinionCard minion={minion} />
+            </Grid>
           ))}
-        </div>
+        </Grid>
         <PaginationControls
           currentPage={page}
           hasNextPage={hasNextPage}
-          buildHref={(p) => buildCompletedPageHref(activePage, p)}
+          buildHref={(p) => buildHref(activePage, p)}
         />
       </>
     );
   } catch (error) {
     if (error instanceof OrchestratorError) {
       return (
-        <div className="bg-red-900/30 border border-red-700 rounded-lg p-4 text-red-300">
-          <p className="font-medium">Failed to load completed minions</p>
-          <p className="text-sm mt-1">{error.message}</p>
-        </div>
+        <Alert severity="error">
+          <Typography variant="subtitle2">Failed to load completed minions</Typography>
+          <Typography variant="body2">{error.message}</Typography>
+        </Alert>
       );
     }
     throw error;
@@ -227,21 +216,25 @@ async function CompletedMinionList({
 
 function ActiveListSkeleton() {
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+    <Grid container spacing={2}>
       {Array.from({ length: ACTIVE_PAGE_SIZE }).map((_, i) => (
-        <MinionCardSkeleton key={i} />
+        <Grid key={i} size={{ xs: 12, md: 6, lg: 4 }}>
+          <MinionCardSkeleton />
+        </Grid>
       ))}
-    </div>
+    </Grid>
   );
 }
 
 function CompletedListSkeleton() {
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+    <Grid container spacing={2}>
       {Array.from({ length: COMPLETED_PAGE_SIZE }).map((_, i) => (
-        <MinionCardSkeleton key={i} />
+        <Grid key={i} size={{ xs: 12, md: 6, lg: 4 }}>
+          <MinionCardSkeleton />
+        </Grid>
       ))}
-    </div>
+    </Grid>
   );
 }
 
@@ -263,50 +256,37 @@ export default async function Home({
   const completedPage = parsePositivePage(searchParams?.completedPage);
 
   return (
-    <main className="min-h-screen bg-gray-900 text-white p-4 md:p-8">
-      <div className="max-w-6xl mx-auto">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
-          <h1 className="text-3xl font-bold">Minions Control Panel</h1>
-          <div className="flex items-center gap-4">
-            <Link
-              href="/stats"
-              className="text-gray-400 hover:text-white transition-colors"
-            >
-              Stats
-            </Link>
-            <span className="text-gray-400">{session.user?.name}</span>
-            <SignOutButton />
-          </div>
-        </div>
-
-        <section className="mb-12">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold text-gray-100">
+    <>
+      <AppHeader />
+      <Container maxWidth="lg">
+        <Box sx={{ mb: 6 }}>
+          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
+            <Typography variant="h5" component="h2">
               Active Minions
-            </h2>
-            <span className="text-sm text-gray-400">
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
               Showing {ACTIVE_PAGE_SIZE} per page
-            </span>
-          </div>
+            </Typography>
+          </Box>
           <Suspense fallback={<ActiveListSkeleton />}>
             <ActiveMinionList page={activePage} completedPage={completedPage} />
           </Suspense>
-        </section>
+        </Box>
 
-        <section>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold text-gray-100">
+        <Box>
+          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
+            <Typography variant="h5" component="h2">
               Completed Minions
-            </h2>
-            <span className="text-sm text-gray-400">
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
               Showing {COMPLETED_PAGE_SIZE} per page
-            </span>
-          </div>
+            </Typography>
+          </Box>
           <Suspense fallback={<CompletedListSkeleton />}>
             <CompletedMinionList page={completedPage} activePage={activePage} />
           </Suspense>
-        </section>
-      </div>
-    </main>
+        </Box>
+      </Container>
+    </>
   );
 }
