@@ -111,7 +111,7 @@ export function MinionCard({ minion }: { minion: MinionSummary }) {
   return (
     <Link
       href={`/minions/${minion.id}`}
-      className="block bg-gray-800 hover:bg-gray-750 border border-gray-700 rounded-lg p-4 transition-colors"
+      className="block bg-gray-800 hover:bg-gray-750 border border-gray-700 rounded-lg p-4 transition-colors min-w-0"
     >
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1 min-w-0">
@@ -151,7 +151,7 @@ export function MinionCard({ minion }: { minion: MinionSummary }) {
       <div className="mt-3 flex items-center justify-between">
         <div className="flex-1 min-w-0">
           {minion.error && (
-            <div className="text-xs text-red-400 truncate">
+            <div className="text-xs text-red-400 break-words">
               Error: {minion.error}
             </div>
           )}
