@@ -137,7 +137,7 @@ export function MinionCard({ minion }: { minion: MinionSummary }) {
 
           {/* Model and time */}
           <div className="flex items-center gap-3 text-xs text-gray-500">
-            <span>{minion.model}</span>
+            <span className="truncate min-w-0">{minion.model}</span>
             <span>·</span>
             <span>{relativeTime}</span>
           </div>

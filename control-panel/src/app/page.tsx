@@ -263,9 +263,9 @@ export default async function Home({
   const completedPage = parsePositivePage(searchParams?.completedPage);
 
   return (
-    <main className="min-h-screen bg-gray-900 text-white p-8">
+    <main className="min-h-screen bg-gray-900 text-white p-4 md:p-8">
       <div className="max-w-6xl mx-auto">
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
           <h1 className="text-3xl font-bold">Minions Control Panel</h1>
           <div className="flex items-center gap-4">
             <Link
