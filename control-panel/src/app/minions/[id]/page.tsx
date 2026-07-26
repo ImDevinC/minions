@@ -20,7 +20,7 @@ export default async function MinionDetailPage({
     const minion = await getMinion(params.id);
 
     return (
-      <main className="min-h-screen bg-gray-900 text-white p-8">
+      <main className="min-h-screen bg-gray-900 text-white p-4 md:p-8">
         <div className="max-w-6xl mx-auto">
           <Link
             href="/"

@@ -146,12 +146,12 @@ export function MinionDetailClient({ minion }: MinionDetailClientProps) {
       />
 
       {/* Header section */}
-      <div className="bg-gray-800 border border-gray-700 rounded-lg p-6">
-        <div className="flex items-start justify-between gap-4 mb-4">
-          <div>
+      <div className="bg-gray-800 border border-gray-700 rounded-lg p-4 md:p-6">
+        <div className="flex flex-col sm:flex-row items-start justify-between gap-4 mb-4">
+          <div className="w-full sm:w-auto">
             <h1 className="text-2xl font-bold text-white mb-2 flex items-center gap-2">
               <PlatformBadge platform={minion.platform} size="md" />
-              {minion.repo}
+              <span className="break-all">{minion.repo}</span>
             </h1>
             <div className="flex items-center gap-3">
               <StatusBadge status={currentStatus} />
@@ -180,7 +180,7 @@ export function MinionDetailClient({ minion }: MinionDetailClientProps) {
           </div>
 
           {/* Cost and tokens */}
-          <div className="text-right">
+          <div className="text-left sm:text-right w-full sm:w-auto">
             <div className="text-2xl font-bold text-green-400">
               {formatCost(currentCost)}
             </div>
@@ -198,21 +198,21 @@ export function MinionDetailClient({ minion }: MinionDetailClientProps) {
         </div>
 
         {/* Metadata grid */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 text-sm">
           <div>
             <span className="text-gray-500">Model</span>
-            <p className="text-gray-200">{minion.model}</p>
+            <p className="text-gray-200 break-all">{minion.model}</p>
           </div>
           <div>
             <span className="text-gray-500">Created</span>
-            <p className="text-gray-200" suppressHydrationWarning>
+            <p className="text-gray-200 break-words" suppressHydrationWarning>
               {new Date(minion.created_at).toLocaleString()}
             </p>
           </div>
           {minion.started_at && (
             <div>
               <span className="text-gray-500">Started</span>
-              <p className="text-gray-200" suppressHydrationWarning>
+              <p className="text-gray-200 break-words" suppressHydrationWarning>
                 {new Date(minion.started_at).toLocaleString()}
               </p>
             </div>
@@ -220,7 +220,7 @@ export function MinionDetailClient({ minion }: MinionDetailClientProps) {
           {minion.completed_at && (
             <div>
               <span className="text-gray-500">Completed</span>
-              <p className="text-gray-200" suppressHydrationWarning>
+              <p className="text-gray-200 break-words" suppressHydrationWarning>
                 {new Date(minion.completed_at).toLocaleString()}
               </p>
             </div>
@@ -242,7 +242,7 @@ export function MinionDetailClient({ minion }: MinionDetailClientProps) {
                 href={minion.pr_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-green-400 hover:text-green-300 hover:underline"
+                className="text-green-400 hover:text-green-300 hover:underline break-all"
               >
                 {minion.pr_url}
               </a>
@@ -267,7 +267,7 @@ export function MinionDetailClient({ minion }: MinionDetailClientProps) {
                   d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
                 />
               </svg>
-              <span className="text-red-400">{minion.error}</span>
+              <span className="text-red-400 break-words">{minion.error}</span>
             </div>
           </div>
         )}
