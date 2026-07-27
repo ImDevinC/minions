@@ -492,8 +492,13 @@ func (h *MinionHandler) HandleGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fetch recent events (last 100)
-	events, err := h.events.GetRecentEvents(r.Context(), id, 100)
+	// Fetch all events for terminal minions (no limit), last 100 for active ones
+	const recentEventLimit = 100
+	eventLimit := recentEventLimit
+	if minion.Status == db.StatusCompleted || minion.Status == db.StatusFailed || minion.Status == db.StatusTerminated {
+		eventLimit = 100000
+	}
+	events, err := h.events.GetRecentEvents(r.Context(), id, eventLimit)
 	if err != nil {
 		h.logger.Error("failed to get events", "error", err, "minion_id", id)
 		h.writeError(w, http.StatusInternalServerError, "internal server error", "")
