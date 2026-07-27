@@ -557,8 +557,43 @@ handle_completion() {
     esac
 }
 
+# Copy opencode log/state directories to the logs PVC for troubleshooting.
+# Called on task completion (success, failure, or timeout) before exit.
+# Forced pod deletion is handled by the k8s preStop lifecycle hook.
+persist_logs() {
+    local logs_dir="/var/log/minion/${MINION_ID:-unknown}"
+
+    # Skip if logs PVC is not mounted
+    if [[ ! -d "/var/log/minion" ]]; then
+        log "Logs PVC not mounted, skipping log persistence"
+        return 0
+    fi
+
+    mkdir -p "$logs_dir"
+
+    # Copy opencode serve output
+    if [[ -f /tmp/opencode.log ]]; then
+        cp /tmp/opencode.log "$logs_dir/"
+    fi
+
+    # Copy upgrade log
+    if [[ -f /tmp/opencode-upgrade.log ]]; then
+        cp /tmp/opencode-upgrade.log "$logs_dir/"
+    fi
+
+    # Copy opencode data directory (state, log, auth)
+    if [[ -d "${HOME}/.local/share/opencode" ]]; then
+        cp -r "${HOME}/.local/share/opencode" "$logs_dir/"
+    fi
+
+    log "OpenCode logs persisted to ${logs_dir}"
+}
+
 # Main execution
 main() {
+    # Persist logs on any exit path (natural completion, failure, timeout, etc.)
+    trap persist_logs EXIT
+
     validate_env
     setup_config
     upgrade_opencode

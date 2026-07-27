@@ -97,6 +97,9 @@ spec:
             # PVC name for auth.json mount (optional, remove if not using auth PVC)
             - name: MINION_AUTH_PVC_NAME
               value: "minion-auth"
+            # PVC name for persisting opencode log/state directories from terminated pods
+            - name: MINION_LOGS_PVC_NAME
+              value: "minion-logs"
           envFrom:
             # DATABASE_URL
             - secretRef:

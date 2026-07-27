@@ -125,6 +125,11 @@ type Config struct {
 	// AuthPVCName is the name of the PVC containing auth.json for OpenCode.
 	// If empty, no auth PVC is mounted.
 	AuthPVCName string
+
+	// LogsPVCName is the name of the PVC for persisting minion logs.
+	// Mounted at /var/log/minion in the pod. If empty, no logs PVC is mounted
+	// and logs are not persisted between pod restarts/deletions.
+	LogsPVCName string
 }
 
 // Client provides Kubernetes operations for minion pods.
@@ -318,6 +323,23 @@ func (c *Client) SpawnPod(ctx context.Context, params SpawnParams) (string, erro
 		})
 	}
 
+	// Add logs PVC mount if configured
+	// Persists opencode log/state directories for troubleshooting.
+	if c.config.LogsPVCName != "" {
+		volumes = append(volumes, corev1.Volume{
+			Name: "logs-pvc",
+			VolumeSource: corev1.VolumeSource{
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+					ClaimName: c.config.LogsPVCName,
+				},
+			},
+		})
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      "logs-pvc",
+			MountPath: "/var/log/minion",
+		})
+	}
+
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      podName,
@@ -380,6 +402,10 @@ func (c *Client) SpawnPod(ctx context.Context, params SpawnParams) (string, erro
 						},
 					},
 					Env: c.buildEnvVars(params),
+					// PreStop lifecycle hook: copy opencode logs to PVC before pod is deleted.
+					// This covers forced termination (user delete, watchdog cleanup, eviction).
+					// Natural task completion/timeout/failure is handled by entrypoint persist_logs().
+					Lifecycle: c.buildLifecycleHook(),
 					// Writable temp directories for git clone, opencode work, etc.
 					// Task is mounted read-only from ConfigMap.
 					VolumeMounts: volumeMounts,
@@ -583,6 +609,35 @@ func (c *Client) buildEnvVars(params SpawnParams) []corev1.EnvVar {
 	}
 
 	return envs
+}
+
+// buildLifecycleHook returns the container lifecycle hooks.
+// Currently configures a preStop hook that copies opencode logs to the logs PVC
+// when the pod is being deleted (user cancellation, watchdog cleanup, node eviction).
+func (c *Client) buildLifecycleHook() *corev1.Lifecycle {
+	if c.config.LogsPVCName == "" {
+		return nil
+	}
+
+	return &corev1.Lifecycle{
+		PreStop: &corev1.LifecycleHandler{
+			Exec: &corev1.ExecAction{
+				Command: []string{
+					"/bin/sh", "-c",
+					`
+MINION_ID="${MINION_ID:-unknown}"
+LOGS_DIR="/var/log/minion/${MINION_ID}"
+mkdir -p "${LOGS_DIR}"
+cp /tmp/opencode.log "${LOGS_DIR}/" 2>/dev/null
+cp /tmp/opencode-upgrade.log "${LOGS_DIR}/" 2>/dev/null
+if [ -d "${HOME}/.local/share/opencode" ]; then
+  cp -r "${HOME}/.local/share/opencode" "${LOGS_DIR}/"
+fi
+`,
+				},
+			},
+		},
+	}
 }
 
 // TerminatePod deletes a pod and its associated task ConfigMap by minion ID.
