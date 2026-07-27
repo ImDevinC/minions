@@ -30,3 +30,23 @@ spec:
   #   - Longhorn: "longhorn"
   #   - NFS: "nfs-client"
   # storageClassName: "your-rwx-storage-class"
+
+---
+# Logs PVC for persisting OpenCode session logs from terminated minion pods
+# Allows troubleshooting by retaining log/state directories after pod deletion
+# Written via entrypoint persist_logs() on task completion and preStop hook on pod delete
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minion-logs
+  namespace: minions
+  labels:
+    app.kubernetes.io/part-of: minions
+    app.kubernetes.io/component: storage
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi
+  # storageClassName: "your-rwx-storage-class"

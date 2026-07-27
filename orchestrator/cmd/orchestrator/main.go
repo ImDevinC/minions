@@ -59,6 +59,10 @@ func main() {
 	// MINION_AUTH_PVC_NAME is optional; if set, mounts auth.json from PVC to devbox pods
 	authPVCName := os.Getenv("MINION_AUTH_PVC_NAME")
 
+	// MINION_LOGS_PVC_NAME is optional; if set, mounts a logs PVC to devbox pods
+	// for persisting opencode log/state directories on termination
+	logsPVCName := os.Getenv("MINION_LOGS_PVC_NAME")
+
 	// GITHUB_APP_ID is required for GitHub App authentication
 	githubAppIDStr := os.Getenv("GITHUB_APP_ID")
 	if githubAppIDStr == "" {
@@ -112,6 +116,7 @@ func main() {
 	podManager, err := k8s.NewClient(k8s.Config{
 		DevboxImage: devboxImage,
 		AuthPVCName: authPVCName,
+		LogsPVCName: logsPVCName,
 	}, logger)
 	if err != nil {
 		logger.Error("failed to create kubernetes client", "error", err)
