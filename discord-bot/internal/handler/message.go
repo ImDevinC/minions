@@ -154,7 +154,7 @@ func (h *MessageHandler) Handle(s *discordgo.Session, m *discordgo.MessageCreate
 			"error", err,
 			"repo", cmd.Repo,
 		)
-		msg := "❌ Failed to evaluate task clarity. Please try again."
+		msg := "❌ Failed to evaluate task clarity. Please try again.\n\nError: " + err.Error()
 		_, sendErr := s.ChannelMessageSendReply(m.ChannelID, msg, m.Reference())
 		if sendErr != nil {
 			h.logger.Error("failed to send failure notification", "error", sendErr)

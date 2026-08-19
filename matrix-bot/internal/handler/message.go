@@ -189,7 +189,7 @@ func (h *MessageHandler) Handle(ctx context.Context, evt *event.Event) {
 			"error", err,
 			"repo", cmd.Repo,
 		)
-		h.sendReply(evt.RoomID, evt.ID, "Failed to evaluate task clarity. Please try again.")
+		h.sendReply(evt.RoomID, evt.ID, "Failed to evaluate task clarity. Please try again.\n\nError: "+err.Error())
 		return
 	}
 
