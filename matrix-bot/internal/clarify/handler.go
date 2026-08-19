@@ -4,6 +4,7 @@ package clarify
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 )
@@ -96,5 +97,5 @@ func (h *Handler) EvaluateWithRetry(ctx context.Context, repo, task string) (*Re
 		"total_attempts", MaxRetries,
 	)
 
-	return nil, ErrAllRetriesFailed
+	return nil, fmt.Errorf("%w: %v", ErrAllRetriesFailed, lastErr)
 }

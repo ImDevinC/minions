@@ -3,6 +3,8 @@ package clarify
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -106,6 +108,9 @@ func TestHandler_EvaluateWithRetry_AllRetriesFailed(t *testing.T) {
 	if !errors.Is(err, ErrAllRetriesFailed) {
 		t.Errorf("expected ErrAllRetriesFailed, got %v", err)
 	}
+	if !strings.Contains(err.Error(), "fail 3") {
+		t.Errorf("expected last error message in returned error, got %q", err.Error())
+	}
 	if mock.callCount != 3 {
 		t.Errorf("expected 3 calls, got %d", mock.callCount)
 	}
@@ -147,6 +152,7 @@ func TestHandler_EvaluateWithRetry_ContextCancelled(t *testing.T) {
 // evaluateWithRetryTest is a test helper with shorter backoff
 func (h *Handler) evaluateWithRetryTest(ctx context.Context, repo, task string) (*Result, error) {
 	backoff := 1 * time.Millisecond // Much shorter for tests
+	var lastErr error
 
 	for attempt := 1; attempt <= MaxRetries; attempt++ {
 		resp, err := h.llm.Evaluate(ctx, repo, task)
@@ -157,6 +163,7 @@ func (h *Handler) evaluateWithRetryTest(ctx context.Context, repo, task string) 
 			}, nil
 		}
 
+		lastErr = err
 		if attempt < MaxRetries {
 			select {
 			case <-ctx.Done():
@@ -167,7 +174,7 @@ func (h *Handler) evaluateWithRetryTest(ctx context.Context, repo, task string) 
 		}
 	}
 
-	return nil, ErrAllRetriesFailed
+	return nil, fmt.Errorf("%w: %v", ErrAllRetriesFailed, lastErr)
 }
 
 func TestNoOpLLM_AlwaysReady(t *testing.T) {
