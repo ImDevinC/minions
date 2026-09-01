@@ -27,6 +27,11 @@ const (
 	ReconnectBackoffMultiplier = 2
 	// SSEReadTimeout is the timeout for reading a single SSE event.
 	SSEReadTimeout = 60 * time.Second
+	// SSEHeaderTimeout bounds how long the client waits for the initial HTTP
+	// response headers from a pod. A pod can accept the TCP connection yet fail
+	// to answer during startup; without this the reconnect loop blocks forever
+	// inside Do. Only the header wait is bounded; the event stream stays long-lived.
+	SSEHeaderTimeout = 15 * time.Second
 )
 
 // ErrPodTerminated indicates the pod is no longer available.
@@ -71,6 +76,9 @@ type PodIPProvider interface {
 type SSEClientConfig struct {
 	// PodPort is the port where devbox serves the /events endpoint.
 	PodPort int
+	// ResponseHeaderTimeout bounds the wait for the initial HTTP response
+	// headers when establishing a connection. Zero defaults to SSEHeaderTimeout.
+	ResponseHeaderTimeout time.Duration
 	// Logger for structured logging.
 	Logger *slog.Logger
 }
@@ -98,6 +106,9 @@ func NewSSEClient(podIPProvider PodIPProvider, handler EventHandler, config SSEC
 	if config.PodPort == 0 {
 		config.PodPort = 4096 // default opencode serve port
 	}
+	if config.ResponseHeaderTimeout == 0 {
+		config.ResponseHeaderTimeout = SSEHeaderTimeout
+	}
 	if config.Logger == nil {
 		config.Logger = slog.Default()
 	}
@@ -108,9 +119,10 @@ func NewSSEClient(podIPProvider PodIPProvider, handler EventHandler, config SSEC
 		httpClient: &http.Client{
 			Timeout: 0, // no timeout for SSE (long-lived connection)
 			Transport: &http.Transport{
-				MaxIdleConns:        100,
-				MaxConnsPerHost:     50,
-				MaxIdleConnsPerHost: 50,
+				MaxIdleConns:         100,
+				MaxConnsPerHost:      50,
+				MaxIdleConnsPerHost:  50,
+				ResponseHeaderTimeout: config.ResponseHeaderTimeout,
 			},
 		},
 		config:      config,
