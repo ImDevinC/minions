@@ -35,6 +35,7 @@ HEALTH_ENDPOINT="${OPENCODE_BASE}/global/health"
 SESSION_ENDPOINT="${OPENCODE_BASE}/session"
 HEALTH_TIMEOUT=60
 HEALTH_INTERVAL=2
+HEALTH_CURL_TIMEOUT=5
 TASK_TIMEOUT="${TASK_TIMEOUT:-1800}"  # 30 minutes default
 TASK_FILE="/task/task.txt"
 
@@ -138,13 +139,24 @@ clone_repo() {
 }
 
 # Upgrade OpenCode to latest version
+# The upgrade TUI reports success even when the binary is not actually replaced,
+# so verify the version changed before logging success.
 upgrade_opencode() {
     log "Upgrading OpenCode to latest version"
-    
+
+    local version_before
+    version_before=$(opencode --version 2>/dev/null || echo "unknown")
+
     if opencode upgrade --method curl 2>&1 | tee /tmp/opencode-upgrade.log; then
-        log "OpenCode upgrade completed successfully"
+        local version_after
+        version_after=$(opencode --version 2>/dev/null || echo "unknown")
+        if [[ "$version_before" == "$version_after" ]]; then
+            log "OpenCode upgrade reported success but version unchanged: ${version_before}"
+        else
+            log "OpenCode upgrade completed: ${version_before} -> ${version_after}"
+        fi
     else
-        log "OpenCode upgrade failed, continuing with existing version"
+        log "OpenCode upgrade failed, continuing with existing version: ${version_before}"
         log "Upgrade logs:"
         cat /tmp/opencode-upgrade.log >&2 || true
     fi
@@ -161,25 +173,48 @@ start_opencode() {
     log "OpenCode started with PID ${OPENCODE_PID}"
 }
 
-# Wait for OpenCode to be ready
+# Wait for OpenCode to be ready.
+# Each health check curl is bounded so a server that accepts the connection but
+# never answers (stuck during startup) cannot wedge the script forever.
+# On timeout, restarts OpenCode serve once and retries; reports failure to the
+# orchestrator before dying if it still never becomes healthy.
 wait_for_health() {
-    log "Waiting for OpenCode health endpoint (timeout: ${HEALTH_TIMEOUT}s)"
+    local attempt=1
+    local max_attempts=2
 
-    local elapsed=0
-    while [[ $elapsed -lt $HEALTH_TIMEOUT ]]; do
-        if curl -sf "${HEALTH_ENDPOINT}" > /dev/null 2>&1; then
-            log "OpenCode is ready"
-            return 0
+    while [[ $attempt -le $max_attempts ]]; do
+        log "Waiting for OpenCode health endpoint (timeout: ${HEALTH_TIMEOUT}s, attempt ${attempt}/${max_attempts})"
+
+        local elapsed=0
+        while [[ $elapsed -lt $HEALTH_TIMEOUT ]]; do
+            if curl -sf --max-time "${HEALTH_CURL_TIMEOUT}" "${HEALTH_ENDPOINT}" > /dev/null 2>&1; then
+                log "OpenCode is ready"
+                return 0
+            fi
+            sleep "${HEALTH_INTERVAL}"
+            elapsed=$((elapsed + HEALTH_INTERVAL))
+        done
+
+        log "OpenCode health check timed out after ${HEALTH_TIMEOUT}s (attempt ${attempt}/${max_attempts})"
+        log "OpenCode logs:"
+        cat /tmp/opencode.log >&2 || true
+
+        if [[ $attempt -lt $max_attempts ]]; then
+            log "Restarting OpenCode serve and retrying health check"
+            kill "$OPENCODE_PID" 2>/dev/null || true
+            wait "$OPENCODE_PID" 2>/dev/null || true
+            sleep 2
+            start_opencode
         fi
-        sleep "${HEALTH_INTERVAL}"
-        elapsed=$((elapsed + HEALTH_INTERVAL))
+
+        attempt=$((attempt + 1))
     done
 
-    # Dump logs for debugging
-    log "OpenCode logs:"
-    cat /tmp/opencode.log >&2 || true
-
-    die "OpenCode health check timed out after ${HEALTH_TIMEOUT}s"
+    log "OpenCode health check failed after ${max_attempts} attempts"
+    if ! send_callback "failed" "" "OpenCode failed to become healthy after ${max_attempts} attempts"; then
+        log "FATAL: Failed to notify orchestrator after ${CALLBACK_MAX_RETRIES} attempts"
+    fi
+    die "OpenCode health check timed out after ${max_attempts} attempts"
 }
 
 # Create a new session

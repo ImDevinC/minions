@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -160,6 +161,53 @@ func TestSSEClient_BasicEventStream(t *testing.T) {
 		if usages[0].OutputTokens != 50 {
 			t.Errorf("expected output_tokens=50, got %d", usages[0].OutputTokens)
 		}
+	}
+}
+
+// TestSSEClient_ResponseHeaderTimeout verifies the client does not hang forever
+// when a pod accepts the TCP connection but never sends HTTP response headers
+// (e.g. opencode serve stuck during startup). The configurable header timeout
+// must fire and surface an error.
+func TestSSEClient_ResponseHeaderTimeout(t *testing.T) {
+	// Raw listener that accepts connections but never writes a response.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	defer ln.Close()
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			// Hold the connection open without responding, mirroring a stuck server.
+			go func(c net.Conn) {
+				time.Sleep(30 * time.Second)
+				c.Close()
+			}(conn)
+		}
+	}()
+
+	handler := newMockEventHandler()
+	provider := &mockPodIPProvider{ip: ln.Addr().String()}
+
+	client := NewSSEClient(provider, handler, SSEClientConfig{
+		PodPort:              0, // unused: we dial the listener address directly
+		ResponseHeaderTimeout: 200 * time.Millisecond,
+	})
+
+	minionID := uuid.New()
+	start := time.Now()
+	err = client.streamEventsTestURL(context.Background(), minionID, "http://"+ln.Addr().String()+"/event")
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected an error when the server never sends response headers")
+	}
+	if elapsed > 2*time.Second {
+		t.Errorf("expected header timeout to fire quickly, took %v", elapsed)
 	}
 }
 
