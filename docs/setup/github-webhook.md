@@ -71,15 +71,21 @@ The webhook service only processes events from approved repositories. Create a f
 
 ```bash
 # /config/approved-repos.txt
-# One repo per line, owner/repo format
-# Lines starting with # are comments
+# One entry per line. Lines starting with # are comments.
+# Three formats are supported:
+#   owner/repo  - exact match for a single repository
+#   owner       - allow all repositories belonging to that owner/org
+#   owner/*     - wildcard, allow all repositories belonging to that owner/org
 
 myorg/backend-api
 myorg/frontend-app
 myorg/shared-libs
+imdevinc
+otherorg/*
 ```
 
-The matching is case-insensitive and exact (no wildcards).
+Matching is case-insensitive. Exact `owner/repo` entries and owner/org-wide
+entries (`owner` or `owner/*`) can be mixed freely in the same file.
 
 ### Mount as ConfigMap (Kubernetes)
 
@@ -197,7 +203,7 @@ The webhook secret doesn't match:
 ### 404 Repo Not Approved
 
 The repository isn't in the approved repos file:
-- Add `owner/repo` to the approved repos file
+- Add `owner/repo` for a single repo, or `owner` / `owner/*` to allow all repos from that owner/org
 - Restart the service (or remount ConfigMap)
 
 ### Bot Username Not Detected
@@ -253,6 +259,8 @@ data:
   approved-repos.txt: |
     myorg/repo1
     myorg/repo2
+    imdevinc
+    otherorg/*
 
 ---
 # Deployment

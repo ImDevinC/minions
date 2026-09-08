@@ -89,7 +89,13 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
-// loadApprovedRepos reads a file with one repo per line (owner/repo format).
+// loadApprovedRepos reads a file with one allowlist entry per line.
+// Each entry can be in one of three formats:
+//   - owner/repo: exact match for a single repository
+//   - owner:      allows all repositories belonging to that owner/org
+//   - owner/*:    wildcard, allows all repositories belonging to that owner/org
+//
+// Matching is case-insensitive, so entries are stored lowercased.
 func loadApprovedRepos(path string) (map[string]bool, error) {
 	file, err := os.Open(path)
 	if err != nil {

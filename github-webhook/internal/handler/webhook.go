@@ -290,7 +290,7 @@ func (h *WebhookHandler) processComment(ctx context.Context, info commentInfo) {
 	)
 
 	// Check if repo is approved (case-insensitive)
-	if !h.approvedRepos[strings.ToLower(info.repo)] {
+	if !h.isRepoApproved(info.repo) {
 		logger.Debug("ignoring comment from unapproved repo")
 		return
 	}
@@ -361,6 +361,42 @@ func (h *WebhookHandler) processComment(ctx context.Context, info commentInfo) {
 	}
 
 	logger.Info("minion created successfully", "minion_id", result.ID, "status", result.Status)
+}
+
+// isRepoApproved checks whether a repo (in "owner/repo" format) is allowed by
+// the approved repos allowlist. Each allowlist entry can be one of:
+//
+//   - "owner/repo": exact match for a single repository (existing behavior)
+//   - "owner":      allows all repositories belonging to that owner/org
+//   - "owner/*":    wildcard, allows all repositories belonging to that owner/org
+//
+// Matching is case-insensitive.
+func (h *WebhookHandler) isRepoApproved(repo string) bool {
+	lowerRepo := strings.ToLower(repo)
+
+	// Exact repo match (owner/repo)
+	if h.approvedRepos[lowerRepo] {
+		return true
+	}
+
+	// Split into owner and repo name. Repos are always in "owner/repo" format.
+	parts := strings.SplitN(lowerRepo, "/", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return false
+	}
+	owner := parts[0]
+
+	// Owner/org-only entry (e.g., "imdevinc") — allows all repos from that owner
+	if h.approvedRepos[owner] {
+		return true
+	}
+
+	// Wildcard entry (e.g., "imdevinc/*") — allows all repos from that owner
+	if h.approvedRepos[owner+"/*"] {
+		return true
+	}
+
+	return false
 }
 
 // containsBotMention checks if the body contains an @mention of the bot.
