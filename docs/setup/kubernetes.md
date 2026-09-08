@@ -591,8 +591,10 @@ metadata:
   namespace: minions
 data:
   approved-repos.txt: |
-    # Add approved repos here, one per line
+    # Add approved repos here, one entry per line
+    # Formats: owner/repo (exact), owner (all repos from owner), owner/* (wildcard)
     # myorg/myrepo
+    # myorg
 ---
 apiVersion: apps/v1
 kind: Deployment

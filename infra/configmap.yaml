@@ -172,7 +172,13 @@ metadata:
     app.kubernetes.io/part-of: minions
 data:
   approved-repos.txt: |
-    # Add approved repos here, one per line (owner/repo format)
+    # Add approved repos here, one entry per line.
+    # Formats:
+    #   owner/repo - exact match for a single repository
+    #   owner      - allow all repositories belonging to that owner/org
+    #   owner/*    - wildcard, allow all repositories belonging to that owner/org
     # Example:
     # imdevinc/minions
     # imdevinc/other-repo
+    # imdevinc
+    # imdevinc/*
