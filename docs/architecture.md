@@ -153,16 +153,16 @@ PR Comment: "@minions-bot please fix the typo"
 │  entrypoint.sh:                      │
 │  1. gh auth login                    │
 │  2. git clone                        │
-│  3. opencode serve :4096             │
-│  4. POST /session                    │
-│  5. POST /session/:id/message        │
-│  6. Wait for completion              │
+│  3. Start authenticated V2 API :4096  │
+│  4. POST /api/session                │
+│  5. POST /api/session/:id/prompt     │
+│  6. Wait via experimental V2 API     │
 │  7. git commit && gh pr create       │
 │  8. POST callback to orchestrator    │
 │                                      │
 └──────────────────────────────────────┘
        │
-       │ Orchestrator connects to pod:4096/event (SSE)
+        │ Orchestrator connects to pod:4096/api/event (SSE, Basic auth)
        │ Receives: tool calls, assistant messages, token usage
        │
        ▼

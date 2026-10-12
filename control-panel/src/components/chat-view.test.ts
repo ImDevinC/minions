@@ -41,6 +41,26 @@ describe("deriveSessionState", () => {
   });
 
   describe("busy state detection", () => {
+    it("detects V2 session status events", () => {
+      expect(
+        deriveSessionState(
+          [makeEvent("e1", "session.status", { status: { type: "busy" } })],
+        ),
+      ).toBe("busy");
+    });
+
+    it("detects V2 completed execution events", () => {
+      expect(
+        deriveSessionState([makeEvent("e1", "session.execution.succeeded")]),
+      ).toBe("completed");
+    });
+
+    it("detects V2 failed execution events", () => {
+      expect(
+        deriveSessionState([makeEvent("e1", "session.execution.failed")]),
+      ).toBe("failed");
+    });
+
     it("detects retry events", () => {
       const event = makeEvent("e1", "retry", { type: "retry" });
       expect(deriveSessionState([event])).toBe("retry");

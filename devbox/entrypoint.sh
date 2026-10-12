@@ -25,14 +25,14 @@
 
 set -euo pipefail
 
-# Ensure PATH includes user bin directories (defensive for subshells)
-export PATH="/home/minion/.local/bin:/opt/opencode/bin:${PATH}"
+# Ensure user upgrades take precedence over the image installation.
+export PATH="/home/minion/.opencode/bin:/home/minion/.local/bin:/opt/opencode/.opencode/bin:${PATH}"
 
 # Config
 OPENCODE_PORT="${OPENCODE_PORT:-4096}"
 OPENCODE_BASE="http://127.0.0.1:${OPENCODE_PORT}"
-HEALTH_ENDPOINT="${OPENCODE_BASE}/global/health"
-SESSION_ENDPOINT="${OPENCODE_BASE}/session"
+HEALTH_ENDPOINT="${OPENCODE_BASE}/api/info"
+SESSION_ENDPOINT="${OPENCODE_BASE}/api/session"
 HEALTH_TIMEOUT=60
 HEALTH_INTERVAL=2
 HEALTH_CURL_TIMEOUT=5
@@ -138,9 +138,7 @@ clone_repo() {
     cd /workspace/repo
 }
 
-# Upgrade OpenCode to latest version
-# The upgrade TUI reports success even when the binary is not actually replaced,
-# so verify the version changed before logging success.
+# Upgrade OpenCode to the latest V2 version.
 upgrade_opencode() {
     log "Upgrading OpenCode to latest version"
 
@@ -166,6 +164,9 @@ upgrade_opencode() {
 start_opencode() {
     log "Starting OpenCode serve on port ${OPENCODE_PORT}"
 
+    # Share the internal token with the orchestrator for authenticated API access.
+    export OPENCODE_PASSWORD="${INTERNAL_API_TOKEN}"
+
     # Run opencode serve in background, redirect output to log file
     opencode serve --port "${OPENCODE_PORT}" --hostname "0.0.0.0" > /tmp/opencode.log 2>&1 &
     OPENCODE_PID=$!
@@ -187,7 +188,8 @@ wait_for_health() {
 
         local elapsed=0
         while [[ $elapsed -lt $HEALTH_TIMEOUT ]]; do
-            if curl -sf --max-time "${HEALTH_CURL_TIMEOUT}" "${HEALTH_ENDPOINT}" > /dev/null 2>&1; then
+            if curl -sf --max-time "${HEALTH_CURL_TIMEOUT}" \
+                --user "opencode:${INTERNAL_API_TOKEN}" "${HEALTH_ENDPOINT}" > /dev/null 2>&1; then
                 log "OpenCode is ready"
                 return 0
             fi
@@ -222,11 +224,11 @@ create_session() {
     log "Creating new session"
 
     local response
-    response=$(curl -sf -X POST "${SESSION_ENDPOINT}" \
+    response=$(curl -sf --user "opencode:${INTERNAL_API_TOKEN}" -X POST "${SESSION_ENDPOINT}" \
         -H "Content-Type: application/json" \
         -d '{}')
 
-    SESSION_ID=$(echo "$response" | jq -r '.id')
+    SESSION_ID=$(echo "$response" | jq -r '.data.id')
 
     if [[ -z "$SESSION_ID" || "$SESSION_ID" == "null" ]]; then
         log "Session creation response: $response"
@@ -236,9 +238,7 @@ create_session() {
     log "Session created: ${SESSION_ID}"
 }
 
-# Send task to OpenCode using prompt_async
-# We use prompt_async because the task may take a long time to complete
-# and we need to stream events (handled by orchestrator's SSE client)
+# Send task to OpenCode using the asynchronous V2 prompt API.
 send_task() {
     log "Sending task to session ${SESSION_ID}"
 
@@ -251,24 +251,17 @@ send_task() {
     local request_body
     request_body=$(jq -n \
         --arg task "$task_content" \
-        '{
-            parts: [
-                {
-                    type: "text",
-                    text: $task
-                }
-            ]
-        }')
-    log "Sending to ${SESSION_ENDPOINT}/${SESSION_ID}/prompt_async request body: $request_body"
+        '{text: $task}')
+    log "Sending task to OpenCode session ${SESSION_ID}"
 
     local http_code
-    http_code=$(curl -sf -X POST "${SESSION_ENDPOINT}/${SESSION_ID}/prompt_async" \
+    http_code=$(curl -sS --user "opencode:${INTERNAL_API_TOKEN}" -X POST "${SESSION_ENDPOINT}/${SESSION_ID}/prompt" \
         -H "Content-Type: application/json" \
         -d "$request_body" \
         -w "%{http_code}" \
         -o /dev/null)
 
-    if [[ "$http_code" != "204" ]]; then
+    if [[ "$http_code" != "200" ]]; then
         die "Failed to send task: HTTP ${http_code}"
     fi
 
@@ -288,10 +281,6 @@ wait_for_completion() {
     local elapsed=0
     local poll_interval=5
 
-    # Give OpenCode time to start processing the async task before first poll
-    sleep 2
-    elapsed=2
-
     while [[ $elapsed -lt $TASK_TIMEOUT ]]; do
         # Check if OpenCode process is still running
         if ! kill -0 "$OPENCODE_PID" 2>/dev/null; then
@@ -301,42 +290,45 @@ wait_for_completion() {
             return 3
         fi
 
-        local status_response
-        local session_status="unknown"
+        local http_code
+        http_code=$(curl -sS --max-time "$poll_interval" \
+            --user "opencode:${INTERNAL_API_TOKEN}" \
+            -X POST "${OPENCODE_BASE}/api/experimental/session/${SESSION_ID}/wait" \
+            -o /dev/null -w "%{http_code}" 2>/dev/null) || http_code="000"
 
-        # OpenCode returns {} when all sessions are idle.
-        # Treat that as completion when the status endpoint call itself succeeds.
-        if status_response=$(curl -sf "${SESSION_ENDPOINT}/status"); then
-            log "Session status response: $status_response"
-            session_status=$(echo "$status_response" | jq -r --arg id "$SESSION_ID" '
-                if type == "object" and length == 0 then
-                    "idle"
-                else
-                    .[$id] // "unknown"
-                end
-            ')
+        if [[ "$http_code" == "204" ]]; then
+            local session_response
+            session_response=$(curl -sf --user "opencode:${INTERNAL_API_TOKEN}" \
+                "${SESSION_ENDPOINT}/${SESSION_ID}") || {
+                log "Failed to read OpenCode session after completion"
+                return 1
+            }
+
+            local outcome
+            outcome=$(echo "$session_response" | jq -r '.data.outcome // "unknown"')
+            case "$outcome" in
+                succeeded)
+                    log "Task completed successfully"
+                    log "OpenCode logs:"
+                    cat /tmp/opencode.log >&2 || true
+                    return 0
+                    ;;
+                failed|interrupted)
+                    log "Task ended with OpenCode outcome: ${outcome}"
+                    return 1
+                    ;;
+                *)
+                    log "OpenCode returned an unknown session outcome: ${outcome}"
+                    return 1
+                    ;;
+            esac
         fi
 
-        case "$session_status" in
-            "idle")
-                log "Task completed (session idle)"
-                log "OpenCode logs:"
-                cat /tmp/opencode.log >&2 || true
-                return 0
-                ;;
-            "busy"|"running"|"pending")
-                # Still working, continue polling
-                ;;
-            "error"|"failed")
-                log "Task failed: session status is ${session_status}"
-                return 1
-                ;;
-            *)
-                # Unknown status, keep polling (might be transient)
-                ;;
-        esac
+        if [[ "$http_code" != "000" ]]; then
+            log "OpenCode wait request failed: HTTP ${http_code}"
+            return 1
+        fi
 
-        sleep "$poll_interval"
         elapsed=$((elapsed + poll_interval))
     done
 

@@ -26,6 +26,180 @@ export interface AggregationResult {
   systemMessages: SystemMessage[];
 }
 
+/** Convert V2 event payloads to the chat events used by the current UI. */
+function normalizeOpenCodeV2Events(events: MinionEvent[]): MinionEvent[] {
+  const toolByID = new Map<string, { name: string; input: Record<string, unknown> }>();
+
+  return events.map((event) => {
+    const content = event.content;
+    const sessionID = content.sessionID;
+    const messageID = content.assistantMessageID;
+    const ordinal = content.ordinal;
+    const partID = `${String(messageID)}:${String(ordinal)}`;
+
+    if (typeof sessionID !== "string") return event;
+
+    if (
+      (event.event_type === "session.text.started" ||
+        event.event_type === "session.text.delta" ||
+        event.event_type === "session.text.ended" ||
+        event.event_type === "session.reasoning.started" ||
+        event.event_type === "session.reasoning.delta" ||
+        event.event_type === "session.reasoning.ended") &&
+      typeof messageID === "string" &&
+      typeof ordinal === "number"
+    ) {
+      const partType = event.event_type.startsWith("session.reasoning")
+        ? "reasoning"
+        : "text";
+
+      if (event.event_type.endsWith(".delta")) {
+        return {
+          ...event,
+          event_type: "message.part.delta",
+          content: {
+            sessionID,
+            messageID,
+            partID,
+            delta: content.delta,
+            field: "text",
+          },
+        };
+      }
+
+      return {
+        ...event,
+        event_type: "message.part.updated",
+        content: {
+          sessionID,
+          messageID,
+          id: partID,
+          type: partType,
+          text: event.event_type.endsWith(".ended") ? content.text : "",
+        },
+      };
+    }
+
+    if (
+      event.event_type === "session.tool.called" &&
+      typeof messageID === "string" &&
+      typeof content.id === "string" &&
+      typeof content.name === "string"
+    ) {
+      const input = asRecord(content.input);
+      toolByID.set(toolKey(sessionID, content.id), { name: content.name, input });
+      return toolEvent(event, sessionID, messageID, content.id, content.name, "running", input);
+    }
+
+    if (
+      (event.event_type === "session.tool.success" ||
+        event.event_type === "session.tool.failed" ||
+        event.event_type === "session.tool.progress") &&
+      typeof messageID === "string" &&
+      typeof content.id === "string"
+    ) {
+      const call = toolByID.get(toolKey(sessionID, content.id));
+      const name = call?.name ?? "unknown";
+      const input = call?.input ?? {};
+
+      if (event.event_type === "session.tool.progress") {
+        return toolEvent(event, sessionID, messageID, content.id, name, "running", input);
+      }
+
+      if (event.event_type === "session.tool.success") {
+        return toolEvent(
+          event,
+          sessionID,
+          messageID,
+          content.id,
+          name,
+          "completed",
+          input,
+          { output: toolOutput(content.content) },
+        );
+      }
+
+      return toolEvent(
+        event,
+        sessionID,
+        messageID,
+        content.id,
+        name,
+        "error",
+        input,
+        { error: errorMessage(content.error) },
+      );
+    }
+
+    if (
+      event.event_type === "session.execution.failed" ||
+      event.event_type === "session.step.failed"
+    ) {
+      return {
+        ...event,
+        event_type: "session.error",
+        content: {
+          sessionID,
+          message: errorMessage(content.error),
+        },
+      };
+    }
+
+    return event;
+  });
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function errorMessage(value: unknown): string {
+  const error = asRecord(value);
+  if (typeof error.message === "string") return error.message;
+  return typeof value === "string" ? value : JSON.stringify(value ?? "OpenCode failed");
+}
+
+function toolEvent(
+  event: MinionEvent,
+  sessionID: string,
+  messageID: string,
+  id: string,
+  tool: string,
+  status: "running" | "completed" | "error",
+  input: Record<string, unknown>,
+  result: { output?: string; error?: string } = {},
+): MinionEvent {
+  return {
+    ...event,
+    event_type: "message.part.updated",
+    content: {
+      sessionID,
+      messageID,
+      id,
+      type: "tool",
+      tool,
+      state: { status, input, ...result },
+    },
+  };
+}
+
+function toolKey(sessionID: string, id: string): string {
+  return `${sessionID}:${id}`;
+}
+
+function toolOutput(value: unknown): string {
+  if (!Array.isArray(value)) return "";
+  return value
+    .map((part) => {
+      const content = asRecord(part);
+      return typeof content.text === "string" ? content.text : "";
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
 /**
  * Internal state for delta accumulation.
  * Tracks accumulated text per partID and which events have been processed.
@@ -56,6 +230,19 @@ const SKIP_PART_TYPES = new Set([
  * (LSP updates, git changes, todo tracking, session state).
  */
 const INFORMATIONAL_EVENT_TYPES = new Set([
+  "server.connected",
+  "session.execution.started",
+  "session.execution.succeeded",
+  "session.execution.interrupted",
+  "session.step.ended",
+  "session.step.failed",
+  "session.step.started",
+  "session.step.streamed",
+  "session.tool.input.delta",
+  "session.tool.input.ended",
+  "session.tool.input.started",
+  "session.tool.progress",
+  "session.usage.updated",
   "lsp.client.diagnostics",
   "vcs.branch.updated",
   "todo.updated",
@@ -470,8 +657,10 @@ export function aggregateEvents(
   }
 
   // Sort by timestamp
-  const sortedEvents = Array.from(eventMap.values()).sort(
-    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+  const sortedEvents = normalizeOpenCodeV2Events(
+    Array.from(eventMap.values()).sort(
+      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    )
   );
 
   // If no root session ID provided, detect it from the most common session ID

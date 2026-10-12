@@ -89,37 +89,20 @@ RUN groupadd -g 1000 minion \
     && echo "root:100000:65536" >> /etc/subuid \
     && echo "root:100000:65536" >> /etc/subgid
 
-# Install OpenCode binary
-# Using latest release from GitHub
-# Asset naming: opencode-linux-x64.tar.gz (amd64), opencode-linux-arm64.tar.gz (arm64)
-# Install base version to /opt/opencode/bin so it survives the /home/minion EmptyDir mount
-# Upgrades can write to /home/minion/.local/bin which is first in PATH
+# Install OpenCode V2 using its official installer.
+# Install under /opt so the binary survives the /home/minion EmptyDir mount.
 ARG OPENCODE_VERSION=latest
-RUN ARCH=$(dpkg --print-architecture) \
-    && case "$ARCH" in \
-        amd64) OC_ARCH="x64" ;; \
-        arm64) OC_ARCH="arm64" ;; \
-        *) echo "Unsupported architecture: $ARCH" && exit 1 ;; \
-    esac \
-    && ASSET_NAME="opencode-linux-${OC_ARCH}.tar.gz" \
+RUN mkdir -p /opt/opencode \
     && if [ "$OPENCODE_VERSION" = "latest" ]; then \
-        DOWNLOAD_URL=$(curl -fsSL https://api.github.com/repos/anomalyco/opencode/releases/latest \
-            | jq -r --arg name "$ASSET_NAME" '.assets[] | select(.name == $name) | .browser_download_url'); \
+        curl -fsSL https://opencode.ai/v2/install | HOME=/opt/opencode bash -s -- --no-modify-path; \
     else \
-        DOWNLOAD_URL="https://github.com/anomalyco/opencode/releases/download/${OPENCODE_VERSION}/${ASSET_NAME}"; \
+        curl -fsSL https://opencode.ai/v2/install | HOME=/opt/opencode bash -s -- --no-modify-path --version "$OPENCODE_VERSION"; \
     fi \
-    && echo "Downloading OpenCode from: $DOWNLOAD_URL" \
-    && mkdir -p /opt/opencode/bin \
-    && mkdir -p /home/minion/.local/bin \
-    && curl -fsSL "$DOWNLOAD_URL" -o /tmp/opencode.tar.gz \
-    && tar -xzf /tmp/opencode.tar.gz -C /opt/opencode/bin \
-    && chmod +x /opt/opencode/bin/opencode \
     && chown -R minion:minion /opt/opencode \
-    && chown -R minion:minion /home/minion/.local \
-    && rm /tmp/opencode.tar.gz
+    && test -x /opt/opencode/.opencode/bin/opencode
 
-# Add both directories to PATH; ~/.local/bin first so upgrades take precedence
-ENV PATH="/home/minion/.local/bin:/opt/opencode/bin:${PATH}"
+# Put user upgrades first, then the immutable image installation.
+ENV PATH="/home/minion/.opencode/bin:/home/minion/.local/bin:/opt/opencode/.opencode/bin:${PATH}"
 
 # Create workspace directory
 RUN mkdir -p /workspace
@@ -147,7 +130,7 @@ RUN git --version \
     && node --version \
     && npm --version \
     && gh --version | head -n1 \
-    && opencode --version \
+    && opencode --version | grep -Eq '^opencode v?2\.' \
     && docker --version \
     && docker buildx version \
     && buildah --version \
