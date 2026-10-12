@@ -149,7 +149,78 @@ function makePartDeltaEvent(
   };
 }
 
+function makeV2Event(
+  id: string,
+  eventType: string,
+  content: Record<string, unknown>,
+  timestamp: string,
+): MinionEvent {
+  return { id, timestamp, event_type: eventType, content };
+}
+
 describe("event-aggregation", () => {
+  describe("OpenCode V2 events", () => {
+    it("converts V2 text and tool events into chat messages", () => {
+      const events = [
+        makeV2Event(
+          "e1",
+          "session.text.started",
+          { sessionID: "session-1", assistantMessageID: "message-1", ordinal: 0 },
+          "2024-01-01T00:00:00Z",
+        ),
+        makeV2Event(
+          "e2",
+          "session.text.delta",
+          { sessionID: "session-1", assistantMessageID: "message-1", ordinal: 0, delta: "Hello" },
+          "2024-01-01T00:00:01Z",
+        ),
+        makeV2Event(
+          "e3",
+          "session.text.ended",
+          { sessionID: "session-1", assistantMessageID: "message-1", ordinal: 0, text: "Hello" },
+          "2024-01-01T00:00:02Z",
+        ),
+        makeV2Event(
+          "e4",
+          "session.tool.called",
+          {
+            sessionID: "session-1",
+            assistantMessageID: "message-1",
+            id: "call-1",
+            name: "shell",
+            input: { command: "pwd" },
+          },
+          "2024-01-01T00:00:03Z",
+        ),
+        makeV2Event(
+          "e5",
+          "session.tool.success",
+          {
+            sessionID: "session-1",
+            assistantMessageID: "message-1",
+            id: "call-1",
+            content: [{ type: "text", text: "/workspace/repo" }],
+          },
+          "2024-01-01T00:00:04Z",
+        ),
+      ];
+
+      const result = aggregateEvents(events, createDeltaState(), "session-1");
+
+      expect(result.messages).toHaveLength(1);
+      expect(result.messages[0].text).toBe("Hello");
+      expect(result.messages[0].tools).toEqual([
+        expect.objectContaining({
+          id: "call-1",
+          tool: "shell",
+          status: "completed",
+          input: { command: "pwd" },
+          output: "/workspace/repo",
+        }),
+      ]);
+    });
+  });
+
   describe("delta accumulation", () => {
     it("appends delta events to existing text buffer", () => {
       const deltaState = createDeltaState();

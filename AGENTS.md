@@ -90,7 +90,7 @@ Each service is versioned independently:
 
 ### Minion Observability & Security
 
-The orchestrator streams real-time events from minion pods to the control panel using Server-Sent Events (SSE) over unsecured HTTP (trusted pod network).
+The orchestrator streams real-time events from minion pods to the control panel using Server-Sent Events (SSE) over HTTP. OpenCode V2 protects its server API with Basic authentication using the shared internal API token.
 
 #### Orchestrator Restart Behavior
 
@@ -101,6 +101,8 @@ On restart, the orchestrator reconnects to active minions:
 4. Connect is fire-and-forget (spawns goroutine with internal retry logic)
 5. Reconnection failures are logged but don't fail startup
 
+OpenCode V2 events use `GET /api/event` with Basic authentication. The pod and orchestrator use the shared internal API token as the password.
+
 **Implication:** Active minions survive orchestrator restarts without losing observability.
 
 #### Control Panel SSE Proxy
@@ -109,7 +111,7 @@ The control panel cannot directly connect to minion pods (different namespaces, 
 
 ```
 Browser ──[EventSource]──> Next.js API Route ──[WebSocket]──> Orchestrator ──[HTTP]──> Minion Pod
-         /api/minions/[id]/events/stream      /api/minions/[id]/stream          :4096/event
+         /api/minions/[id]/events/stream      /api/minions/[id]/stream          :4096/api/event
 ```
 
 **Why Server-Side Proxy:**
@@ -126,6 +128,7 @@ Browser ──[EventSource]──> Next.js API Route ──[WebSocket]──> Or
 |-------|-------|-----|
 | **Connection refused** | OpenCode not listening on 0.0.0.0 | Check devbox/entrypoint.sh hostname flag, verify OpenCode started successfully |
 | **Connection timeout** | Pod not ready or network issue | Check pod status with `kubectl get pod`, verify pod IP reachable |
+| **401 Unauthorized** | OpenCode and orchestrator tokens differ | Verify `INTERNAL_API_TOKEN` reaches both services |
 | **SSE reconnection loop** | Orchestrator crashing | Check orchestrator logs for panic, verify minion status is not terminal |
 
 **Debug Commands:**

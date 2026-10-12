@@ -194,7 +194,7 @@ func TestSSEClient_ResponseHeaderTimeout(t *testing.T) {
 	provider := &mockPodIPProvider{ip: ln.Addr().String()}
 
 	client := NewSSEClient(provider, handler, SSEClientConfig{
-		PodPort:              0, // unused: we dial the listener address directly
+		PodPort:               0, // unused: we dial the listener address directly
 		ResponseHeaderTimeout: 200 * time.Millisecond,
 	})
 
@@ -213,12 +213,10 @@ func TestSSEClient_ResponseHeaderTimeout(t *testing.T) {
 
 // streamEventsTestURL is a test helper that connects to a specific URL.
 func (c *SSEClient) streamEventsTestURL(ctx context.Context, minionID uuid.UUID, url string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := c.newSSERequest(ctx, url)
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+		return err
 	}
-	req.Header.Set("Accept", "text/event-stream")
-	req.Header.Set("Cache-Control", "no-cache")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -387,6 +385,12 @@ func TestSSEClient_OpenCodePropertiesFormat(t *testing.T) {
 	// Test that OpenCode's {type, properties} format is normalized to {type, content}
 	eventsSent := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/event" {
+			t.Errorf("expected V2 event endpoint /api/event, got %q", r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Basic b3BlbmNvZGU6c2VjcmV0" {
+			t.Errorf("expected OpenCode Basic auth header, got %q", r.Header.Get("Authorization"))
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.WriteHeader(http.StatusOK)
@@ -418,7 +422,8 @@ func TestSSEClient_OpenCodePropertiesFormat(t *testing.T) {
 	provider := &mockPodIPProvider{ip: "127.0.0.1"}
 
 	client := NewSSEClient(provider, handler, SSEClientConfig{
-		PodPort: 4096,
+		PodPort:     4096,
+		PodPassword: "secret",
 	})
 
 	minionID := uuid.New()
@@ -426,7 +431,7 @@ func TestSSEClient_OpenCodePropertiesFormat(t *testing.T) {
 	defer cancel()
 
 	// Use test helper to connect to specific URL
-	err := client.streamEventsTestURL(ctx, minionID, server.URL+"/event")
+	err := client.streamEventsTestURL(ctx, minionID, server.URL+"/api/event")
 	// Stream will end when server closes connection
 	if err != nil {
 		t.Logf("stream ended with: %v", err)
@@ -464,6 +469,61 @@ func TestSSEClient_OpenCodePropertiesFormat(t *testing.T) {
 	// Verify third event
 	if events[2].Content["status"] != "running" {
 		t.Errorf("event 2: expected status 'running', got '%v'", events[2].Content["status"])
+	}
+}
+
+// TestSSEClient_OpenCodeV2DataFormat verifies authenticated V2 events and token usage.
+func TestSSEClient_OpenCodeV2DataFormat(t *testing.T) {
+	eventsSent := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/event" {
+			t.Errorf("expected V2 event endpoint /api/event, got %q", r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Basic b3BlbmNvZGU6c2VjcmV0" {
+			t.Errorf("expected OpenCode Basic auth header, got %q", r.Header.Get("Authorization"))
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"id\":\"evt-1\",\"type\":\"session.step.ended\",\"data\":{\"sessionID\":\"sess-1\",\"assistantMessageID\":\"msg-1\",\"cost\":0.25,\"tokens\":{\"input\":100,\"output\":40,\"reasoning\":10,\"cache\":{\"read\":20,\"write\":5}}}}\n\n")
+		close(eventsSent)
+	}))
+	defer server.Close()
+
+	handler := newMockEventHandler()
+	client := NewSSEClient(&mockPodIPProvider{ip: "127.0.0.1"}, handler, SSEClientConfig{
+		PodPort:     server.Listener.Addr().(*net.TCPAddr).Port,
+		PodPassword: "secret",
+	})
+
+	if err := client.streamEvents(context.Background(), uuid.New(), "test-pod"); err != nil {
+		t.Logf("stream ended with: %v", err)
+	}
+	<-eventsSent
+
+	events := handler.getEvents()
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	if events[0].Type != "session.step.ended" {
+		t.Fatalf("expected V2 event type session.step.ended, got %q", events[0].Type)
+	}
+	if events[0].Content["sessionID"] != "sess-1" {
+		t.Errorf("expected V2 data to normalize to content, got %#v", events[0].Content)
+	}
+
+	usages := handler.getTokenUsages()
+	if len(usages) != 1 {
+		t.Fatalf("expected 1 token usage, got %d", len(usages))
+	}
+	want := TokenUsage{
+		InputTokens:      100,
+		OutputTokens:     40,
+		ReasoningTokens:  10,
+		CacheReadTokens:  20,
+		CacheWriteTokens: 5,
+		CostUSD:          0.25,
+	}
+	if usages[0] != want {
+		t.Errorf("expected usage %+v, got %+v", want, usages[0])
 	}
 }
 

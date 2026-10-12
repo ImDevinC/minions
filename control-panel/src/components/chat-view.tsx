@@ -36,6 +36,17 @@ export function deriveSessionState(events: MinionEvent[]): SessionState | null {
       return "retry";
     }
 
+    if (event.event_type === "session.status") {
+      const status = content.status as Record<string, unknown> | undefined;
+      if (status?.type === "busy") return "busy";
+      if (status?.type === "retry") return "retry";
+      if (status?.type === "idle") return "idle";
+    }
+
+    if (event.event_type === "session.execution.succeeded") return "completed";
+    if (event.event_type === "session.execution.failed") return "failed";
+    if (event.event_type === "session.execution.interrupted") return "terminated";
+
     if (
       content.status !== null &&
       typeof content.status === "object" &&
@@ -54,7 +65,12 @@ export function deriveSessionState(events: MinionEvent[]): SessionState | null {
       }
     }
 
-    if (event.event_type === "part.delta" || event.event_type === "text.delta") {
+    if (
+      event.event_type === "part.delta" ||
+      event.event_type === "text.delta" ||
+      event.event_type === "session.text.delta" ||
+      event.event_type === "session.reasoning.delta"
+    ) {
       return "busy";
     }
   }

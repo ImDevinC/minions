@@ -4,6 +4,7 @@ package streaming
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -37,11 +38,12 @@ const (
 // ErrPodTerminated indicates the pod is no longer available.
 var ErrPodTerminated = errors.New("pod terminated or unreachable")
 
-// PodEvent represents an event received from a devbox pod's /events SSE endpoint.
-// OpenCode sends events in {type, properties} format, but we normalize to {type, content}.
+// PodEvent represents an event received from a devbox pod's SSE endpoint.
+// OpenCode sends V1 events in {type, properties} format and V2 events in {id, type, data} format.
 type PodEvent struct {
 	Type       string         `json:"type"`                 // event type (e.g., "message.part.delta", "session.status")
 	Content    map[string]any `json:"content,omitempty"`    // event-specific payload (our internal format)
+	Data       map[string]any `json:"data,omitempty"`       // OpenCode V2 event payload
 	Properties map[string]any `json:"properties,omitempty"` // event-specific payload (OpenCode format)
 }
 
@@ -74,8 +76,10 @@ type PodIPProvider interface {
 
 // SSEClientConfig holds configuration for the SSE client.
 type SSEClientConfig struct {
-	// PodPort is the port where devbox serves the /events endpoint.
+	// PodPort is the port where devbox serves OpenCode's /api/event endpoint.
 	PodPort int
+	// PodPassword is the password used by OpenCode's authenticated server API.
+	PodPassword string
 	// ResponseHeaderTimeout bounds the wait for the initial HTTP response
 	// headers when establishing a connection. Zero defaults to SSEHeaderTimeout.
 	ResponseHeaderTimeout time.Duration
@@ -119,9 +123,9 @@ func NewSSEClient(podIPProvider PodIPProvider, handler EventHandler, config SSEC
 		httpClient: &http.Client{
 			Timeout: 0, // no timeout for SSE (long-lived connection)
 			Transport: &http.Transport{
-				MaxIdleConns:         100,
-				MaxConnsPerHost:      50,
-				MaxIdleConnsPerHost:  50,
+				MaxIdleConns:          100,
+				MaxConnsPerHost:       50,
+				MaxIdleConnsPerHost:   50,
 				ResponseHeaderTimeout: config.ResponseHeaderTimeout,
 			},
 		},
@@ -219,19 +223,17 @@ func (c *SSEClient) streamEvents(ctx context.Context, minionID uuid.UUID, podNam
 		return fmt.Errorf("failed to get pod IP: %w", err)
 	}
 
-	url := fmt.Sprintf("http://%s:%d/event", podIP, c.config.PodPort)
+	url := fmt.Sprintf("http://%s:%d/api/event", podIP, c.config.PodPort)
 	c.config.Logger.Info("connecting to pod SSE endpoint",
 		"minion_id", minionID,
 		"pod_name", podName,
 		"url", url,
 	)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := c.newSSERequest(ctx, url)
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+		return err
 	}
-	req.Header.Set("Accept", "text/event-stream")
-	req.Header.Set("Cache-Control", "no-cache")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -250,6 +252,21 @@ func (c *SSEClient) streamEvents(ctx context.Context, minionID uuid.UUID, podNam
 
 	// Reset backoff on successful connection (happens in caller after successful return)
 	return c.readEventStream(ctx, minionID, resp.Body)
+}
+
+// newSSERequest creates an authenticated OpenCode event request.
+func (c *SSEClient) newSSERequest(ctx context.Context, url string) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("Cache-Control", "no-cache")
+	if c.config.PodPassword != "" {
+		credentials := base64.StdEncoding.EncodeToString([]byte("opencode:" + c.config.PodPassword))
+		req.Header.Set("Authorization", "Basic "+credentials)
+	}
+	return req, nil
 }
 
 // readEventStream reads and processes events from an SSE stream.
@@ -324,9 +341,14 @@ func (c *SSEClient) processEvent(ctx context.Context, minionID uuid.UUID, eventT
 		event.Type = "unknown"
 	}
 
-	// Normalize: OpenCode sends {type, properties}, we use {type, content}
-	if event.Content == nil && event.Properties != nil {
-		event.Content = event.Properties
+	// Normalize V1 and V2 event payloads to the internal content field.
+	if event.Content == nil {
+		switch {
+		case event.Data != nil:
+			event.Content = event.Data
+		case event.Properties != nil:
+			event.Content = event.Properties
+		}
 	}
 
 	// Extract and accumulate token usage if present
@@ -400,7 +422,7 @@ func extractTokenUsage(event *PodEvent) (TokenUsage, bool) {
 	var usage TokenUsage
 	extracted := false
 
-	// OpenCode message.updated events: content.info path
+	// OpenCode V1 message.updated events: content.info path.
 	if event.Type == "message.updated" {
 		// Navigate structure: content -> info
 		if info, ok := event.Content["info"].(map[string]any); ok {
@@ -439,6 +461,39 @@ func extractTokenUsage(event *PodEvent) (TokenUsage, bool) {
 			}
 		}
 
+		return usage, extracted
+	}
+
+	// OpenCode V2 records usage once per model step, so these values can be accumulated safely.
+	if event.Type == "session.step.ended" || event.Type == "session.step.failed" {
+		if cost, ok := event.Content["cost"].(float64); ok {
+			usage.CostUSD = cost
+			extracted = true
+		}
+		if tokens, ok := event.Content["tokens"].(map[string]any); ok {
+			if input, ok := tokens["input"].(float64); ok {
+				usage.InputTokens = int64(input)
+				extracted = true
+			}
+			if output, ok := tokens["output"].(float64); ok {
+				usage.OutputTokens = int64(output)
+				extracted = true
+			}
+			if reasoning, ok := tokens["reasoning"].(float64); ok {
+				usage.ReasoningTokens = int64(reasoning)
+				extracted = true
+			}
+			if cache, ok := tokens["cache"].(map[string]any); ok {
+				if read, ok := cache["read"].(float64); ok {
+					usage.CacheReadTokens = int64(read)
+					extracted = true
+				}
+				if write, ok := cache["write"].(float64); ok {
+					usage.CacheWriteTokens = int64(write)
+					extracted = true
+				}
+			}
+		}
 		return usage, extracted
 	}
 

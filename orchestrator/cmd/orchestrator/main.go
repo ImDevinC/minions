@@ -189,8 +189,9 @@ func main() {
 		Logger:      logger,
 	})
 	sseClient := streaming.NewSSEClient(podManager, eventHandler, streaming.SSEClientConfig{
-		PodPort: 4096,
-		Logger:  logger,
+		PodPort:     4096,
+		PodPassword: apiToken,
+		Logger:      logger,
 	})
 	logger.Info("SSE client initialized", "pod_port", 4096)
 
