@@ -21,6 +21,9 @@ The orchestrator manages pod lifecycle, streams events to a PostgreSQL database,
 
 See [docs/architecture.md](docs/architecture.md) for the full design.
 
+See the [Stripe gap analysis](docs/stripe-gap-analysis.md) for a source-backed comparison,
+implementation estimates, and recommended priorities.
+
 ## Components
 
 | Directory | Description |
