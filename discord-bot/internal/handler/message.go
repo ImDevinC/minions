@@ -4,8 +4,9 @@ package handler
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -202,7 +203,7 @@ func (h *MessageHandler) Handle(s *discordgo.Session, m *discordgo.MessageCreate
 		)
 		msg := "✅ Task is clear! Your minion is being spawned..."
 		if h.controlPanelURL != "" {
-			msg += fmt.Sprintf("\nView progress: %s/minions/%s", h.controlPanelURL, resp.ID)
+			msg += "\nView progress: " + progressURL(h.controlPanelURL, resp.ID)
 		}
 		_, sendErr := s.ChannelMessageSendReply(m.ChannelID, msg, m.Reference())
 		if sendErr != nil {
@@ -458,12 +459,31 @@ func (h *MessageHandler) HandleReply(s *discordgo.Session, m *discordgo.MessageC
 	// Confirm to the user
 	msg := "✅ Got it! Your minion is now being spawned with the clarified task..."
 	if h.controlPanelURL != "" {
-		msg += fmt.Sprintf("\nView progress: %s/minions/%s", h.controlPanelURL, minion.ID)
+		msg += "\nView progress: " + progressURL(h.controlPanelURL, minion.ID)
 	}
 	_, sendErr := s.ChannelMessageSendReply(m.ChannelID, msg, m.Reference())
 	if sendErr != nil {
 		h.logger.Error("failed to send confirmation", "error", sendErr)
 	}
+}
+
+// progressURL builds a minion page link and always uses HTTPS, even if the
+// configured control panel URL was supplied with an HTTP scheme.
+func progressURL(controlPanelURL, minionID string) string {
+	base := strings.TrimSpace(controlPanelURL)
+	if !strings.Contains(base, "://") {
+		base = "https://" + strings.TrimLeft(base, "/")
+	}
+
+	parsed, err := url.Parse(base)
+	if err != nil || parsed.Host == "" {
+		return ""
+	}
+
+	parsed.Scheme = "https"
+	parsed.Path = strings.TrimRight(parsed.Path, "/") + "/minions/" + minionID
+	parsed.RawPath = ""
+	return parsed.String()
 }
 
 // isCommandAllowed checks optional guild/role restrictions for command execution.

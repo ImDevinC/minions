@@ -562,3 +562,35 @@ func TestContextTimeoutPropagation(t *testing.T) {
 		}
 	})
 }
+
+func TestProgressURLAlwaysUsesHTTPS(t *testing.T) {
+	tests := []struct {
+		name string
+		base string
+		want string
+	}{
+		{
+			name: "upgrades http and trims trailing slash",
+			base: "http://control.example.test/",
+			want: "https://control.example.test/minions/minion-123",
+		},
+		{
+			name: "preserves https base path",
+			base: "https://control.example.test/panel/",
+			want: "https://control.example.test/panel/minions/minion-123",
+		},
+		{
+			name: "adds https when scheme is omitted",
+			base: "control.example.test",
+			want: "https://control.example.test/minions/minion-123",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := progressURL(tt.base, "minion-123"); got != tt.want {
+				t.Errorf("progressURL(%q) = %q, want %q", tt.base, got, tt.want)
+			}
+		})
+	}
+}

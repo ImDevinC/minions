@@ -87,6 +87,9 @@ You are implementing a new task from scratch.
 #### 1. Survey the Codebase
 
 Use search and read tools to understand the existing structure and patterns.
+Read repository-specific instructions before editing or creating a PR, including `AGENTS.md`,
+`CONTRIBUTING.md`, and relevant files under `.github/` when present. Repository guidance takes
+precedence over this general workflow.
 
 #### 2. Plan Your Approach
 
@@ -116,6 +119,14 @@ git push -u origin <branch-name>
 
 #### 6. Create Pull Request
 
+Before creating the PR, follow all PR requirements defined by the target repository. In
+particular, if it requires a semantic-version label, determine the exact label names from its
+documentation, workflows, or `gh label list`, then select the appropriate major, minor, or patch
+label based on the changes. Apply the label to the PR; do not merely mention it in the PR body.
+Use `gh pr create --label "<required-label>"` when creating the PR, or
+`gh pr edit --add-label "<required-label>"` immediately afterward, and verify it with
+`gh pr view --json labels`.
+
 ```bash
 gh pr create --title "<type>: <description>" --body "$(cat <<'EOF'
 ## Summary
@@ -134,6 +145,8 @@ EOF
 **DO:**
 - Detect PR feedback mode at the very start of execution
 - Gather full PR context before making changes (in feedback mode)
+- Read and follow the target repository's contribution and PR instructions
+- Apply any required semver label to new PRs and verify the label is present
 - Make code changes that fully implement the requested feature or feedback
 - Follow existing code patterns and conventions in the repository
 - Run available tests to verify changes work
