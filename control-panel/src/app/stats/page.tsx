@@ -19,6 +19,19 @@ import TableRow from "@mui/material/TableRow";
 import Chip from "@mui/material/Chip";
 import Alert from "@mui/material/Alert";
 import Skeleton from "@mui/material/Skeleton";
+import Button from "@mui/material/Button";
+
+const MINION_PAGE_SIZE = 20;
+
+function parsePositivePage(value?: string | string[]): number {
+  const raw = Array.isArray(value) ? value[0] : value;
+  const parsed = Number.parseInt(raw ?? "1", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+}
+
+function minionPageHref(page: number): string {
+  return page <= 1 ? "/stats" : `/stats?minionPage=${page}`;
+}
 
 function formatCost(cost: number): string {
   return `$${cost.toFixed(4)}`;
@@ -64,16 +77,21 @@ function StatCard({ label, value, subtext }: { label: string; value: string; sub
   );
 }
 
-async function StatsContent() {
+async function StatsContent({ page }: { page: number }) {
   try {
     const [stats, minions] = await Promise.all([
       getStats(),
-      listMinions({ limit: 100 }),
+      listMinions({
+        limit: MINION_PAGE_SIZE + 1,
+        offset: (page - 1) * MINION_PAGE_SIZE,
+      }),
     ]);
 
+    // The orchestrator returns minions newest-first; keep that order instead of sorting by cost.
+    const hasNextPage = minions.length > MINION_PAGE_SIZE;
     const minionsWithCost = minions
-      .filter((m) => m.cost_usd > 0)
-      .sort((a, b) => b.cost_usd - a.cost_usd);
+      .slice(0, MINION_PAGE_SIZE)
+      .filter((minion) => minion.cost_usd > 0);
 
     return (
       <Box sx={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -151,7 +169,7 @@ async function StatsContent() {
           </Typography>
           {minionsWithCost.length === 0 ? (
             <Typography variant="body2" color="text.secondary">
-              No completed minions with costs yet
+              {page === 1 ? "No minions with costs yet" : "No minions with costs on this page"}
             </Typography>
           ) : (
             <TableContainer component={Paper}>
@@ -207,6 +225,31 @@ async function StatsContent() {
               </Table>
             </TableContainer>
           )}
+          {(page > 1 || hasNextPage) && (
+            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mt: 2 }}>
+              <Button
+                component={Link}
+                href={minionPageHref(page - 1)}
+                disabled={page <= 1}
+                variant="outlined"
+                size="small"
+              >
+                Previous
+              </Button>
+              <Typography variant="body2" color="text.secondary">
+                Page {page}
+              </Typography>
+              <Button
+                component={Link}
+                href={minionPageHref(page + 1)}
+                disabled={!hasNextPage}
+                variant="outlined"
+                size="small"
+              >
+                Next
+              </Button>
+            </Box>
+          )}
         </section>
       </Box>
     );
@@ -247,7 +290,11 @@ function StatsLoading() {
   );
 }
 
-export default async function StatsPage() {
+export default async function StatsPage({
+  searchParams,
+}: {
+  searchParams?: { minionPage?: string | string[] };
+}) {
   const session = await getServerSession(authOptions);
 
   if (!session) {
@@ -259,7 +306,7 @@ export default async function StatsPage() {
       <AppHeader title="Statistics" backHref="/" backLabel="Dashboard" />
       <Container maxWidth="lg" sx={{ pb: 4 }}>
         <Suspense fallback={<StatsLoading />}>
-          <StatsContent />
+          <StatsContent page={parsePositivePage(searchParams?.minionPage)} />
         </Suspense>
       </Container>
     </>
