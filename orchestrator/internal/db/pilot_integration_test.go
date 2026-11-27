@@ -33,8 +33,8 @@ func TestPilotCheckpointRecovery(t *testing.T) {
 	}
 	defer func() { _, _ = pool.Exec(ctx, "DELETE FROM users WHERE id=$1", user) }()
 	created, err := store.CreateOrFindDuplicate(ctx, db.CreateMinionParams{Pilot: true, UserID: user,
-		Repo: "ImDevinC/go-fifa", Task: "Update docs", Status: db.StatusAwaitingClarification,
-		DiscordChannelID: "channel", DiscordMessageID: user.String(), ClarificationMessageID: "first",
+		Repo: "example/project", Task: "Update docs", Status: db.StatusAwaitingClarification,
+		DiscordChannelID: "channel", DiscordMessageID: user.String(),
 		ClarificationQuestion: "Which example?"})
 	if err != nil {
 		t.Fatal(err)
@@ -44,6 +44,15 @@ func TestPilotCheckpointRecovery(t *testing.T) {
 		t.Fatalf("awaiting clarification is not runnable: %v, %v", notReady.ID, err)
 	}
 	id := created.Minion.ID
+	if err := store.BindPilotQuestion(ctx, id, "Which example?", "first"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetClarificationAnswer(ctx, db.SetClarificationAnswerParams{ID: id, Answer: "Bypass"}); !errors.Is(err, db.ErrInvalidStatusTransition) {
+		t.Fatalf("legacy reply was not rejected: %v", err)
+	}
+	if err := store.ApplyPilotReply(ctx, db.PilotReply{ID: id, Channel: "channel", Expected: "first", Author: "not-owner", Answer: "Bypass"}); !errors.Is(err, db.ErrInvalidStatusTransition) {
+		t.Fatalf("reply by a different user was not rejected: %v", err)
+	}
 	reply := db.PilotReply{ID: id, Author: user.String(), Channel: "channel", Expected: "first", Answer: "Search",
 		Message: "second", Question: "Which syntax?"}
 	if err := store.ApplyPilotReply(ctx, reply); err != nil {
@@ -64,16 +73,20 @@ func TestPilotCheckpointRecovery(t *testing.T) {
 		expected string
 		update   db.PilotUpdate
 	}{
+		{"implement", db.PilotUpdate{Target: "release/default"}},
 		{"implement", db.PilotUpdate{Step: "verify", Base: "base", Patch: "patch"}},
 		{"verify", db.PilotUpdate{Step: "publish", Tree: "tree"}},
 		{"publish", db.PilotUpdate{Head: "head"}},
-		{"publish", db.PilotUpdate{Step: "ci", PR: "https://github.com/ImDevinC/go-fifa/pull/1"}},
+		{"publish", db.PilotUpdate{Step: "ci", PR: "https://github.com/example/project/pull/1"}},
 		{"ci", db.PilotUpdate{Complete: true, Evidence: "Checks passed"}},
 	} {
 		// A fresh store simulates a new poller taking over the same durable run.
 		run, _, err := db.NewMinionStore(pool).AdvancePilot(ctx, func(run db.PilotRun) (db.PilotUpdate, error) {
 			if run.ID != id || run.Step != next.expected || run.Task != "Update docs\n\nRequester clarification:\nSearch\n\nGo" {
 				t.Fatalf("unexpected checkpoint: %+v", run)
+			}
+			if next.update.Target == "" && run.Target != "release/default" {
+				t.Fatalf("target branch not recovered: %q", run.Target)
 			}
 			return next.update, nil
 		})

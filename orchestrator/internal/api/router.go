@@ -18,16 +18,15 @@ import (
 
 // RouterConfig holds dependencies for creating the router.
 type RouterConfig struct {
-	Logger        *slog.Logger
-	APIToken      string
-	DefaultModel  string // Default model when client doesn't specify one
-	PilotUsers    map[string]bool
-	PilotToken    string
-	Pool          *pgxpool.Pool
-	PodTerminator k8s.PodTerminator
-	Notifier      webhook.Notifier
-	SSE           SSEDisconnector
-	Hub           *streaming.Hub // WebSocket hub for live event streaming
+	Logger               *slog.Logger
+	APIToken             string
+	DefaultModel         string // Default model when client doesn't specify one
+	WorkflowDiscordToken string
+	Pool                 *pgxpool.Pool
+	PodTerminator        k8s.PodTerminator
+	Notifier             webhook.Notifier
+	SSE                  SSEDisconnector
+	Hub                  *streaming.Hub // WebSocket hub for live event streaming
 }
 
 // NewRouter creates and configures the chi router with all API endpoints.
@@ -48,16 +47,15 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 	minionStore := db.NewMinionStore(cfg.Pool)
 	eventStore := db.NewEventStore(cfg.Pool)
 	minionHandler := NewMinionHandler(MinionHandlerConfig{
-		Users:         userStore,
-		Minions:       minionStore,
-		Events:        eventStore,
-		PodTerminator: cfg.PodTerminator,
-		Notifier:      cfg.Notifier,
-		SSE:           cfg.SSE,
-		DefaultModel:  cfg.DefaultModel,
-		PilotUsers:    cfg.PilotUsers,
-		PilotToken:    cfg.PilotToken,
-		Logger:        cfg.Logger,
+		Users:                userStore,
+		Minions:              minionStore,
+		Events:               eventStore,
+		PodTerminator:        cfg.PodTerminator,
+		Notifier:             cfg.Notifier,
+		SSE:                  cfg.SSE,
+		DefaultModel:         cfg.DefaultModel,
+		WorkflowDiscordToken: cfg.WorkflowDiscordToken,
+		Logger:               cfg.Logger,
 	})
 
 	// WebSocket stream handler (if hub is provided)

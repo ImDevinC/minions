@@ -15,7 +15,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/imdevinc/minions/orchestrator/internal/db"
-	"github.com/imdevinc/minions/orchestrator/internal/github"
 	"github.com/imdevinc/minions/orchestrator/internal/k8s"
 	"github.com/imdevinc/minions/orchestrator/internal/webhook"
 )
@@ -28,45 +27,42 @@ type SSEDisconnector interface {
 
 // MinionHandler handles minion-related HTTP endpoints.
 type MinionHandler struct {
-	users         *db.UserStore
-	minions       *db.MinionStore
-	events        *db.EventStore
-	podTerminator k8s.PodTerminator
-	notifier      webhook.Notifier
-	sse           SSEDisconnector
-	defaultModel  string
-	pilotUsers    map[string]bool
-	pilotToken    string
-	logger        *slog.Logger
+	users                *db.UserStore
+	minions              *db.MinionStore
+	events               *db.EventStore
+	podTerminator        k8s.PodTerminator
+	notifier             webhook.Notifier
+	sse                  SSEDisconnector
+	defaultModel         string
+	workflowDiscordToken string
+	logger               *slog.Logger
 }
 
 // MinionHandlerConfig holds dependencies for MinionHandler.
 type MinionHandlerConfig struct {
-	Users         *db.UserStore
-	Minions       *db.MinionStore
-	Events        *db.EventStore
-	PodTerminator k8s.PodTerminator
-	Notifier      webhook.Notifier
-	SSE           SSEDisconnector
-	DefaultModel  string
-	PilotUsers    map[string]bool
-	PilotToken    string
-	Logger        *slog.Logger
+	Users                *db.UserStore
+	Minions              *db.MinionStore
+	Events               *db.EventStore
+	PodTerminator        k8s.PodTerminator
+	Notifier             webhook.Notifier
+	SSE                  SSEDisconnector
+	DefaultModel         string
+	WorkflowDiscordToken string
+	Logger               *slog.Logger
 }
 
 // NewMinionHandler creates a new MinionHandler.
 func NewMinionHandler(cfg MinionHandlerConfig) *MinionHandler {
 	return &MinionHandler{
-		users:         cfg.Users,
-		minions:       cfg.Minions,
-		events:        cfg.Events,
-		podTerminator: cfg.PodTerminator,
-		notifier:      cfg.Notifier,
-		sse:           cfg.SSE,
-		defaultModel:  cfg.DefaultModel,
-		pilotUsers:    cfg.PilotUsers,
-		pilotToken:    cfg.PilotToken,
-		logger:        cfg.Logger,
+		users:                cfg.Users,
+		minions:              cfg.Minions,
+		events:               cfg.Events,
+		podTerminator:        cfg.PodTerminator,
+		notifier:             cfg.Notifier,
+		sse:                  cfg.SSE,
+		defaultModel:         cfg.DefaultModel,
+		workflowDiscordToken: cfg.WorkflowDiscordToken,
+		logger:               cfg.Logger,
 	}
 }
 
@@ -185,18 +181,16 @@ func (h *MinionHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusBadRequest, "invalid repo format: expected owner/repo", "INVALID_REPO")
 		return
 	}
-	pilot := h.pilotUsers != nil && strings.EqualFold(req.Repo, github.PilotRepo)
-	if pilot {
-		if !h.pilotAuthorized(r) || platform != db.PlatformDiscord || !h.pilotUsers[req.DiscordUserID] || req.DiscordMessageID == "" ||
-			req.DiscordChannelID == "" || req.Branch != "" || req.SourcePRURL != "" {
-			h.writeError(w, http.StatusForbidden, "the pilot only accepts new tasks from approved Discord users", "PILOT_ACCESS_DENIED")
+	staged := !(platform == db.PlatformGitHub && req.Branch != "" && req.SourcePRURL != "" && req.GitHubCommentID != "")
+	if staged {
+		if strings.Count(req.Repo, "/") != 1 || req.Branch != "" || req.SourcePRURL != "" {
+			h.writeError(w, http.StatusBadRequest, "new tasks require a GitHub owner/repository and use its default branch", "INVALID_WORKFLOW_TARGET")
 			return
 		}
-		if req.Model != h.defaultModel {
-			h.writeError(w, http.StatusBadRequest, "the pilot uses the configured model", "PILOT_MODEL_OVERRIDE")
+		if platform == db.PlatformDiscord && !h.workflowDiscordAuthorized(r) {
+			h.writeError(w, http.StatusForbidden, "workflow requires the authorized Discord adapter", "WORKFLOW_ACCESS_DENIED")
 			return
 		}
-		req.Repo = github.PilotRepo
 	}
 
 	// Validate and map initial status
@@ -215,6 +209,11 @@ func (h *MinionHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 
 	if initialStatus == db.StatusAwaitingClarification && req.ClarificationQuestion == "" {
 		h.writeError(w, http.StatusBadRequest, "clarification_question is required when initial_status is awaiting_clarification", "MISSING_QUESTION")
+		return
+	}
+	if staged && platform == db.PlatformDiscord && initialStatus == db.StatusAwaitingClarification &&
+		(req.DiscordMessageID == "" || req.DiscordChannelID == "" || len(req.ClarificationQuestion) > 1500) {
+		h.writeError(w, http.StatusBadRequest, "workflow clarification requires a Discord message, channel, and a short question", "INVALID_CLARIFICATION")
 		return
 	}
 
@@ -260,7 +259,7 @@ func (h *MinionHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 
 	// Create minion (with duplicate detection)
 	result, err := h.minions.CreateOrFindDuplicate(r.Context(), db.CreateMinionParams{
-		Pilot:                      pilot,
+		Pilot:                      staged,
 		UserID:                     user.ID,
 		Repo:                       req.Repo,
 		Task:                       req.Task,
@@ -548,7 +547,7 @@ func (h *MinionHandler) HandleGet(w http.ResponseWriter, r *http.Request) {
 	}
 	resp.WorkflowStep, resp.Verification, err = h.minions.PilotProgress(r.Context(), id)
 	if err != nil {
-		h.logger.Error("failed to read pilot progress", "error", err, "minion_id", id)
+		h.logger.Error("failed to read workflow progress", "error", err, "minion_id", id)
 		h.writeError(w, http.StatusInternalServerError, "internal server error", "")
 		return
 	}
@@ -898,8 +897,8 @@ func (h *MinionHandler) HandleClarification(w http.ResponseWriter, r *http.Reque
 
 	round, err := h.minions.PilotRound(r.Context(), id)
 	if err == nil && round > 0 {
-		if !h.pilotAuthorized(r) {
-			h.writeError(w, http.StatusForbidden, "pilot question requires Discord adapter", "PILOT_ACCESS_DENIED")
+		if !h.workflowDiscordAuthorized(r) {
+			h.writeError(w, http.StatusForbidden, "workflow question requires the authorized Discord adapter", "WORKFLOW_ACCESS_DENIED")
 			return
 		}
 		err = h.minions.BindPilotQuestion(r.Context(), id, req.Question, req.DiscordMessageID)
@@ -960,13 +959,13 @@ func (h *MinionHandler) HandleClarificationAnswer(w http.ResponseWriter, r *http
 
 	// Set clarification answer
 	round, err := h.minions.PilotRound(r.Context(), id)
-	if err == nil && round > 0 {
-		if !h.pilotAuthorized(r) || !h.pilotUsers[req.Author] {
-			h.writeError(w, http.StatusForbidden, "pilot reply requires an approved Discord requester", "PILOT_ACCESS_DENIED")
+	if err == nil && round > 0 && req.Author != "" {
+		if !h.workflowDiscordAuthorized(r) {
+			h.writeError(w, http.StatusForbidden, "workflow reply requires the authorized Discord adapter", "WORKFLOW_ACCESS_DENIED")
 			return
 		}
 		if len(req.Answer) > 8000 || len(req.Question) > 1500 || (req.Question == "") != (req.Message == "") {
-			h.writeError(w, http.StatusBadRequest, "invalid pilot clarification", "INVALID_CLARIFICATION")
+			h.writeError(w, http.StatusBadRequest, "invalid workflow clarification", "INVALID_CLARIFICATION")
 			return
 		}
 		err = h.minions.ApplyPilotReply(r.Context(), db.PilotReply{ID: id, Answer: req.Answer, Author: req.Author,
@@ -999,9 +998,9 @@ func (h *MinionHandler) HandleClarificationAnswer(w http.ResponseWriter, r *http
 	}
 }
 
-// pilotAuthorized identifies the trusted Discord intake adapter.
-func (h *MinionHandler) pilotAuthorized(r *http.Request) bool {
-	return h.pilotToken != "" && subtle.ConstantTimeCompare([]byte(h.pilotToken), []byte(r.Header.Get("X-Minions-Pilot-Token"))) == 1
+// workflowDiscordAuthorized checks the additional adapter token when configured.
+func (h *MinionHandler) workflowDiscordAuthorized(r *http.Request) bool {
+	return h.workflowDiscordToken == "" || subtle.ConstantTimeCompare([]byte(h.workflowDiscordToken), []byte(r.Header.Get("X-Minions-Workflow-Token"))) == 1
 }
 
 // GetEventsSinceResponse is the response body for GET /api/minions/{id}/events.
@@ -1124,11 +1123,15 @@ func (h *MinionHandler) HandleGetByClarificationMessageID(w http.ResponseWriter,
 		discordUserID = *minion.OwnerDiscordID
 	}
 	var round int
-	if h.pilotAuthorized(r) {
+	var clarificationAnswer *string
+	if h.workflowDiscordAuthorized(r) {
 		round, err = h.minions.PilotRound(r.Context(), minion.ID)
 		if err != nil {
 			h.writeError(w, http.StatusInternalServerError, "internal server error", "")
 			return
+		}
+		if round > 0 {
+			clarificationAnswer = minion.ClarificationAnswer
 		}
 	}
 
@@ -1141,7 +1144,7 @@ func (h *MinionHandler) HandleGetByClarificationMessageID(w http.ResponseWriter,
 		ClarificationQuestion *string `json:"clarification_question,omitempty"`
 		DiscordChannelID      *string `json:"discord_channel_id,omitempty"`
 		DiscordUserID         string  `json:"discord_user_id"`
-		PilotRound            int     `json:"pilot_round,omitempty"`
+		WorkflowRound         int     `json:"workflow_round,omitempty"`
 		ClarificationAnswer   *string `json:"clarification_answer,omitempty"`
 	}{
 		ID:                    minion.ID.String(),
@@ -1152,8 +1155,8 @@ func (h *MinionHandler) HandleGetByClarificationMessageID(w http.ResponseWriter,
 		ClarificationQuestion: minion.ClarificationQuestion,
 		DiscordChannelID:      minion.DiscordChannelID,
 		DiscordUserID:         discordUserID,
-		PilotRound:            round,
-		ClarificationAnswer:   minion.ClarificationAnswer,
+		WorkflowRound:         round,
+		ClarificationAnswer:   clarificationAnswer,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

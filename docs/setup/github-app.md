@@ -21,7 +21,7 @@ Minions uses a GitHub App (not a Personal Access Token) because:
 |-------|-------|
 | **App name** | `your-org-minions` (must be globally unique) |
 | **Homepage URL** | Your control panel URL or company site |
-| **Webhook** | Uncheck "Active" (we don't use webhooks) |
+| **Webhook** | Leave inactive unless you use [GitHub PR feedback](github-webhook.md) |
 
 ## Required Permissions
 
@@ -31,6 +31,8 @@ Under **Repository permissions**, set:
 |------------|--------|-----|
 | **Contents** | Read and write | Clone repo, push branches |
 | **Pull requests** | Read and write | Create PRs, read existing |
+| **Checks** | Read-only | Report check runs on the verified commit |
+| **Issues** | Read and write (PR feedback only) | Post comments and reactions through the issue-comment APIs |
 | **Metadata** | Read-only | Required for API access (auto-granted) |
 
 All other permissions can remain **No access**.

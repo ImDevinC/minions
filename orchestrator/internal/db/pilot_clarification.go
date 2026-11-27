@@ -17,7 +17,7 @@ type PilotReply struct {
 // BindPilotQuestion attaches the Discord delivery to a saved first question.
 func (s *MinionStore) BindPilotQuestion(ctx context.Context, id uuid.UUID, question, message string) error {
 	tag, err := s.pool.Exec(ctx, `UPDATE minions SET clarification_message_id=$3
-		WHERE id=$1 AND status='awaiting_clarification' AND clarification_question=$2
+		WHERE id=$1 AND platform='discord' AND status='awaiting_clarification' AND clarification_question=$2
 		AND (clarification_message_id IS NULL OR clarification_message_id=$3)
 		AND EXISTS (SELECT 1 FROM minion_pilot_runs WHERE minion_id=$1 AND clarification_round=1)`, id, question, message)
 	if err == nil && tag.RowsAffected() != 1 {
@@ -36,7 +36,7 @@ func (s *MinionStore) ApplyPilotReply(ctx context.Context, reply PilotReply) err
 	var round int
 	err = tx.QueryRow(ctx, `SELECT p.clarification_round
 		FROM minions m JOIN minion_pilot_runs p ON p.minion_id=m.id JOIN users u ON u.id=m.user_id
-		WHERE m.id=$1 AND m.status='awaiting_clarification' AND m.clarification_message_id=$2
+		WHERE m.id=$1 AND m.platform='discord' AND m.status='awaiting_clarification' AND m.clarification_message_id=$2
 		AND m.discord_channel_id=$3 AND u.discord_id=$4 AND m.created_at > now()-interval '24 hours'
 		FOR UPDATE OF m,p`, reply.ID, reply.Expected, reply.Channel, reply.Author).Scan(&round)
 	if errors.Is(err, pgx.ErrNoRows) {

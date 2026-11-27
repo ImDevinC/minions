@@ -19,6 +19,7 @@ type NotificationType string
 const (
 	NotifyTerminated           NotificationType = "terminated"
 	NotifyCompleted            NotificationType = "completed"
+	NotifyDraftOpened          NotificationType = "draft_opened"
 	NotifyFailed               NotificationType = "failed"
 	NotifyIdle                 NotificationType = "idle"
 	NotifyClarificationTimeout NotificationType = "clarification_timeout"

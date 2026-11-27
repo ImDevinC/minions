@@ -14,10 +14,11 @@ import (
 
 // PilotStage describes a deterministic pod and the data mounted in it.
 type PilotStage struct {
-	ID                          uuid.UUID
-	Step, Input, Base, Tree     string
-	Model, ProviderVariable     string
-	ProviderSecret, GitHubToken string
+	ID                                uuid.UUID
+	Step, Input, Base, Tree           string
+	Model, ProviderVariable           string
+	GitHubToken                       string
+	Repository, Target, ProviderValue string
 }
 
 // PilotObservation describes the state of a stage pod.
@@ -26,24 +27,22 @@ type PilotObservation struct {
 }
 
 // ObservePilot adopts an existing stage pod or creates it on the first observation.
-func (c *Client) ObservePilot(ctx context.Context, stage PilotStage, image string, publisherToken func(context.Context) (string, error)) (PilotObservation, error) {
+func (c *Client) ObservePilot(ctx context.Context, stage PilotStage, image string, stageToken func(context.Context) (string, error)) (PilotObservation, error) {
 	var observation PilotObservation
 	name := pilotPodName(stage.ID, stage.Step)
 	pods := c.clientset.CoreV1().Pods(Namespace)
 	existing, err := pods.Get(ctx, name, meta.GetOptions{})
 	if apierrors.IsNotFound(err) {
-		if stage.Step == "publish" {
-			stage.GitHubToken, err = publisherToken(ctx)
-			if err != nil {
-				return observation, err
-			}
+		stage.GitHubToken, err = stageToken(ctx)
+		if err != nil {
+			return observation, err
 		}
 		return observation, c.createPilot(ctx, stage, image)
 	}
 	if err != nil {
 		return observation, err
 	}
-	if existing.Labels["minion-id"] != stage.ID.String() || existing.Labels["app"] != "minion-pilot" {
+	if existing.Labels["minion-id"] != stage.ID.String() || existing.Labels["app"] != "minion-workflow" {
 		return observation, fmt.Errorf("stage pod %s does not belong to this run", name)
 	}
 	observation.Phase = string(existing.Status.Phase)
@@ -78,7 +77,7 @@ func (c *Client) DeletePilot(ctx context.Context, id uuid.UUID, step string) err
 // createPilot creates an immutable stage input and a pod without cluster credentials.
 func (c *Client) createPilot(ctx context.Context, stage PilotStage, image string) error {
 	name := pilotPodName(stage.ID, stage.Step)
-	labels := map[string]string{"app": "minion-pilot", "minion-id": stage.ID.String(), "pilot-step": stage.Step}
+	labels := map[string]string{"app": "minion-workflow", "minion-id": stage.ID.String(), "workflow-step": stage.Step}
 	dataKey := "patch.diff"
 	if stage.Step == "implement" {
 		dataKey = "task.txt"
@@ -102,17 +101,26 @@ func (c *Client) createPilot(ctx context.Context, stage PilotStage, image string
 
 	var identity int64 = 1000
 	var deadline int64 = 300
-	env := []core.EnvVar{{Name: "PILOT_STEP", Value: stage.Step}, {Name: "PILOT_ID", Value: stage.ID.String()},
-		{Name: "PILOT_BASE", Value: stage.Base}, {Name: "PILOT_TREE", Value: stage.Tree}}
+	env := []core.EnvVar{
+		{Name: "WORKFLOW_BASE", Value: stage.Base},
+		{Name: "WORKFLOW_REPO", Value: stage.Repository},
+		{Name: "WORKFLOW_TARGET", Value: stage.Target},
+	}
+	fetchEnv := append(append([]core.EnvVar(nil), env...),
+		core.EnvVar{Name: "WORKFLOW_STEP", Value: "fetch"},
+		core.EnvVar{Name: "GH_TOKEN", Value: stage.GitHubToken})
+	env = append(env, core.EnvVar{Name: "WORKFLOW_STEP", Value: stage.Step})
 	switch stage.Step {
 	case "implement":
 		deadline = 1800
 		env = append(env, core.EnvVar{Name: "OPENCODE_MODEL", Value: stage.Model})
-		env = append(env, core.EnvVar{Name: stage.ProviderVariable, ValueFrom: &core.EnvVarSource{SecretKeyRef: &core.SecretKeySelector{
-			LocalObjectReference: core.LocalObjectReference{Name: stage.ProviderSecret}, Key: stage.ProviderVariable,
-		}}})
+		if stage.ProviderVariable != "" {
+			env = append(env, core.EnvVar{Name: stage.ProviderVariable, Value: stage.ProviderValue})
+		}
 	case "publish":
-		env = append(env, core.EnvVar{Name: "GH_TOKEN", Value: stage.GitHubToken})
+		env = append(env, core.EnvVar{Name: "GH_TOKEN", Value: stage.GitHubToken},
+			core.EnvVar{Name: "WORKFLOW_ID", Value: stage.ID.String()},
+			core.EnvVar{Name: "WORKFLOW_TREE", Value: stage.Tree})
 	}
 	pod := &core.Pod{
 		ObjectMeta: meta.ObjectMeta{Name: name, Labels: labels},
@@ -124,7 +132,7 @@ func (c *Client) createPilot(ctx context.Context, stage PilotStage, image string
 				SeccompProfile: &core.SeccompProfile{Type: core.SeccompProfileTypeRuntimeDefault},
 			},
 			Containers: []core.Container{{
-				Name: "stage", Image: image, Command: []string{"/opt/minions/pilot.sh"}, Env: env,
+				Name: "stage", Image: image, ImagePullPolicy: core.PullAlways, Command: []string{"/opt/minions/workflow.sh"}, Env: env,
 				SecurityContext: &core.SecurityContext{AllowPrivilegeEscalation: &off, ReadOnlyRootFilesystem: &on,
 					Capabilities: &core.Capabilities{Drop: []core.Capability{"ALL"}}},
 				Resources: core.ResourceRequirements{
@@ -142,6 +150,12 @@ func (c *Client) createPilot(ctx context.Context, stage PilotStage, image string
 			},
 		},
 	}
+	if stage.Step != "publish" {
+		fetch := pod.Spec.Containers[0]
+		fetch.Name, fetch.Env = "fetch", fetchEnv
+		fetch.VolumeMounts = fetch.VolumeMounts[:1]
+		pod.Spec.InitContainers = []core.Container{fetch}
+	}
 	_, err = c.clientset.CoreV1().Pods(Namespace).Create(ctx, pod, meta.CreateOptions{})
 	if apierrors.IsAlreadyExists(err) {
 		return nil
@@ -151,5 +165,5 @@ func (c *Client) createPilot(ctx context.Context, stage PilotStage, image string
 
 // pilotPodName returns a stable name that survives retries after an ambiguous API response.
 func pilotPodName(id uuid.UUID, stage string) string {
-	return "pilot-" + strings.TrimSpace(stage) + "-" + id.String()
+	return "workflow-" + strings.TrimSpace(stage) + "-" + id.String()
 }

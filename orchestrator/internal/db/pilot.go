@@ -9,10 +9,13 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// PilotRun is a checkpoint for the version-one go-fifa workflow.
+// PilotRun is a checkpoint for the staged workflow.
 type PilotRun struct {
 	Base, Head, Patch, Step, Task, Model, Tree string
 	Channel                                    *string
+	Room, PR                                   *string
+	Repo, Target, Evidence                     string
+	Platform                                   Platform
 	ID                                         uuid.UUID
 	Status                                     MinionStatus
 	ChangedAt                                  time.Time
@@ -23,6 +26,7 @@ type PilotUpdate struct {
 	Base, Head, Patch, Step, Tree, PR, Failure, Evidence string
 	Delay                                                time.Duration
 	Complete                                             bool
+	Target                                               string
 }
 
 // PilotProgress returns the current stage and last saved verification evidence.
@@ -64,12 +68,14 @@ func (s *MinionStore) AdvancePilot(ctx context.Context, advance func(PilotRun) (
 	defer func() { _ = tx.Rollback(ctx) }()
 	err = tx.QueryRow(ctx, `
 		SELECT m.id,m.status,m.model,m.task || COALESCE(E'\n\nRequester clarification:\n' || m.clarification_answer,''),
-			m.discord_channel_id,p.step,p.base_sha,p.head_sha,p.patch,p.tree_sha,p.changed_at
+			m.discord_channel_id,m.matrix_room_id,m.pr_url,m.platform,m.repo,p.target_branch,p.evidence,
+			p.step,p.base_sha,p.head_sha,p.patch,p.tree_sha,p.changed_at
 		FROM minion_pilot_runs p JOIN minions m ON m.id=p.minion_id
 		WHERE p.step <> 'done' AND p.next_poll <= now()
 			AND m.status IN ('pending','running','terminated')
 		ORDER BY p.next_poll,m.id LIMIT 1 FOR UPDATE OF m,p SKIP LOCKED
-	`).Scan(&run.ID, &run.Status, &run.Model, &run.Task, &run.Channel, &run.Step, &run.Base, &run.Head, &run.Patch, &run.Tree, &run.ChangedAt)
+	`).Scan(&run.ID, &run.Status, &run.Model, &run.Task, &run.Channel, &run.Room, &run.PR, &run.Platform, &run.Repo, &run.Target, &run.Evidence,
+		&run.Step, &run.Base, &run.Head, &run.Patch, &run.Tree, &run.ChangedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return run, update, nil
 	}
@@ -91,8 +97,8 @@ func (s *MinionStore) AdvancePilot(ctx context.Context, advance func(PilotRun) (
 			changed_at=CASE WHEN step <> $2 OR $9 THEN now() ELSE changed_at END,
 			base_sha=COALESCE(NULLIF($4,''),base_sha), head_sha=COALESCE(NULLIF($5,''),head_sha),
 			patch=COALESCE(NULLIF($6,''),patch), tree_sha=COALESCE(NULLIF($7,''),tree_sha),
-			evidence=COALESCE(NULLIF($8,''),evidence)
-		WHERE minion_id=$1`, run.ID, update.Step, update.Delay.Seconds(), update.Base, update.Head, update.Patch, update.Tree, update.Evidence, run.Status == StatusPending)
+			evidence=COALESCE(NULLIF($8,''),evidence), target_branch=COALESCE(NULLIF($10,''),target_branch)
+		WHERE minion_id=$1`, run.ID, update.Step, update.Delay.Seconds(), update.Base, update.Head, update.Patch, update.Tree, update.Evidence, run.Status == StatusPending, update.Target)
 	if err != nil {
 		return run, update, err
 	}

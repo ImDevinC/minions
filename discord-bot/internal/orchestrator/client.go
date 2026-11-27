@@ -52,10 +52,10 @@ type ErrorResponse struct {
 
 // Client is an HTTP client for the orchestrator API.
 type Client struct {
-	PilotToken string
-	baseURL    string
-	apiToken   string
-	httpClient *http.Client
+	WorkflowToken string
+	baseURL       string
+	apiToken      string
+	httpClient    *http.Client
 }
 
 // NewClient creates a new orchestrator client.
@@ -84,7 +84,7 @@ func (c *Client) CreateMinion(ctx context.Context, req CreateMinionRequest) (*Cr
 
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+c.apiToken)
-	httpReq.Header.Set("X-Minions-Pilot-Token", c.PilotToken)
+	httpReq.Header.Set("X-Minions-Workflow-Token", c.WorkflowToken)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -154,7 +154,7 @@ func (c *Client) SetClarification(ctx context.Context, minionID string, req SetC
 
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+c.apiToken)
-	httpReq.Header.Set("X-Minions-Pilot-Token", c.PilotToken)
+	httpReq.Header.Set("X-Minions-Workflow-Token", c.WorkflowToken)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -229,7 +229,7 @@ var ErrClarificationNotFound = errors.New("no minion found for clarification mes
 
 // MinionByClarificationResponse is the response from GET /api/minions/by-clarification/{messageId}.
 type MinionByClarificationResponse struct {
-	PilotRound            int     `json:"pilot_round,omitempty"`
+	WorkflowRound         int     `json:"workflow_round,omitempty"`
 	ClarificationAnswer   *string `json:"clarification_answer,omitempty"`
 	ID                    string  `json:"id"`
 	Repo                  string  `json:"repo"`
@@ -251,7 +251,7 @@ func (c *Client) GetByClarificationMessageID(ctx context.Context, messageID stri
 	}
 
 	httpReq.Header.Set("Authorization", "Bearer "+c.apiToken)
-	httpReq.Header.Set("X-Minions-Pilot-Token", c.PilotToken)
+	httpReq.Header.Set("X-Minions-Workflow-Token", c.WorkflowToken)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -315,7 +315,7 @@ func (c *Client) ApplyClarificationReply(ctx context.Context, minionID string, r
 
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+c.apiToken)
-	httpReq.Header.Set("X-Minions-Pilot-Token", c.PilotToken)
+	httpReq.Header.Set("X-Minions-Workflow-Token", c.WorkflowToken)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {

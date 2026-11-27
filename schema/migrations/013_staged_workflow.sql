@@ -4,11 +4,12 @@ CREATE TABLE IF NOT EXISTS minion_pilot_runs (
     patch text NOT NULL DEFAULT '',
     base_sha text NOT NULL DEFAULT '',
     head_sha text NOT NULL DEFAULT '',
+    target_branch text NOT NULL DEFAULT '',
     tree_sha text NOT NULL DEFAULT '',
     evidence text NOT NULL DEFAULT '',
     clarification_round smallint NOT NULL DEFAULT 1 CHECK (clarification_round IN (1,2)),
     changed_at timestamptz NOT NULL DEFAULT now(),
-    next_poll timestamptz NOT NULL DEFAULT now()
+    next_poll timestamptz NOT NULL DEFAULT now(),
+    cleaned boolean NOT NULL DEFAULT false
 );
-ALTER TABLE minion_pilot_runs ADD COLUMN IF NOT EXISTS cleaned boolean NOT NULL DEFAULT false;
 CREATE INDEX IF NOT EXISTS idx_minion_pilot_ready ON minion_pilot_runs(next_poll) WHERE step <> 'done';

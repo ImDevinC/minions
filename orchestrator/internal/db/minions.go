@@ -1177,6 +1177,16 @@ func (s *MinionStore) SetClarificationAnswer(ctx context.Context, params SetClar
 		return ErrInvalidStatusTransition
 	}
 
+	var stagedDiscord bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (
+		SELECT 1 FROM minion_pilot_runs p JOIN minions m ON m.id=p.minion_id
+		WHERE p.minion_id=$1 AND m.platform='discord')`, params.ID).Scan(&stagedDiscord); err != nil {
+		return err
+	}
+	if stagedDiscord {
+		return ErrInvalidStatusTransition
+	}
+
 	// Update to pending with answer
 	_, err = tx.Exec(ctx,
 		`UPDATE minions SET 

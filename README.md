@@ -68,7 +68,7 @@ done
 
 ### 2. Orchestrator
 
-For the allowlisted Discord-to-draft-PR workflow, see the [go-fifa pilot setup](docs/setup/go-fifa-pilot.md).
+New tasks use the [default staged workflow](docs/setup/staged-workflow.md). It opens a draft PR after local verification passes.
 
 ```bash
 cd orchestrator

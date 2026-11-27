@@ -1,7 +1,6 @@
 # Devbox image for running minion tasks
 # Built on debian:bookworm-slim with explicit Go and Node.js installations
 
-FROM golang:1.19.13-bookworm AS pilot-go
 FROM debian:bookworm-slim AS base
 
 # Build arguments for toolchain versions
@@ -115,10 +114,9 @@ COPY config/ /etc/opencode/
 
 # Copy entrypoint script
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-COPY --from=pilot-go /usr/local/go/ /opt/go-pilot/
-COPY pilot-opencode.json /opt/minions/pilot-opencode.json
-COPY pilot.sh /opt/minions/pilot.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh /opt/minions/pilot.sh
+COPY workflow-opencode.json /opt/minions/workflow-opencode.json
+COPY workflow.sh /opt/minions/workflow.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh /opt/minions/workflow.sh
 
 # Set working directory
 WORKDIR /workspace

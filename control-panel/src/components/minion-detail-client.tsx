@@ -243,9 +243,9 @@ export function MinionDetailClient({ minion }: MinionDetailClientProps) {
           <Alert severity="info" sx={{ mt: 3 }}>
             {currentStatus === "awaiting_clarification" ? "Waiting for clarification" : ({
               implement: currentStatus === "pending" ? "Queued" : "Preparing change",
-              verify: "Running local tests",
+              verify: "Running local verification",
               publish: "Publishing draft PR",
-              ci: "Waiting for GitHub Actions",
+              ci: "Waiting for GitHub checks",
               done: "Workflow finished",
             }[currentResult.workflow_step] ?? currentResult.workflow_step)}
             {currentResult.verification && ` · ${currentResult.verification}`}

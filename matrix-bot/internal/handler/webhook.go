@@ -23,6 +23,7 @@ type NotificationType string
 const (
 	NotifyTerminated           NotificationType = "terminated"
 	NotifyCompleted            NotificationType = "completed"
+	NotifyDraftOpened          NotificationType = "draft_opened"
 	NotifyFailed               NotificationType = "failed"
 	NotifyIdle                 NotificationType = "idle"
 	NotifyClarificationTimeout NotificationType = "clarification_timeout"
@@ -97,7 +98,7 @@ func (h *WebhookHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var err error
 	switch req.Type {
-	case NotifyCompleted:
+	case NotifyCompleted, NotifyDraftOpened:
 		err = h.handleCompleted(ctx, req)
 	case NotifyFailed:
 		err = h.handleFailed(ctx, req)
@@ -147,8 +148,10 @@ func (h *WebhookHandler) validateAuth(r *http.Request) bool {
 // handleCompleted sends a PR URL notification to Matrix.
 func (h *WebhookHandler) handleCompleted(ctx context.Context, req WebhookRequest) error {
 	var msg string
-	if req.PRURL != "" {
-		msg = fmt.Sprintf("✅ Minion completed! PR created: %s", req.PRURL)
+	if req.Type == NotifyDraftOpened {
+		msg = fmt.Sprintf("Draft PR opened: %s", req.PRURL)
+	} else if req.PRURL != "" {
+		msg = fmt.Sprintf("✅ Minion completed! PR: %s", req.PRURL)
 	} else {
 		msg = "✅ Minion completed! No changes were made."
 	}

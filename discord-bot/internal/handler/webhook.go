@@ -19,6 +19,7 @@ type NotificationType string
 const (
 	NotifyTerminated           NotificationType = "terminated"
 	NotifyCompleted            NotificationType = "completed"
+	NotifyDraftOpened          NotificationType = "draft_opened"
 	NotifyFailed               NotificationType = "failed"
 	NotifyIdle                 NotificationType = "idle"
 	NotifyClarificationTimeout NotificationType = "clarification_timeout"
@@ -92,7 +93,7 @@ func (h *WebhookHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	// Process based on notification type
 	var err error
 	switch req.Type {
-	case NotifyCompleted:
+	case NotifyCompleted, NotifyDraftOpened:
 		err = h.handleCompleted(req)
 	case NotifyFailed:
 		err = h.handleFailed(req)
@@ -142,8 +143,10 @@ func (h *WebhookHandler) validateAuth(r *http.Request) bool {
 // handleCompleted sends a PR URL notification to Discord.
 func (h *WebhookHandler) handleCompleted(req WebhookRequest) error {
 	var msg string
-	if req.PRURL != "" {
-		msg = fmt.Sprintf("✅ Minion completed! PR created: %s", req.PRURL)
+	if req.Type == NotifyDraftOpened {
+		msg = fmt.Sprintf("Draft PR opened: %s", req.PRURL)
+	} else if req.PRURL != "" {
+		msg = fmt.Sprintf("✅ Minion completed! PR: %s", req.PRURL)
 	} else {
 		msg = "✅ Minion completed! No changes were made."
 	}

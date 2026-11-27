@@ -90,7 +90,7 @@ func main() {
 
 	// Create orchestrator client for minion creation + rate limiting
 	orchClient := orchestrator.NewClient(orchestratorURL, apiToken)
-	orchClient.PilotToken = os.Getenv("PILOT_DISCORD_TOKEN")
+	orchClient.WorkflowToken = os.Getenv("WORKFLOW_DISCORD_TOKEN")
 
 	// Create clarification LLM client and handler
 	llmClient := clarify.NewOpenAIClient(openaiBaseURL, openaiAPIKey, clarificationModel)

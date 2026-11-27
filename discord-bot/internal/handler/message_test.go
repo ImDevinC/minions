@@ -36,6 +36,10 @@ func (m *mockOrchestrator) SetClarification(ctx context.Context, minionID string
 	return nil
 }
 
+func (m *mockOrchestrator) ApplyClarificationReply(ctx context.Context, id string, req orchestrator.SetClarificationAnswerRequest) error {
+	return m.SetClarificationAnswer(ctx, id, req.Answer)
+}
+
 func (m *mockOrchestrator) MarkFailed(ctx context.Context, minionID string, errorMsg string) error {
 	if m.markFailedFunc != nil {
 		return m.markFailedFunc(ctx, minionID, errorMsg)
