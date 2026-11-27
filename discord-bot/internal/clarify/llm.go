@@ -38,7 +38,7 @@ type OpenAIClient struct {
 func NewOpenAIClient(baseURL, apiKey, model string) *OpenAIClient {
 	return &OpenAIClient{
 		baseURL: baseURL,
-		apiKey: apiKey,
+		apiKey:  apiKey,
 		httpClient: &http.Client{
 			Timeout: 60 * time.Second,
 		},
@@ -62,7 +62,7 @@ Important constraint:
 If the task is clear and actionable, respond with exactly:
 READY
 
-If the task needs clarification, respond with a single, focused question that would help make the task clearer. Keep questions concise and specific.
+If the task needs clarification, respond with up to three short numbered questions. Ask only about unresolved decisions that block implementation.
 
 Examples of tasks that are READY:
 - "Add a --dry-run flag to the deploy command that shows what would be deployed without actually deploying"
@@ -79,7 +79,7 @@ Examples of questions to avoid (NOT allowed):
 - "What folder should I edit?"
 - "Where is this implemented in the repository?"
 
-Only ask ONE question. Be direct and specific.`
+Do not repeat questions the requester has already answered. Be direct and specific.`
 
 var codebaseStructureQuestionPhrases = []string{
 	"which file",
@@ -183,6 +183,9 @@ func (c *OpenAIClient) Evaluate(ctx context.Context, repo, task string) (*LLMRes
 	}
 
 	text := apiResp.Choices[0].Message.Content
+	if strings.TrimSpace(text) == "" {
+		return nil, fmt.Errorf("clarification model returned no decision")
+	}
 	return parseClarificationResponse(text), nil
 }
 

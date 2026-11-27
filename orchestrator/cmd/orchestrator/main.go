@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"regexp"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 	"github.com/imdevinc/minions/orchestrator/internal/db"
 	"github.com/imdevinc/minions/orchestrator/internal/github"
 	"github.com/imdevinc/minions/orchestrator/internal/k8s"
+	"github.com/imdevinc/minions/orchestrator/internal/pilot"
 	"github.com/imdevinc/minions/orchestrator/internal/reconciler"
 	"github.com/imdevinc/minions/orchestrator/internal/spawner"
 	"github.com/imdevinc/minions/orchestrator/internal/streaming"
@@ -242,10 +245,46 @@ func main() {
 	go wdog.Run(watchdogCtx)
 	logger.Info("watchdog started")
 
+	pilotContext, stopPilot := context.WithCancel(ctx)
+	defer stopPilot()
+	var pilotUsers map[string]bool
+	pilotToken := os.Getenv("PILOT_DISCORD_TOKEN")
+	if image := os.Getenv("PILOT_DEVBOX_IMAGE"); image != "" {
+		providerSecret := os.Getenv("PILOT_PROVIDER_SECRET")
+		providerKey := os.Getenv("PILOT_PROVIDER_KEY")
+		pilotAppID, appErr := strconv.ParseInt(os.Getenv("PILOT_GITHUB_APP_ID"), 10, 64)
+		pilotUsers = make(map[string]bool)
+		for _, userID := range strings.Split(os.Getenv("PILOT_DISCORD_USERS"), ",") {
+			if userID = strings.TrimSpace(userID); userID != "" {
+				if _, err := strconv.ParseUint(userID, 10, 64); err != nil {
+					logger.Error("PILOT_DISCORD_USERS must contain Discord user IDs")
+					os.Exit(1)
+				}
+				pilotUsers[userID] = true
+			}
+		}
+		if !regexp.MustCompile(`^[^[:space:]@]+@sha256:[a-f0-9]{64}$`).MatchString(image) ||
+			providerSecret == "" || !regexp.MustCompile(`^[A-Z][A-Z0-9_]*_API_KEY$`).MatchString(providerKey) ||
+			len(pilotUsers) == 0 || discordWebhookURL == "" || len(pilotToken) < 32 || pilotToken == apiToken ||
+			appErr != nil || pilotAppID <= 0 || pilotAppID == githubAppID {
+			logger.Error("pilot requires a pinned image, provider secret, approved Discord users, separate intake token and GitHub App")
+			os.Exit(1)
+		}
+		pilotGitHub, err := github.NewManager(github.Config{AppID: pilotAppID, PrivateKey: []byte(os.Getenv("PILOT_GITHUB_APP_PRIVATE_KEY"))}, logger)
+		if err != nil {
+			logger.Error("pilot GitHub App is not configured", "error", err)
+			os.Exit(1)
+		}
+		go (&pilot.Runner{Store: minionStore, Pods: podManager, GitHub: pilotGitHub, Notifier: notifier,
+			Logger: logger, Image: image, ProviderSecret: providerSecret, ProviderKey: providerKey}).Run(pilotContext)
+	}
+
 	router := api.NewRouter(api.RouterConfig{
 		Logger:        logger,
 		APIToken:      apiToken,
 		DefaultModel:  defaultModel,
+		PilotUsers:    pilotUsers,
+		PilotToken:    pilotToken,
 		Pool:          pool,
 		PodTerminator: podManager,
 		Notifier:      notifier,
@@ -276,6 +315,7 @@ func main() {
 	<-quit
 
 	logger.Info("shutting down server")
+	stopPilot()
 
 	// Stop the watchdog
 	wdog.Stop()

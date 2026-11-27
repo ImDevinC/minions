@@ -233,7 +233,8 @@ func TestReconciler_Run_HealthyMinion_NotOrphaned(t *testing.T) {
 	}
 }
 
-func TestReconciler_Run_PendingMinion_Orphaned(t *testing.T) {
+// TestReconciler_Run_PendingMinionWithoutPod verifies that queued work survives startup.
+func TestReconciler_Run_PendingMinionWithoutPod(t *testing.T) {
 	minionID := uuid.New()
 
 	store := &mockMinionStore{
@@ -251,10 +252,8 @@ func TestReconciler_Run_PendingMinion_Orphaned(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Pending minions without pods ARE orphaned after restart
-	// (they should have a pod being created or have failed)
-	if result.OrphanedMinions != 1 {
-		t.Errorf("expected 1 orphaned minion, got %d", result.OrphanedMinions)
+	if result.OrphanedMinions != 0 || len(store.markedFailed) != 0 {
+		t.Errorf("expected queued minion to stay pending, got %d orphaned", result.OrphanedMinions)
 	}
 }
 

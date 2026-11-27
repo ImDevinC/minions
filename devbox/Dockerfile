@@ -1,6 +1,7 @@
 # Devbox image for running minion tasks
 # Built on debian:bookworm-slim with explicit Go and Node.js installations
 
+FROM golang:1.19.13-bookworm AS pilot-go
 FROM debian:bookworm-slim AS base
 
 # Build arguments for toolchain versions
@@ -91,7 +92,7 @@ RUN groupadd -g 1000 minion \
 
 # Install OpenCode V2 using its official installer.
 # Install under /opt so the binary survives the /home/minion EmptyDir mount.
-ARG OPENCODE_VERSION=latest
+ARG OPENCODE_VERSION=2.4.2
 RUN mkdir -p /opt/opencode \
     && if [ "$OPENCODE_VERSION" = "latest" ]; then \
         curl -fsSL https://opencode.ai/v2/install | HOME=/opt/opencode bash -s -- --no-modify-path; \
@@ -114,7 +115,10 @@ COPY config/ /etc/opencode/
 
 # Copy entrypoint script
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+COPY --from=pilot-go /usr/local/go/ /opt/go-pilot/
+COPY pilot-opencode.json /opt/minions/pilot-opencode.json
+COPY pilot.sh /opt/minions/pilot.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh /opt/minions/pilot.sh
 
 # Set working directory
 WORKDIR /workspace

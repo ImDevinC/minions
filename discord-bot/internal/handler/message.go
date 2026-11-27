@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -162,6 +163,12 @@ func (h *MessageHandler) Handle(s *discordgo.Session, m *discordgo.MessageCreate
 		return
 	}
 
+	if client, ok := h.orchestrator.(*orchestrator.Client); ok && client.PilotToken != "" &&
+		strings.EqualFold(cmd.Repo, "ImDevinC/go-fifa") {
+		h.submitPilot(s, m, client, cmd, result)
+		return
+	}
+
 	if result.Ready {
 		// Create timeout context for minion creation
 		createCtx, createCancel := context.WithTimeout(context.Background(), OperationTimeout)
@@ -269,6 +276,40 @@ func (h *MessageHandler) Handle(s *discordgo.Session, m *discordgo.MessageCreate
 		"repo", cmd.Repo,
 		"clarification_message_id", clarificationMsg.ID,
 	)
+}
+
+// submitPilot saves the first question before posting it to Discord.
+func (h *MessageHandler) submitPilot(s *discordgo.Session, m *discordgo.MessageCreate, client *orchestrator.Client, cmd *command.Command, result *clarify.Result) {
+	ctx, cancel := context.WithTimeout(context.Background(), OperationTimeout)
+	defer cancel()
+	request := orchestrator.CreateMinionRequest{Repo: cmd.Repo, Task: cmd.Task, Model: cmd.Model,
+		DiscordUserID: m.Author.ID, DiscordUsername: m.Author.Username, DiscordMessageID: m.ID, DiscordChannelID: m.ChannelID}
+	if !result.Ready {
+		request.InitialStatus, request.ClarificationQuestion = "awaiting_clarification", result.Question
+	}
+	run, err := client.CreateMinion(ctx, request)
+	if err != nil {
+		h.handleOrchestratorError(s, m, err)
+		return
+	}
+	if run.Status == "awaiting_clarification" && run.Question != nil && run.QuestionID == nil {
+		question, err := sendPilotQuestion(s, m, "❓ "+*run.Question+"\n\nReply to this message.")
+		if err != nil {
+			h.logger.Warn("could not deliver pilot question", "run", run.ID, "error", err)
+			return
+		}
+		if err := client.SetClarification(ctx, run.ID, orchestrator.SetClarificationRequest{
+			Question: *run.Question, DiscordMessageID: question.ID,
+		}); err != nil {
+			h.logger.Warn("could not bind pilot question", "run", run.ID, "error", err)
+		}
+		return
+	}
+	message := "Run " + run.ID + ": " + strings.ReplaceAll(run.Status, "_", " ") + "."
+	if h.controlPanelURL != "" {
+		message += "\n" + h.controlPanelURL + "/minions/" + run.ID
+	}
+	_, _ = s.ChannelMessageSendReply(m.ChannelID, message, m.Reference())
 }
 
 // handleParseError sends an error message to Discord for parse failures
@@ -433,6 +474,10 @@ func (h *MessageHandler) HandleReply(s *discordgo.Session, m *discordgo.MessageC
 	}
 
 	// Set the clarification answer and transition minion back to pending
+	if minion.PilotRound > 0 {
+		h.handlePilotReply(ctx, s, m, minion, answer)
+		return
+	}
 	err = h.orchestrator.SetClarificationAnswer(ctx, minion.ID, answer)
 	if err != nil {
 		if errors.Is(err, orchestrator.ErrClarificationNotFound) {
@@ -464,6 +509,62 @@ func (h *MessageHandler) HandleReply(s *discordgo.Session, m *discordgo.MessageC
 	if sendErr != nil {
 		h.logger.Error("failed to send confirmation", "error", sendErr)
 	}
+}
+
+// handlePilotReply rechecks the task before the runner can start a pod.
+func (h *MessageHandler) handlePilotReply(ctx context.Context, s *discordgo.Session, m *discordgo.MessageCreate, minion *orchestrator.MinionByClarificationResponse, answer string) {
+	client, ok := h.orchestrator.(interface {
+		ApplyClarificationReply(context.Context, string, orchestrator.SetClarificationAnswerRequest) error
+	})
+	if !ok || minion.DiscordChannelID == nil || *minion.DiscordChannelID != m.ChannelID {
+		return
+	}
+	task := minion.Task
+	if minion.ClarificationAnswer != nil {
+		task += "\n\nPrevious requester clarification:\n" + *minion.ClarificationAnswer
+	}
+	if minion.ClarificationQuestion != nil {
+		task += "\n\nQuestion asked:\n" + *minion.ClarificationQuestion
+	}
+	task += "\n\nRequester reply:\n" + answer
+	result, err := h.clarification.EvaluateWithRetry(ctx, minion.Repo, task)
+	if err != nil {
+		_, _ = s.ChannelMessageSendReply(m.ChannelID, "Could not check the answer. Reply again to retry.", m.Reference())
+		return
+	}
+	req := orchestrator.SetClarificationAnswerRequest{
+		Answer: answer, Author: m.Author.ID, Channel: m.ChannelID, Expected: m.MessageReference.MessageID,
+	}
+	if !result.Ready {
+		if minion.PilotRound >= 2 {
+			_, _ = s.ChannelMessageSendReply(m.ChannelID, "The task is still unclear. Please submit a new request with the missing details.", m.Reference())
+			return
+		}
+		question, err := sendPilotQuestion(s, m, "One follow-up:\n"+result.Question+"\n\nReply to this message.")
+		if err != nil {
+			return
+		}
+		req.Question, req.Message = result.Question, question.ID
+	}
+	if err := client.ApplyClarificationReply(ctx, minion.ID, req); err != nil {
+		if req.Message != "" {
+			_ = s.ChannelMessageDelete(m.ChannelID, req.Message)
+		}
+		_, _ = s.ChannelMessageSendReply(m.ChannelID, "Could not save this reply. Check that it answers the current question.", m.Reference())
+		return
+	}
+	if result.Ready {
+		_, _ = s.ChannelMessageSendReply(m.ChannelID, "The clarified task is queued.", m.Reference())
+	}
+}
+
+// sendPilotQuestion keeps model output from mentioning Discord users or roles.
+func sendPilotQuestion(s *discordgo.Session, message *discordgo.MessageCreate, text string) (*discordgo.Message, error) {
+	return s.ChannelMessageSendComplex(message.ChannelID, &discordgo.MessageSend{
+		Content: text, Reference: message.Reference(), AllowedMentions: &discordgo.MessageAllowedMentions{
+			Parse: []discordgo.AllowedMentionType{},
+		},
+	})
 }
 
 // isCommandAllowed checks optional guild/role restrictions for command execution.

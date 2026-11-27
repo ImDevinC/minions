@@ -61,11 +61,14 @@ docker run -d --name minions-db \
 
 # Run migrations
 for f in schema/migrations/*.sql; do
-  psql "postgres://minions:minions@localhost:5432/minions" -f "$f"
+  [[ "$f" == *_down.sql ]] && continue
+  psql "postgres://minions:minions@localhost:5432/minions" -v ON_ERROR_STOP=1 -f "$f" || break
 done
 ```
 
 ### 2. Orchestrator
+
+For the allowlisted Discord-to-draft-PR workflow, see the [go-fifa pilot setup](docs/setup/go-fifa-pilot.md).
 
 ```bash
 cd orchestrator

@@ -188,7 +188,7 @@ func (s *Spawner) processMinion(ctx context.Context, m *db.Minion) {
 	params := k8s.SpawnParams{
 		MinionID:         m.ID,
 		Repo:             m.Repo,
-		Task:             m.Task,
+		Task:             taskForDevbox(m),
 		Model:            m.Model,
 		GitHubToken:      token,
 		OrchestratorURL:  s.config.OrchestratorURL,
@@ -285,4 +285,13 @@ func (s *Spawner) processMinion(ctx context.Context, m *db.Minion) {
 		"minion_id", m.ID,
 		"pod_name", podName,
 	)
+}
+
+// taskForDevbox includes the saved clarification without changing the original request.
+func taskForDevbox(minion *db.Minion) string {
+	if minion.ClarificationAnswer == nil {
+		return minion.Task
+	}
+
+	return minion.Task + "\n\nRequester clarification:\n" + *minion.ClarificationAnswer
 }

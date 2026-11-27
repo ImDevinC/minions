@@ -147,6 +147,7 @@ type Minion struct {
 
 // CreateMinionParams holds parameters for creating a new minion.
 type CreateMinionParams struct {
+	Pilot                      bool
 	UserID                     uuid.UUID
 	Repo                       string
 	Task                       string
@@ -274,7 +275,7 @@ type FindDuplicateResult struct {
 // Uses pg_advisory_xact_lock to prevent race conditions during creation.
 // Must be called within a transaction for the lock to be effective.
 // Returns nil if no duplicate found.
-func (s *MinionStore) FindRecentDuplicate(ctx context.Context, tx pgx.Tx, repo, task string) (*FindDuplicateResult, error) {
+func (s *MinionStore) FindRecentDuplicate(ctx context.Context, tx pgx.Tx, userID uuid.UUID, repo, task string) (*FindDuplicateResult, error) {
 	// Acquire advisory lock based on repo+task hash to serialize duplicate checks
 	lockKey := repoTaskHash(repo, task)
 	_, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", lockKey)
@@ -286,10 +287,11 @@ func (s *MinionStore) FindRecentDuplicate(ctx context.Context, tx pgx.Tx, repo, 
 	row := tx.QueryRow(ctx,
 		`SELECT `+minionSelectColumns+`
 		 FROM minions 
-		 WHERE repo = $1 AND task = $2 AND created_at > NOW() - $3::interval
+		 WHERE repo = $1 AND task = $2 AND created_at > NOW() - $3::interval AND user_id = $4
+		   AND (platform <> 'discord' OR discord_message_id IS NULL)
 		 ORDER BY created_at DESC
 		 LIMIT 1`,
-		repo, task, DuplicateWindow.String(),
+		repo, task, DuplicateWindow.String(), userID,
 	)
 
 	minion, err := scanMinion(row)
@@ -313,9 +315,8 @@ type CreateOrFindDuplicateResult struct {
 
 // CreateOrFindDuplicate creates a new minion or returns an existing duplicate.
 // Uses pg_advisory_xact_lock to prevent race conditions.
-// If a minion with the same repo+task exists within DuplicateWindow (5 min), returns it instead.
-//
-// TODO: Add --force flag support to bypass duplicate detection when explicitly requested.
+// Discord deliveries with a message ID use that ID instead of task text.
+// Other submissions retain the existing duplicate window.
 func (s *MinionStore) CreateOrFindDuplicate(ctx context.Context, params CreateMinionParams) (*CreateOrFindDuplicateResult, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -323,8 +324,17 @@ func (s *MinionStore) CreateOrFindDuplicate(ctx context.Context, params CreateMi
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	// Check for duplicate (with advisory lock held)
-	dupResult, err := s.FindRecentDuplicate(ctx, tx, params.Repo, params.Task)
+	// Serialize quota decisions for different messages from the same requester.
+	if _, err := tx.Exec(ctx, `SELECT id FROM users WHERE id = $1 FOR UPDATE`, params.UserID); err != nil {
+		return nil, err
+	}
+
+	var dupResult *FindDuplicateResult
+	if (params.Platform == PlatformDiscord || params.Platform == "") && params.DiscordMessageID != "" {
+		dupResult, err = findDiscordDelivery(ctx, tx, params)
+	} else {
+		dupResult, err = s.FindRecentDuplicate(ctx, tx, params.UserID, params.Repo, params.Task)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -335,6 +345,17 @@ func (s *MinionStore) CreateOrFindDuplicate(ctx context.Context, params CreateMi
 			Minion:       dupResult.ExistingMinion,
 			WasDuplicate: true,
 		}, nil
+	}
+
+	rateInfo, err := readRateLimitInfo(ctx, tx, params.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if rateInfo.HourlyCount >= MaxMinionsPerHour {
+		return nil, ErrRateLimitExceeded
+	}
+	if rateInfo.ConcurrentCount >= MaxConcurrentMinions {
+		return nil, ErrConcurrentLimitExceeded
 	}
 
 	// Create new minion within the same transaction (lock still held)
@@ -402,6 +423,12 @@ func (s *MinionStore) CreateOrFindDuplicate(ctx context.Context, params CreateMi
 		return nil, err
 	}
 
+	if params.Pilot {
+		if _, err := tx.Exec(ctx, `INSERT INTO minion_pilot_runs(minion_id) VALUES ($1)`, minion.ID); err != nil {
+			return nil, err
+		}
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
@@ -437,14 +464,12 @@ type RateLimitInfo struct {
 	ConcurrentCount int
 }
 
-// GetRateLimitInfo returns rate limit counters for a user.
-// HourlyCount: minions created in the last hour
-// ConcurrentCount: minions in pending or running state
-func (s *MinionStore) GetRateLimitInfo(ctx context.Context, userID uuid.UUID) (*RateLimitInfo, error) {
+// readRateLimitInfo returns quota counters inside the submission transaction.
+func readRateLimitInfo(ctx context.Context, tx pgx.Tx, userID uuid.UUID) (*RateLimitInfo, error) {
 	info := &RateLimitInfo{}
 
 	// Count minions created in the last hour
-	err := s.pool.QueryRow(ctx,
+	err := tx.QueryRow(ctx,
 		`SELECT COUNT(*) FROM minions
 		 WHERE user_id = $1 AND created_at > NOW() - INTERVAL '1 hour'`,
 		userID,
@@ -454,7 +479,7 @@ func (s *MinionStore) GetRateLimitInfo(ctx context.Context, userID uuid.UUID) (*
 	}
 
 	// Count pending or running minions
-	err = s.pool.QueryRow(ctx,
+	err = tx.QueryRow(ctx,
 		`SELECT COUNT(*) FROM minions
 		 WHERE user_id = $1 AND status IN ('pending', 'running')`,
 		userID,
@@ -710,6 +735,14 @@ func (s *MinionStore) Complete(ctx context.Context, params CompleteParams) (*Com
 		return result, nil
 	}
 
+	var pilot bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM minion_pilot_runs WHERE minion_id=$1)`, params.ID).Scan(&pilot); err != nil {
+		return nil, err
+	}
+	if pilot {
+		return nil, ErrInvalidStatusTransition
+	}
+
 	// Update to completed/failed
 	_, err = tx.Exec(ctx,
 		`UPDATE minions SET 
@@ -816,7 +849,8 @@ func (s *MinionStore) ListByStatuses(ctx context.Context, statuses []MinionStatu
 	}
 
 	// Build query with IN clause
-	query := `SELECT ` + minionSelectColumns + ` FROM minions WHERE status = ANY($1)`
+	query := `SELECT ` + minionSelectColumns + ` FROM minions WHERE status = ANY($1)
+		AND NOT EXISTS (SELECT 1 FROM minion_pilot_runs WHERE minion_id = minions.id)`
 
 	// Convert to []string for pgx array handling
 	statusStrings := make([]string, len(statuses))
@@ -852,6 +886,7 @@ func (s *MinionStore) ListPending(ctx context.Context) ([]*Minion, error) {
 	query := `SELECT ` + minionSelectColumns + `
 		 FROM minions 
 		 WHERE status = $1
+		   AND NOT EXISTS (SELECT 1 FROM minion_pilot_runs WHERE minion_id = minions.id)
 		 ORDER BY created_at ASC`
 
 	rows, err := s.pool.Query(ctx, query, StatusPending)
@@ -927,6 +962,7 @@ func (s *MinionStore) ListIdleRunning(ctx context.Context, idleThreshold time.Du
 	query := `SELECT ` + minionSelectColumns + `
 		 FROM minions 
 		 WHERE status = 'running' 
+		   AND NOT EXISTS (SELECT 1 FROM minion_pilot_runs WHERE minion_id = minions.id)
 		   AND last_activity_at < NOW() - $1::interval`
 
 	rows, err := s.pool.Query(ctx, query, idleThreshold.String())

@@ -190,14 +190,16 @@ func testConfig() Config {
 // --- Tests ---
 
 func TestSpawner_ProcessesPendingMinions(t *testing.T) {
+	answer := "Preserve the existing response format."
 	minionID := uuid.New()
 	minion := &db.Minion{
-		ID:        minionID,
-		Repo:      "owner/repo",
-		Task:      "fix the bug",
-		Model:     "claude-3",
-		Status:    db.StatusPending,
-		CreatedAt: time.Now(),
+		ID:                  minionID,
+		Repo:                "owner/repo",
+		Task:                "fix the bug",
+		ClarificationAnswer: &answer,
+		Model:               "claude-3",
+		Status:              db.StatusPending,
+		CreatedAt:           time.Now(),
 	}
 
 	querier := &mockMinionQuerier{minions: []*db.Minion{minion}}
@@ -224,8 +226,8 @@ func TestSpawner_ProcessesPendingMinions(t *testing.T) {
 	if params.Repo != "owner/repo" {
 		t.Errorf("expected repo owner/repo, got %s", params.Repo)
 	}
-	if params.Task != "fix the bug" {
-		t.Errorf("expected task 'fix the bug', got %s", params.Task)
+	if params.Task != "fix the bug\n\nRequester clarification:\n"+answer {
+		t.Errorf("expected the original task and saved clarification, got %q", params.Task)
 	}
 	if params.GitHubToken != "test-token" {
 		t.Errorf("expected token 'test-token', got %s", params.GitHubToken)

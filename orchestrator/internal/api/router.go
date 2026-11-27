@@ -21,6 +21,8 @@ type RouterConfig struct {
 	Logger        *slog.Logger
 	APIToken      string
 	DefaultModel  string // Default model when client doesn't specify one
+	PilotUsers    map[string]bool
+	PilotToken    string
 	Pool          *pgxpool.Pool
 	PodTerminator k8s.PodTerminator
 	Notifier      webhook.Notifier
@@ -53,6 +55,8 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 		Notifier:      cfg.Notifier,
 		SSE:           cfg.SSE,
 		DefaultModel:  cfg.DefaultModel,
+		PilotUsers:    cfg.PilotUsers,
+		PilotToken:    cfg.PilotToken,
 		Logger:        cfg.Logger,
 	})
 
