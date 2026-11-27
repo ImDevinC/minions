@@ -15,6 +15,7 @@ import (
 	"github.com/imdevinc/minions/orchestrator/internal/db"
 	"github.com/imdevinc/minions/orchestrator/internal/github"
 	"github.com/imdevinc/minions/orchestrator/internal/k8s"
+	"github.com/imdevinc/minions/orchestrator/internal/pilot"
 	"github.com/imdevinc/minions/orchestrator/internal/reconciler"
 	"github.com/imdevinc/minions/orchestrator/internal/spawner"
 	"github.com/imdevinc/minions/orchestrator/internal/streaming"
@@ -242,15 +243,21 @@ func main() {
 	go wdog.Run(watchdogCtx)
 	logger.Info("watchdog started")
 
+	workflowContext, stopWorkflow := context.WithCancel(ctx)
+	defer stopWorkflow()
+	go (&pilot.Runner{Store: minionStore, Pods: podManager, GitHub: tokenManager, Notifier: notifier,
+		Logger: logger, Image: devboxImage}).Run(workflowContext)
+
 	router := api.NewRouter(api.RouterConfig{
-		Logger:        logger,
-		APIToken:      apiToken,
-		DefaultModel:  defaultModel,
-		Pool:          pool,
-		PodTerminator: podManager,
-		Notifier:      notifier,
-		SSE:           sseClient,
-		Hub:           hub,
+		Logger:               logger,
+		APIToken:             apiToken,
+		DefaultModel:         defaultModel,
+		WorkflowDiscordToken: os.Getenv("WORKFLOW_DISCORD_TOKEN"),
+		Pool:                 pool,
+		PodTerminator:        podManager,
+		Notifier:             notifier,
+		SSE:                  sseClient,
+		Hub:                  hub,
 	})
 
 	srv := &http.Server{
@@ -276,6 +283,7 @@ func main() {
 	<-quit
 
 	logger.Info("shutting down server")
+	stopWorkflow()
 
 	// Stop the watchdog
 	wdog.Stop()

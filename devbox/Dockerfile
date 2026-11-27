@@ -91,7 +91,7 @@ RUN groupadd -g 1000 minion \
 
 # Install OpenCode V2 using its official installer.
 # Install under /opt so the binary survives the /home/minion EmptyDir mount.
-ARG OPENCODE_VERSION=latest
+ARG OPENCODE_VERSION=2.4.2
 RUN mkdir -p /opt/opencode \
     && if [ "$OPENCODE_VERSION" = "latest" ]; then \
         curl -fsSL https://opencode.ai/v2/install | HOME=/opt/opencode bash -s -- --no-modify-path; \
@@ -114,7 +114,9 @@ COPY config/ /etc/opencode/
 
 # Copy entrypoint script
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+COPY workflow-opencode.json /opt/minions/workflow-opencode.json
+COPY workflow.sh /opt/minions/workflow.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh /opt/minions/workflow.sh
 
 # Set working directory
 WORKDIR /workspace

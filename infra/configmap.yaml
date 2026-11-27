@@ -159,6 +159,28 @@ data:
     COMMENT ON COLUMN users.discord_id IS 'Discord user ID (snowflake as text), NULL for non-Discord users';
     COMMENT ON COLUMN users.discord_username IS 'Discord username at time of last login, NULL for non-Discord users';
 
+  012_index_discord_deliveries.sql: |
+    CREATE INDEX IF NOT EXISTS idx_minions_discord_delivery
+        ON minions (discord_message_id, user_id, created_at, id)
+        WHERE platform = 'discord' AND discord_message_id IS NOT NULL;
+
+  013_staged_workflow.sql: |
+    CREATE TABLE IF NOT EXISTS minion_pilot_runs (
+        minion_id uuid PRIMARY KEY REFERENCES minions(id) ON DELETE CASCADE,
+        step text NOT NULL DEFAULT 'implement' CHECK (step IN ('implement','verify','publish','ci','done')),
+        patch text NOT NULL DEFAULT '',
+        base_sha text NOT NULL DEFAULT '',
+        head_sha text NOT NULL DEFAULT '',
+        target_branch text NOT NULL DEFAULT '',
+        tree_sha text NOT NULL DEFAULT '',
+        evidence text NOT NULL DEFAULT '',
+        clarification_round smallint NOT NULL DEFAULT 1 CHECK (clarification_round IN (1,2)),
+        changed_at timestamptz NOT NULL DEFAULT now(),
+        next_poll timestamptz NOT NULL DEFAULT now(),
+        cleaned boolean NOT NULL DEFAULT false
+    );
+    CREATE INDEX IF NOT EXISTS idx_minion_pilot_ready ON minion_pilot_runs(next_poll) WHERE step <> 'done';
+
 ---
 # GitHub Webhook approved repos configuration
 # Lists repos that can trigger minion spawning via PR comments

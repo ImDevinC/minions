@@ -77,6 +77,7 @@ export function MinionDetailClient({ minion }: MinionDetailClientProps) {
   const [currentCost, setCurrentCost] = useState(minion.cost_usd);
   const [currentInputTokens, setCurrentInputTokens] = useState(minion.input_tokens);
   const [currentOutputTokens, setCurrentOutputTokens] = useState(minion.output_tokens);
+  const [currentResult, setCurrentResult] = useState(minion);
 
   const { events, isConnected, connectionError, isCatchingUp } = useMinionEvents({
     minionId: minion.id,
@@ -86,7 +87,8 @@ export function MinionDetailClient({ minion }: MinionDetailClientProps) {
 
   useEffect(() => {
     setCurrentStatus(minion.status);
-  }, [minion.status]);
+    setCurrentResult(minion);
+  }, [minion]);
 
   useEffect(() => {
     if (
@@ -105,6 +107,7 @@ export function MinionDetailClient({ minion }: MinionDetailClientProps) {
           setCurrentCost(data.cost_usd);
           setCurrentInputTokens(data.input_tokens);
           setCurrentOutputTokens(data.output_tokens);
+          setCurrentResult(data);
           setCurrentStatus(data.status);
         }
       } catch (error) {
@@ -236,26 +239,39 @@ export function MinionDetailClient({ minion }: MinionDetailClientProps) {
           )}
         </Grid>
 
-        {minion.pr_url && (
-          <Alert severity="success" sx={{ mt: 3 }} icon={<PullRequestIcon fontSize="inherit" />}>
+        {currentResult.workflow_step && (
+          <Alert severity="info" sx={{ mt: 3 }}>
+            {currentStatus === "awaiting_clarification" ? "Waiting for clarification" : ({
+              implement: currentStatus === "pending" ? "Queued" : "Preparing change",
+              verify: "Running local verification",
+              publish: "Publishing draft PR",
+              ci: "Waiting for GitHub checks",
+              done: "Workflow finished",
+            }[currentResult.workflow_step] ?? currentResult.workflow_step)}
+            {currentResult.verification && ` · ${currentResult.verification}`}
+          </Alert>
+        )}
+
+        {currentResult.pr_url && (
+          <Alert severity="info" sx={{ mt: 3 }} icon={<PullRequestIcon fontSize="inherit" />}>
             <Typography
               variant="body2"
               component="a"
-              href={minion.pr_url}
+              href={currentResult.pr_url}
               target="_blank"
               rel="noopener noreferrer"
               color="inherit"
               sx={{ wordBreak: "break-all" }}
             >
-              {minion.pr_url}
+              {currentResult.pr_url}
             </Typography>
           </Alert>
         )}
 
-        {minion.error && (
+        {currentResult.error && (
           <Alert severity="error" sx={{ mt: 3 }}>
             <Typography variant="body2" sx={{ wordBreak: "break-word" }}>
-              {minion.error}
+              {currentResult.error}
             </Typography>
           </Alert>
         )}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -42,6 +43,8 @@ type Orchestrator interface {
 	MinionCreator
 	MinionUpdater
 	ClarificationLookup
+	SetClarification(context.Context, string, orchestrator.SetClarificationRequest) error
+	ApplyClarificationReply(context.Context, string, orchestrator.SetClarificationAnswerRequest) error
 }
 
 // ClarificationEvaluator evaluates tasks for clarification needs.
@@ -162,113 +165,43 @@ func (h *MessageHandler) Handle(s *discordgo.Session, m *discordgo.MessageCreate
 		return
 	}
 
-	if result.Ready {
-		// Create timeout context for minion creation
-		createCtx, createCancel := context.WithTimeout(context.Background(), OperationTimeout)
-		defer createCancel()
+	h.submitWorkflow(s, m, cmd, result)
+}
 
-		// Create minion in pending state (spawner will pick it up)
-		resp, createErr := h.orchestrator.CreateMinion(createCtx, orchestrator.CreateMinionRequest{
-			Repo:             cmd.Repo,
-			Task:             cmd.Task,
-			Model:            cmd.Model,
-			InitialStatus:    "pending",
-			DiscordMessageID: m.ID,
-			DiscordChannelID: m.ChannelID,
-			DiscordUserID:    m.Author.ID,
-			DiscordUsername:  m.Author.Username,
-		})
-		if createErr != nil {
-			h.handleOrchestratorError(s, m, createErr)
+// submitWorkflow saves the first question before posting it to Discord.
+func (h *MessageHandler) submitWorkflow(s *discordgo.Session, m *discordgo.MessageCreate, cmd *command.Command, result *clarify.Result) {
+	ctx, cancel := context.WithTimeout(context.Background(), OperationTimeout)
+	defer cancel()
+	request := orchestrator.CreateMinionRequest{Repo: cmd.Repo, Task: cmd.Task, Model: cmd.Model,
+		DiscordUserID: m.Author.ID, DiscordUsername: m.Author.Username, DiscordMessageID: m.ID, DiscordChannelID: m.ChannelID,
+		InitialStatus: "pending"}
+	if !result.Ready {
+		request.InitialStatus, request.ClarificationQuestion = "awaiting_clarification", result.Question
+	}
+	run, err := h.orchestrator.CreateMinion(ctx, request)
+	if err != nil {
+		h.handleOrchestratorError(s, m, err)
+		return
+	}
+	if run.Status == "awaiting_clarification" && run.Question != nil && run.QuestionID == nil {
+		question, err := sendWorkflowQuestion(s, m, "❓ "+*run.Question+"\n\nReply to this message.")
+		if err != nil {
+			h.logger.Warn("could not deliver workflow question", "run", run.ID, "error", err)
+			_, _ = s.ChannelMessageSendReply(m.ChannelID, "Could not send the question. Please submit the task again.", m.Reference())
 			return
 		}
-
-		if resp.Duplicate {
-			h.logger.Info("duplicate minion detected",
-				"minion_id", resp.ID,
-				"repo", cmd.Repo,
-			)
-			msg := "⚠️ A minion is already working on this task. Check the existing one!"
-			_, sendErr := s.ChannelMessageSendReply(m.ChannelID, msg, m.Reference())
-			if sendErr != nil {
-				h.logger.Error("failed to send duplicate reply", "error", sendErr)
-			}
-			return
-		}
-
-		h.logger.Info("task is ready, minion created",
-			"minion_id", resp.ID,
-			"repo", cmd.Repo,
-		)
-		msg := "✅ Task is clear! Your minion is being spawned..."
-		if h.controlPanelURL != "" {
-			msg += fmt.Sprintf("\nView progress: %s/minions/%s", h.controlPanelURL, resp.ID)
-		}
-		_, sendErr := s.ChannelMessageSendReply(m.ChannelID, msg, m.Reference())
-		if sendErr != nil {
-			h.logger.Error("failed to send ready notification", "error", sendErr)
+		if err := h.orchestrator.SetClarification(ctx, run.ID, orchestrator.SetClarificationRequest{
+			Question: *run.Question, DiscordMessageID: question.ID,
+		}); err != nil {
+			h.logger.Warn("could not bind workflow question", "run", run.ID, "error", err)
 		}
 		return
 	}
-
-	// Task needs clarification - ask question first, then create minion in awaiting_clarification.
-	clarificationMsg, sendErr := s.ChannelMessageSendReply(
-		m.ChannelID,
-		"❓ "+result.Question+"\n\n*Reply to this message with your answer.*",
-		m.Reference(),
-	)
-	if sendErr != nil {
-		h.logger.Error("failed to send clarification question",
-			"error", sendErr,
-			"repo", cmd.Repo,
-		)
-		msg := "❌ Failed to ask clarification question. Please try again."
-		_, _ = s.ChannelMessageSendReply(m.ChannelID, msg, m.Reference())
-		return
+	message := "Run " + run.ID + ": " + strings.ReplaceAll(run.Status, "_", " ") + "."
+	if h.controlPanelURL != "" {
+		message += "\n" + h.controlPanelURL + "/minions/" + run.ID
 	}
-
-	// Create timeout context for minion creation with clarification
-	clarifyCtx, clarifyCancel := context.WithTimeout(context.Background(), OperationTimeout)
-	defer clarifyCancel()
-
-	resp, createErr := h.orchestrator.CreateMinion(clarifyCtx, orchestrator.CreateMinionRequest{
-		Repo:                   cmd.Repo,
-		Task:                   cmd.Task,
-		Model:                  cmd.Model,
-		InitialStatus:          "awaiting_clarification",
-		ClarificationQuestion:  result.Question,
-		ClarificationMessageID: clarificationMsg.ID,
-		DiscordMessageID:       m.ID,
-		DiscordChannelID:       m.ChannelID,
-		DiscordUserID:          m.Author.ID,
-		DiscordUsername:        m.Author.Username,
-	})
-	if createErr != nil {
-		_ = s.ChannelMessageDelete(m.ChannelID, clarificationMsg.ID)
-		h.handleOrchestratorError(s, m, createErr)
-		return
-	}
-
-	if resp.Duplicate {
-		// Clean up question we just posted; existing minion already handles this task.
-		_ = s.ChannelMessageDelete(m.ChannelID, clarificationMsg.ID)
-		h.logger.Info("duplicate minion detected during clarification",
-			"minion_id", resp.ID,
-			"repo", cmd.Repo,
-		)
-		msg := "⚠️ A minion is already working on this task. Check the existing one!"
-		_, sendErr := s.ChannelMessageSendReply(m.ChannelID, msg, m.Reference())
-		if sendErr != nil {
-			h.logger.Error("failed to send duplicate reply", "error", sendErr)
-		}
-		return
-	}
-
-	h.logger.Info("clarification question posted and minion created",
-		"minion_id", resp.ID,
-		"repo", cmd.Repo,
-		"clarification_message_id", clarificationMsg.ID,
-	)
+	_, _ = s.ChannelMessageSendReply(m.ChannelID, message, m.Reference())
 }
 
 // handleParseError sends an error message to Discord for parse failures
@@ -433,6 +366,10 @@ func (h *MessageHandler) HandleReply(s *discordgo.Session, m *discordgo.MessageC
 	}
 
 	// Set the clarification answer and transition minion back to pending
+	if minion.WorkflowRound > 0 {
+		h.handleWorkflowReply(ctx, s, m, minion, answer)
+		return
+	}
 	err = h.orchestrator.SetClarificationAnswer(ctx, minion.ID, answer)
 	if err != nil {
 		if errors.Is(err, orchestrator.ErrClarificationNotFound) {
@@ -464,6 +401,59 @@ func (h *MessageHandler) HandleReply(s *discordgo.Session, m *discordgo.MessageC
 	if sendErr != nil {
 		h.logger.Error("failed to send confirmation", "error", sendErr)
 	}
+}
+
+// handleWorkflowReply rechecks the task before the runner can start a pod.
+func (h *MessageHandler) handleWorkflowReply(ctx context.Context, s *discordgo.Session, m *discordgo.MessageCreate, minion *orchestrator.MinionByClarificationResponse, answer string) {
+	if minion.DiscordChannelID == nil || *minion.DiscordChannelID != m.ChannelID {
+		return
+	}
+	task := minion.Task
+	if minion.ClarificationAnswer != nil {
+		task += "\n\nPrevious requester clarification:\n" + *minion.ClarificationAnswer
+	}
+	if minion.ClarificationQuestion != nil {
+		task += "\n\nQuestion asked:\n" + *minion.ClarificationQuestion
+	}
+	task += "\n\nRequester reply:\n" + answer
+	result, err := h.clarification.EvaluateWithRetry(ctx, minion.Repo, task)
+	if err != nil {
+		_, _ = s.ChannelMessageSendReply(m.ChannelID, "Could not check the answer. Reply again to retry.", m.Reference())
+		return
+	}
+	req := orchestrator.SetClarificationAnswerRequest{
+		Answer: answer, Author: m.Author.ID, Channel: m.ChannelID, Expected: m.MessageReference.MessageID,
+	}
+	if !result.Ready {
+		if minion.WorkflowRound >= 2 {
+			_, _ = s.ChannelMessageSendReply(m.ChannelID, "The task is still unclear. Please submit a new request with the missing details.", m.Reference())
+			return
+		}
+		question, err := sendWorkflowQuestion(s, m, "One follow-up:\n"+result.Question+"\n\nReply to this message.")
+		if err != nil {
+			return
+		}
+		req.Question, req.Message = result.Question, question.ID
+	}
+	if err := h.orchestrator.ApplyClarificationReply(ctx, minion.ID, req); err != nil {
+		if req.Message != "" {
+			_ = s.ChannelMessageDelete(m.ChannelID, req.Message)
+		}
+		_, _ = s.ChannelMessageSendReply(m.ChannelID, "Could not save this reply. Check that it answers the current question.", m.Reference())
+		return
+	}
+	if result.Ready {
+		_, _ = s.ChannelMessageSendReply(m.ChannelID, "The clarified task is queued.", m.Reference())
+	}
+}
+
+// sendWorkflowQuestion keeps model output from mentioning Discord users or roles.
+func sendWorkflowQuestion(s *discordgo.Session, message *discordgo.MessageCreate, text string) (*discordgo.Message, error) {
+	return s.ChannelMessageSendComplex(message.ChannelID, &discordgo.MessageSend{
+		Content: text, Reference: message.Reference(), AllowedMentions: &discordgo.MessageAllowedMentions{
+			Parse: []discordgo.AllowedMentionType{},
+		},
+	})
 }
 
 // isCommandAllowed checks optional guild/role restrictions for command execution.

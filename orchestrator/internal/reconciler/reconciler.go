@@ -100,6 +100,9 @@ func (r *Reconciler) Run(ctx context.Context) (*Result, error) {
 		expectedPodName := "minion-" + minionIDStr
 
 		pod, hasPod := podByName[expectedPodName]
+		if minion.Status == db.StatusPending && !hasPod {
+			continue
+		}
 
 		// Orphan conditions:
 		// 1. No pod exists for this minion

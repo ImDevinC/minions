@@ -2,6 +2,7 @@
 package api
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -26,39 +27,42 @@ type SSEDisconnector interface {
 
 // MinionHandler handles minion-related HTTP endpoints.
 type MinionHandler struct {
-	users         *db.UserStore
-	minions       *db.MinionStore
-	events        *db.EventStore
-	podTerminator k8s.PodTerminator
-	notifier      webhook.Notifier
-	sse           SSEDisconnector
-	defaultModel  string
-	logger        *slog.Logger
+	users                *db.UserStore
+	minions              *db.MinionStore
+	events               *db.EventStore
+	podTerminator        k8s.PodTerminator
+	notifier             webhook.Notifier
+	sse                  SSEDisconnector
+	defaultModel         string
+	workflowDiscordToken string
+	logger               *slog.Logger
 }
 
 // MinionHandlerConfig holds dependencies for MinionHandler.
 type MinionHandlerConfig struct {
-	Users         *db.UserStore
-	Minions       *db.MinionStore
-	Events        *db.EventStore
-	PodTerminator k8s.PodTerminator
-	Notifier      webhook.Notifier
-	SSE           SSEDisconnector
-	DefaultModel  string
-	Logger        *slog.Logger
+	Users                *db.UserStore
+	Minions              *db.MinionStore
+	Events               *db.EventStore
+	PodTerminator        k8s.PodTerminator
+	Notifier             webhook.Notifier
+	SSE                  SSEDisconnector
+	DefaultModel         string
+	WorkflowDiscordToken string
+	Logger               *slog.Logger
 }
 
 // NewMinionHandler creates a new MinionHandler.
 func NewMinionHandler(cfg MinionHandlerConfig) *MinionHandler {
 	return &MinionHandler{
-		users:         cfg.Users,
-		minions:       cfg.Minions,
-		events:        cfg.Events,
-		podTerminator: cfg.PodTerminator,
-		notifier:      cfg.Notifier,
-		sse:           cfg.SSE,
-		defaultModel:  cfg.DefaultModel,
-		logger:        cfg.Logger,
+		users:                cfg.Users,
+		minions:              cfg.Minions,
+		events:               cfg.Events,
+		podTerminator:        cfg.PodTerminator,
+		notifier:             cfg.Notifier,
+		sse:                  cfg.SSE,
+		defaultModel:         cfg.DefaultModel,
+		workflowDiscordToken: cfg.WorkflowDiscordToken,
+		logger:               cfg.Logger,
 	}
 }
 
@@ -89,12 +93,14 @@ type CreateMinionRequest struct {
 
 // CreateMinionResponse is the response body for POST /api/minions.
 type CreateMinionResponse struct {
-	ID        string `json:"id"`
-	Status    string `json:"status"`
-	Repo      string `json:"repo"`
-	Task      string `json:"task"`
-	CreatedAt string `json:"created_at"`
-	Duplicate bool   `json:"duplicate,omitempty"` // true if returning existing minion
+	Question   *string `json:"clarification_question,omitempty"`
+	QuestionID *string `json:"clarification_message_id,omitempty"`
+	ID         string  `json:"id"`
+	Status     string  `json:"status"`
+	Repo       string  `json:"repo"`
+	Task       string  `json:"task"`
+	CreatedAt  string  `json:"created_at"`
+	Duplicate  bool    `json:"duplicate,omitempty"` // true if returning existing minion
 }
 
 // ErrorResponse is a standard error response.
@@ -175,6 +181,17 @@ func (h *MinionHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusBadRequest, "invalid repo format: expected owner/repo", "INVALID_REPO")
 		return
 	}
+	staged := !(platform == db.PlatformGitHub && req.Branch != "" && req.SourcePRURL != "" && req.GitHubCommentID != "")
+	if staged {
+		if strings.Count(req.Repo, "/") != 1 || req.Branch != "" || req.SourcePRURL != "" {
+			h.writeError(w, http.StatusBadRequest, "new tasks require a GitHub owner/repository and use its default branch", "INVALID_WORKFLOW_TARGET")
+			return
+		}
+		if platform == db.PlatformDiscord && !h.workflowDiscordAuthorized(r) {
+			h.writeError(w, http.StatusForbidden, "workflow requires the authorized Discord adapter", "WORKFLOW_ACCESS_DENIED")
+			return
+		}
+	}
 
 	// Validate and map initial status
 	initialStatus := db.StatusPending
@@ -192,6 +209,11 @@ func (h *MinionHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 
 	if initialStatus == db.StatusAwaitingClarification && req.ClarificationQuestion == "" {
 		h.writeError(w, http.StatusBadRequest, "clarification_question is required when initial_status is awaiting_clarification", "MISSING_QUESTION")
+		return
+	}
+	if staged && platform == db.PlatformDiscord && initialStatus == db.StatusAwaitingClarification &&
+		(req.DiscordMessageID == "" || req.DiscordChannelID == "" || len(req.ClarificationQuestion) > 1500) {
+		h.writeError(w, http.StatusBadRequest, "workflow clarification requires a Discord message, channel, and a short question", "INVALID_CLARIFICATION")
 		return
 	}
 
@@ -235,28 +257,9 @@ func (h *MinionHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Check rate limits
-	rateInfo, err := h.minions.GetRateLimitInfo(r.Context(), user.ID)
-	if err != nil {
-		h.logger.Error("failed to get rate limit info", "error", err, "user_id", user.ID)
-		h.writeError(w, http.StatusInternalServerError, "internal server error", "")
-		return
-	}
-
-	if rateInfo.HourlyCount >= db.MaxMinionsPerHour {
-		h.logger.Warn("rate limit exceeded", "user_id", user.ID, "hourly_count", rateInfo.HourlyCount)
-		h.writeError(w, http.StatusTooManyRequests, "rate limit exceeded: maximum 10 minions per hour", "RATE_LIMIT_EXCEEDED")
-		return
-	}
-
-	if rateInfo.ConcurrentCount >= db.MaxConcurrentMinions {
-		h.logger.Warn("concurrent limit exceeded", "user_id", user.ID, "concurrent_count", rateInfo.ConcurrentCount)
-		h.writeError(w, http.StatusTooManyRequests, "concurrent limit exceeded: maximum 3 pending/running minions", "CONCURRENT_LIMIT_EXCEEDED")
-		return
-	}
-
 	// Create minion (with duplicate detection)
 	result, err := h.minions.CreateOrFindDuplicate(r.Context(), db.CreateMinionParams{
+		Pilot:                      staged,
 		UserID:                     user.ID,
 		Repo:                       req.Repo,
 		Task:                       req.Task,
@@ -275,6 +278,14 @@ func (h *MinionHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 		GitHubCommentID:            req.GitHubCommentID,
 	})
 	if err != nil {
+		switch {
+		case errors.Is(err, db.ErrRateLimitExceeded):
+			h.writeError(w, http.StatusTooManyRequests, "rate limit exceeded: maximum 10 minions per hour", "RATE_LIMIT_EXCEEDED")
+			return
+		case errors.Is(err, db.ErrConcurrentLimitExceeded):
+			h.writeError(w, http.StatusTooManyRequests, "concurrent limit exceeded: maximum 3 pending/running minions", "CONCURRENT_LIMIT_EXCEEDED")
+			return
+		}
 		h.logger.Error("failed to create minion", "error", err, "user_id", user.ID)
 		h.writeError(w, http.StatusInternalServerError, "internal server error", "")
 		return
@@ -298,12 +309,14 @@ func (h *MinionHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := CreateMinionResponse{
-		ID:        minion.ID.String(),
-		Status:    string(minion.Status),
-		Repo:      minion.Repo,
-		Task:      minion.Task,
-		CreatedAt: minion.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-		Duplicate: result.WasDuplicate,
+		Question:   minion.ClarificationQuestion,
+		QuestionID: minion.ClarificationMessageID,
+		ID:         minion.ID.String(),
+		Status:     string(minion.Status),
+		Repo:       minion.Repo,
+		Task:       minion.Task,
+		CreatedAt:  minion.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		Duplicate:  result.WasDuplicate,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -462,6 +475,8 @@ type GetMinionResponse struct {
 	CompletedAt            *string        `json:"completed_at,omitempty"`
 	LastActivityAt         string         `json:"last_activity_at"`
 	Events                 []EventSummary `json:"events"`
+	WorkflowStep           string         `json:"workflow_step,omitempty"`
+	Verification           string         `json:"verification,omitempty"`
 }
 
 // EventSummary is a single event in the minion detail response.
@@ -529,6 +544,12 @@ func (h *MinionHandler) HandleGet(w http.ResponseWriter, r *http.Request) {
 		CreatedAt:              minion.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 		LastActivityAt:         minion.LastActivityAt.Format("2006-01-02T15:04:05Z07:00"),
 		Events:                 make([]EventSummary, len(events)),
+	}
+	resp.WorkflowStep, resp.Verification, err = h.minions.PilotProgress(r.Context(), id)
+	if err != nil {
+		h.logger.Error("failed to read workflow progress", "error", err, "minion_id", id)
+		h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+		return
 	}
 
 	if minion.StartedAt != nil {
@@ -835,7 +856,12 @@ type ClarificationRequest struct {
 
 // ClarificationAnswerRequest is the request body for PATCH /api/minions/{id}/clarification-answer.
 type ClarificationAnswerRequest struct {
-	Answer string `json:"answer"`
+	Answer   string `json:"answer"`
+	Author   string `json:"author,omitempty"`
+	Channel  string `json:"channel,omitempty"`
+	Expected string `json:"expected,omitempty"`
+	Question string `json:"question,omitempty"`
+	Message  string `json:"message,omitempty"`
 }
 
 // ClarificationResponse is the response body for PATCH /api/minions/{id}/clarification.
@@ -869,12 +895,18 @@ func (h *MinionHandler) HandleClarification(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Set clarification state
-	err = h.minions.SetClarification(r.Context(), db.SetClarificationParams{
-		ID:                     id,
-		Question:               req.Question,
-		ClarificationMessageID: req.DiscordMessageID,
-	})
+	round, err := h.minions.PilotRound(r.Context(), id)
+	if err == nil && round > 0 {
+		if !h.workflowDiscordAuthorized(r) {
+			h.writeError(w, http.StatusForbidden, "workflow question requires the authorized Discord adapter", "WORKFLOW_ACCESS_DENIED")
+			return
+		}
+		err = h.minions.BindPilotQuestion(r.Context(), id, req.Question, req.DiscordMessageID)
+	} else if err == nil {
+		err = h.minions.SetClarification(r.Context(), db.SetClarificationParams{
+			ID: id, Question: req.Question, ClarificationMessageID: req.DiscordMessageID,
+		})
+	}
 	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {
 			h.writeError(w, http.StatusNotFound, "minion not found", "NOT_FOUND")
@@ -926,10 +958,21 @@ func (h *MinionHandler) HandleClarificationAnswer(w http.ResponseWriter, r *http
 	}
 
 	// Set clarification answer
-	err = h.minions.SetClarificationAnswer(r.Context(), db.SetClarificationAnswerParams{
-		ID:     id,
-		Answer: req.Answer,
-	})
+	round, err := h.minions.PilotRound(r.Context(), id)
+	if err == nil && round > 0 && req.Author != "" {
+		if !h.workflowDiscordAuthorized(r) {
+			h.writeError(w, http.StatusForbidden, "workflow reply requires the authorized Discord adapter", "WORKFLOW_ACCESS_DENIED")
+			return
+		}
+		if len(req.Answer) > 8000 || len(req.Question) > 1500 || (req.Question == "") != (req.Message == "") {
+			h.writeError(w, http.StatusBadRequest, "invalid workflow clarification", "INVALID_CLARIFICATION")
+			return
+		}
+		err = h.minions.ApplyPilotReply(r.Context(), db.PilotReply{ID: id, Answer: req.Answer, Author: req.Author,
+			Channel: req.Channel, Expected: req.Expected, Question: req.Question, Message: req.Message})
+	} else if err == nil {
+		err = h.minions.SetClarificationAnswer(r.Context(), db.SetClarificationAnswerParams{ID: id, Answer: req.Answer})
+	}
 	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {
 			h.writeError(w, http.StatusNotFound, "minion not found", "NOT_FOUND")
@@ -953,6 +996,11 @@ func (h *MinionHandler) HandleClarificationAnswer(w http.ResponseWriter, r *http
 	if err := json.NewEncoder(w).Encode(ClarificationResponse{Success: true}); err != nil {
 		h.logger.Error("failed to encode response", "error", err)
 	}
+}
+
+// workflowDiscordAuthorized checks the additional adapter token when configured.
+func (h *MinionHandler) workflowDiscordAuthorized(r *http.Request) bool {
+	return h.workflowDiscordToken == "" || subtle.ConstantTimeCompare([]byte(h.workflowDiscordToken), []byte(r.Header.Get("X-Minions-Workflow-Token"))) == 1
 }
 
 // GetEventsSinceResponse is the response body for GET /api/minions/{id}/events.
@@ -1074,6 +1122,18 @@ func (h *MinionHandler) HandleGetByClarificationMessageID(w http.ResponseWriter,
 	if minion.OwnerDiscordID != nil {
 		discordUserID = *minion.OwnerDiscordID
 	}
+	var round int
+	var clarificationAnswer *string
+	if h.workflowDiscordAuthorized(r) {
+		round, err = h.minions.PilotRound(r.Context(), minion.ID)
+		if err != nil {
+			h.writeError(w, http.StatusInternalServerError, "internal server error", "")
+			return
+		}
+		if round > 0 {
+			clarificationAnswer = minion.ClarificationAnswer
+		}
+	}
 
 	resp := struct {
 		ID                    string  `json:"id"`
@@ -1084,6 +1144,8 @@ func (h *MinionHandler) HandleGetByClarificationMessageID(w http.ResponseWriter,
 		ClarificationQuestion *string `json:"clarification_question,omitempty"`
 		DiscordChannelID      *string `json:"discord_channel_id,omitempty"`
 		DiscordUserID         string  `json:"discord_user_id"`
+		WorkflowRound         int     `json:"workflow_round,omitempty"`
+		ClarificationAnswer   *string `json:"clarification_answer,omitempty"`
 	}{
 		ID:                    minion.ID.String(),
 		Repo:                  minion.Repo,
@@ -1093,6 +1155,8 @@ func (h *MinionHandler) HandleGetByClarificationMessageID(w http.ResponseWriter,
 		ClarificationQuestion: minion.ClarificationQuestion,
 		DiscordChannelID:      minion.DiscordChannelID,
 		DiscordUserID:         discordUserID,
+		WorkflowRound:         round,
+		ClarificationAnswer:   clarificationAnswer,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

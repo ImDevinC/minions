@@ -49,6 +49,8 @@ export interface MinionDetail {
   started_at?: string;
   completed_at?: string;
   last_activity_at: string;
+  workflow_step?: string;
+  verification?: string;
   events: MinionEvent[];
 }
 

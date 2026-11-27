@@ -34,12 +34,14 @@ type CreateMinionRequest struct {
 
 // CreateMinionResponse is the response body for POST /api/minions.
 type CreateMinionResponse struct {
-	ID        string `json:"id"`
-	Status    string `json:"status"`
-	Repo      string `json:"repo"`
-	Task      string `json:"task"`
-	CreatedAt string `json:"created_at"`
-	Duplicate bool   `json:"duplicate,omitempty"`
+	Question   *string `json:"clarification_question,omitempty"`
+	QuestionID *string `json:"clarification_message_id,omitempty"`
+	ID         string  `json:"id"`
+	Status     string  `json:"status"`
+	Repo       string  `json:"repo"`
+	Task       string  `json:"task"`
+	CreatedAt  string  `json:"created_at"`
+	Duplicate  bool    `json:"duplicate,omitempty"`
 }
 
 // ErrorResponse is the standard error response from the orchestrator.
@@ -50,9 +52,10 @@ type ErrorResponse struct {
 
 // Client is an HTTP client for the orchestrator API.
 type Client struct {
-	baseURL    string
-	apiToken   string
-	httpClient *http.Client
+	WorkflowToken string
+	baseURL       string
+	apiToken      string
+	httpClient    *http.Client
 }
 
 // NewClient creates a new orchestrator client.
@@ -81,6 +84,7 @@ func (c *Client) CreateMinion(ctx context.Context, req CreateMinionRequest) (*Cr
 
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+c.apiToken)
+	httpReq.Header.Set("X-Minions-Workflow-Token", c.WorkflowToken)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -150,6 +154,7 @@ func (c *Client) SetClarification(ctx context.Context, minionID string, req SetC
 
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+c.apiToken)
+	httpReq.Header.Set("X-Minions-Workflow-Token", c.WorkflowToken)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -224,6 +229,8 @@ var ErrClarificationNotFound = errors.New("no minion found for clarification mes
 
 // MinionByClarificationResponse is the response from GET /api/minions/by-clarification/{messageId}.
 type MinionByClarificationResponse struct {
+	WorkflowRound         int     `json:"workflow_round,omitempty"`
+	ClarificationAnswer   *string `json:"clarification_answer,omitempty"`
 	ID                    string  `json:"id"`
 	Repo                  string  `json:"repo"`
 	Task                  string  `json:"task"`
@@ -244,6 +251,7 @@ func (c *Client) GetByClarificationMessageID(ctx context.Context, messageID stri
 	}
 
 	httpReq.Header.Set("Authorization", "Bearer "+c.apiToken)
+	httpReq.Header.Set("X-Minions-Workflow-Token", c.WorkflowToken)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -278,14 +286,22 @@ func (c *Client) GetByClarificationMessageID(ctx context.Context, messageID stri
 
 // SetClarificationAnswerRequest is the request body for PATCH /api/minions/{id}/clarification-answer.
 type SetClarificationAnswerRequest struct {
-	Answer string `json:"answer"`
+	Answer   string `json:"answer"`
+	Author   string `json:"author,omitempty"`
+	Channel  string `json:"channel,omitempty"`
+	Expected string `json:"expected,omitempty"`
+	Question string `json:"question,omitempty"`
+	Message  string `json:"message,omitempty"`
 }
 
 // SetClarificationAnswer sets the user's answer and transitions the minion to pending.
 // After this call, the orchestrator will spawn the pod with the updated task.
 func (c *Client) SetClarificationAnswer(ctx context.Context, minionID string, answer string) error {
-	req := SetClarificationAnswerRequest{Answer: answer}
+	return c.ApplyClarificationReply(ctx, minionID, SetClarificationAnswerRequest{Answer: answer})
+}
 
+// ApplyClarificationReply updates the active question or marks the run ready.
+func (c *Client) ApplyClarificationReply(ctx context.Context, minionID string, req SetClarificationAnswerRequest) error {
 	body, err := json.Marshal(req)
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)
@@ -299,6 +315,7 @@ func (c *Client) SetClarificationAnswer(ctx context.Context, minionID string, an
 
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+c.apiToken)
+	httpReq.Header.Set("X-Minions-Workflow-Token", c.WorkflowToken)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {

@@ -61,11 +61,14 @@ docker run -d --name minions-db \
 
 # Run migrations
 for f in schema/migrations/*.sql; do
-  psql "postgres://minions:minions@localhost:5432/minions" -f "$f"
+  [[ "$f" == *_down.sql ]] && continue
+  psql "postgres://minions:minions@localhost:5432/minions" -v ON_ERROR_STOP=1 -f "$f" || break
 done
 ```
 
 ### 2. Orchestrator
+
+New tasks use the [default staged workflow](docs/setup/staged-workflow.md). It opens a draft PR after local verification passes.
 
 ```bash
 cd orchestrator
